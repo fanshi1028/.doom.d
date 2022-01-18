@@ -620,6 +620,8 @@
 * Pdf-view
 #+begin_src emacs-lisp :tangle yes
 (after! pdf-view
+  (setq! pdf-tools-installer-os "nixos")
+  (pdf-tools-install)
   (setq! pdf-view-midnight-colors '("#ABB2BF" . "#282C35"))
   (add-hook! pdf-tools-enabled #'pdf-view-midnight-minor-mode)
   ;; (add-hook! pdf-tools-enabled #'hide-mode-line-mode)
