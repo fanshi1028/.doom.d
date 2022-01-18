@@ -118,11 +118,7 @@
 ;; TEMP FIXME
 (setq ob-async-no-async-languages-alist '("typescript"))
 
-(use-package! lsp-haskell
-  :after lsp-mode
-  :preface (add-hook 'haskell-mode-local-vars-hook #'lsp!)
-  (setq! lsp-haskell-server-path "haskell-language-server")
-  )
+(after! lsp-haskell (setq! lsp-haskell-server-path "haskell-language-server"))
 
 (setq-hook! haskell-mode +format-with-lsp t)
 
@@ -517,13 +513,14 @@
                 (add-hook 'pre-command-hook 'keycast-mode-line-update t) (remove-hook 'pre-command-hook 'keycast-mode-line-update)))
   (add-to-list 'global-mode-string '("" mode-line-keycast))
   )
+
 ;; (use-package! calfw)
 
-(use-package! pdf-view
-  :hook (pdf-tools-enabled . pdf-view-midnight-minor-mode)
-  ;; :hook (pdf-tools-enabled . hide-mode-line-mode)
-  :config
-  (setq pdf-view-midnight-colors '("#ABB2BF" . "#282C35")))
+(after! pdf-view
+  (setq! pdf-view-midnight-colors '("#ABB2BF" . "#282C35"))
+  (add-hook! pdf-tools-enabled #'pdf-view-midnight-minor-mode)
+  ;; (add-hook! pdf-tools-enabled #'hide-mode-line-mode)
+  )
 
 ;; jest
 (use-package! jest :hook (js2-mode . jest-minor-mode))
