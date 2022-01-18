@@ -1,10 +1,17 @@
+#+begin_src emacs-lisp :tangle yes
 ;; -*- lexical-binding: t -*-
+#+end_src
 
+* Who am I?
+#+begin_src emacs-lisp :tangle yes
 ;; Some functionality uses this to identify you, e.g. GPG configuration, email
 ;; clients, file templates and snippets.
 (setq user-full-name "Francis Chan"
       user-mail-address "jackychany321@gmail.com")
+#+end_src
 
+* Font
+#+begin_src emacs-lisp :tangle yes
 ;; Doom exposes five (optional) variables for controlling fonts in Doom. Here
 ;; are the three important ones:
 ;;
@@ -22,16 +29,25 @@
       doom-big-font nil
       ;; doom-big-font nil
       )
+#+end_src
 
+* Theme
+#+begin_src emacs-lisp :tangle yes
 ;; There are two ways to load a theme. Both assume the theme is installed and
 ;; available. You can either set `doom-theme' or manually load a theme with the
 ;; `load-theme' function. This is the default:
 (setq doom-theme 'doom-nord)
+#+end_src
 
+* Org directory
+#+begin_src emacs-lisp :tangle yes
 ;; If you use `org' and don't want your org files in the default location below,
 ;; change `org-directory'. It must be set before org loads!
 (setq org-directory "~/org/")
+#+end_src
 
+* Misc effects
+#+begin_src emacs-lisp :tangle yes
 ;; This determines the style of line numbers in effect. If set to `nil', line
 ;; numbers are disabled. For relative line numbers, set this to `relative'.
 (setq display-line-numbers-type t)
@@ -51,14 +67,27 @@
 (setq! enable-local-variables t)
 
 (setq! scroll-lock-mode t)
+#+end_src
 
+* Org scratch buffer
+#+begin_src emacs-lisp :tangle yes
 ;; scratch buffer default `org-mode'
 (setq! doom-scratch-initial-major-mode 'org-mode)
+#+end_src
 
+* Vterm use fish
+#+begin_src emacs-lisp :tangle yes
 (after! vterm (setq! vterm-shell "~/.nix-profile/bin/fish"))
+#+end_src
 
+* Auto format modes
+#+begin_src emacs-lisp :tangle yes
 (setq! +format-on-save-enabled-modes '(haskell-mode nix-mode))
+#+end_src
 
+* Org babel
+** Typescript
+#+begin_src emacs-lisp :tangle yes
 ;; NOTE: https://www.reddit.com/r/emacs/comments/b7rsxu/behold_orgbabelexecutetypescript/
 (defun org-babel-execute:typescript (body params)
   "babel execute typescript"
@@ -83,7 +112,10 @@
 ;; maybe related? https://github.com/hlissner/doom-emacs/issues/2198
 ;; TEMP FIXME
 (setq ob-async-no-async-languages-alist '("typescript"))
+#+end_src
 
+** Org special edit's lsp support
+#+begin_src emacs-lisp :tangle yes
 ;; NOTE: https://github.com/emacs-lsp/lsp-mode/issues/2842#issuecomment-870807018
 (defmacro fanshi/org-babel-edit-lsp-prep (lang ext)
   `(defun ,(intern (concat "org-babel-edit-prep:" lang))  (babel-info)
@@ -112,18 +144,28 @@
                                                    (babel-lsp-lang (assoc lang fanshi/org-babel-edit-lsp-langs)))
                                              (progn (apply f args) (evil-window-delete))
                                            (apply f args))))
+#+end_src
 
+* Haskell
+** Template
+#+begin_src emacs-lisp :tangle yes
 (after! haskell-mode
   (setq! haskell-auto-insert-module-format-string
          (concat haskell-auto-insert-module-format-string
                  "main :: IO ()\n"
                  "main = do\n"
                  "  putText \"Surprise Motherfucker!\"")))
+#+end_src
 
+** Lsp
+#+begin_src emacs-lisp :tangle yes
 (after! lsp-haskell (setq! lsp-haskell-server-path "haskell-language-server"))
 
 (setq-hook! haskell-mode +format-with-lsp t)
+#+end_src
 
+* Elfeed
+#+begin_src emacs-lisp :tangle yes
 (after! elfeed
   (setq! elfeed-feeds
          '(("http://feeds.feedburner.com/incodeblog" blog haskell)
@@ -148,7 +190,10 @@
            ;; ("https://www.reddit.com/r/hongkong/top/.rss?t=week" top hongkong reddit)
            )
          elfeed-search-filter "+unread @1-month-ago"))
+#+end_src
 
+* Org
+#+begin_src emacs-lisp :tangle yes
 (after! org
   (setq! org-hide-emphasis-markers t)
   ;; https://explog.in/notes/writingsetup.html
@@ -245,10 +290,16 @@
   (setq! org-trigger-hook 'fanshi/org-todo-trigger)
   ;; (setq! org-refile-allow-creating-parent-nodes "confirm")
   )
+#+end_src
 
+** Roam
+#+begin_src emacs-lisp :tangle yes
 (setq! fanshi/org-roam-directory "~/org/roam/")
 (after! org-roam (setq! org-roam-directory fanshi/org-roam-directory))
+#+end_src
 
+*** Journal
+#+begin_src emacs-lisp :tangle yes
 ;; (after! org-journal
 ;;   (setq! org-journal-dir (concat fanshi/org-roam-directory "journal/"))
 ;;   (setq! org-journal-enable-agenda-integration t)
@@ -276,7 +327,10 @@
 ;;     ;; Position point on the journal's top-level heading so that org-capture
 ;;     ;; will add the new entry as a child entry.
 ;;     (goto-char (point-min))))
+#+end_src
 
+*** Bibitex
+#+begin_src emacs-lisp :tangle yes
 ;; (use-package! org-roam-bibtex
 ;;   :after (org-roam)
 ;;   :hook (org-roam-mode . org-roam-bibtex-mode)
@@ -300,7 +354,10 @@
 ;;                    "  :NOTER_PAGE: \n"
 ;;                    "  :END:\n")
 ;;            :unnarrowed t))))
+#+end_src
 
+**** Completion
+#+begin_src emacs-lisp :tangle yes
 ;; (use-package! bibtex-completion
 ;;   :defer t
 ;;   :config
@@ -323,12 +380,17 @@
 ;;          ":URL: ${url}\n"
 ;;          ":END:\n\n"
 ;;          )))
+#+end_src
 
+**** Citeproc
+#+begin_src emacs-lisp :tangle yes
 ;; (use-package! citeproc-org
 ;;   :after org
 ;;   :config
 ;;   (citeproc-org-setup))
-
+#+end_src
+** Noter
+#+begin_src emacs-lisp :tangle yes
 ;; (after! org-noter
 ;;   (defun fanshi/noter-capture-note ()
 ;;     (interactive)
@@ -338,7 +400,10 @@
 ;;     )
 ;;   (setq! org-noter-notes-search-path (list (concat fanshi/org-roam-directory "notes/"))
 ;;          org-noter-doc-split-fraction '(0.57 0.43)))
+#+end_src
 
+** Agenda
+#+begin_src emacs-lisp :tangle yes
 (after! org-agenda
   ;;  for clock
   (setq!
@@ -376,7 +441,11 @@
                                                        (make-string (window-width) 9472)
                                                        "\n"
                                                        (org-agenda-format-date-aligned date)))))
+#+end_src
 
+*** Super!
+- org-super-agenda
+#+begin_src emacs-lisp :tangle yes
 (setq! fanshi/private-agenda
        '((:name "Clocked Today 📰📰📰" :log t)
          (:name "Calendar 📅📅📅" :time-grid t :and (:scheduled today :not (:habit t) ))
@@ -450,33 +519,67 @@
                                                     (org-super-agenda-groups fanshi/private-alltodo)))))))
   :config
   (org-super-agenda-mode))
+#+end_src
 
+** Web tool
+#+begin_src emacs-lisp :tangle yes
 (use-package! org-web-tools
   :commands (org-web-tools--org-link-for-url)
   ;; :after-call org-capture
   )
+#+end_src
 
+* Langtool
+- set up langtool path
+#+begin_src emacs-lisp :tangle yes
 (after! langtool (setq! langtool-bin "languagetool-commandline"))
+#+end_src
 
+* Plantuml
+- set up plantuml-mode
+#+begin_src emacs-lisp :tangle yes
 (after! plantuml-mode (setq! plantuml-default-exec-mode 'executable))
+#+end_src
 
+* hl-todo
+#+begin_src emacs-lisp :tangle yes
 ;; TEMP keywords
 (after! hl-todo (pushnew! hl-todo-keyword-faces '("TEMP" 'warning 'bold)))
+#+end_src
 
+* Dired
+** Narrow
+#+begin_src emacs-lisp :tangle yes
 (use-package! dired-narrow
   :commands (dired-narrow-fuzzy)
   :init
   (map! :map dired-mode-map :n "/" #'dired-narrow-fuzzy))
+#+end_src
 
+** Bug temp fix
+- why :: ls does not support --dired; see ‘dired-use-ls-dired’ for more details.
+- ref :: https://stackoverflow.com/questions/25125200/emacs-error-ls-does-not-support-dired
+#+begin_src emacs-lisp :tangle yes
 (after! dired (setq dired-use-ls-dired nil))
+#+end_src
 
+* Python
+** Lpy
+#+begin_src emacs-lisp :tangle yes
 (use-package! lpy
   :hook (python-mode . lpy-mode)
   :init (setq lispy-override-python-binary "python"))
+#+end_src
 
+* Lisp
+** Lispy
+#+begin_src emacs-lisp :tangle yes
 (use-package! lispy
   :init (setq lispy-compat '(edebug cider)))
+#+end_src
 
+* Gif screencast
+#+begin_src emacs-lisp :tangle yes
 (use-package! gif-screencast
   :commands (gif-screencast-start-or-stop)
   :init (setq gif-screencast-args '("-x")
@@ -484,11 +587,20 @@
               gif-screencast-cropping-program "" ;; NOTE diable cropping, seems its only crop part of the emacs screen fro some reason
               )
   :bind ("<f12>" . gif-screencast-start-or-stop))
+#+end_src
 
+* Nov mode
+#+begin_src emacs-lisp :tangle yes
 (use-package! nov :mode ("\\.\\(epub\\|mobi\\)\\'" . nov-mode))
+#+end_src
 
+* Music Player
+#+begin_src emacs-lisp :tangle yes
 ;; (use-package! vuiet :defer)
+#+end_src
 
+* Keycast
+#+begin_src emacs-lisp :tangle yes
 (use-package! keycast
   :defer
   :config (define-minor-mode keycast-mode
@@ -498,20 +610,35 @@
                 (add-hook 'pre-command-hook 'keycast-mode-line-update t) (remove-hook 'pre-command-hook 'keycast-mode-line-update)))
   (add-to-list 'global-mode-string '("" mode-line-keycast))
   )
+#+end_src
 
+* Calendar
+#+begin_src emacs-lisp :tangle yes
 ;; (use-package! calfw)
+#+end_src
 
+* Pdf-view
+#+begin_src emacs-lisp :tangle yes
 (after! pdf-view
   (setq! pdf-view-midnight-colors '("#ABB2BF" . "#282C35"))
   (add-hook! pdf-tools-enabled #'pdf-view-midnight-minor-mode)
   ;; (add-hook! pdf-tools-enabled #'hide-mode-line-mode)
   )
+#+end_src
 
+* Jest
+#+begin_src emacs-lisp :tangle yes
 (use-package! jest :hook (js2-mode . jest-minor-mode))
+#+end_src
 
+* Scala
+#+begin_src emacs-lisp :tangle yes
 (push '("\\.sc\\'" . scala-mode) auto-mode-alist)
 (use-package! sbt-mode :disabled)
+#+end_src
 
+** ammonite-term-repl
+#+begin_src emacs-lisp :tangle yes
 (use-package! ammonite-term-repl
   :after scala-mode
   :config (progn
@@ -519,7 +646,10 @@
             (setq ammonite-term-repl-auto-detect-predef-file nil)
             ;; (setq ammonite-term-repl-program-args '("-s" "--no-default-predef"))
             (set-repl-handler! 'scala-mode #'run-ammonite :persist t)))
+#+end_src
 
+* Custom
+#+begin_src emacs-lisp :tangle yes
 ;; Here are some additional functions/macros that could help you configure Doom:
 ;;
 ;; - `load!' for loading external *.el files relative to this one
@@ -548,3 +678,4 @@
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  )
+#+end_src
