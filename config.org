@@ -159,10 +159,51 @@
 
 ** Lsp
 #+begin_src emacs-lisp :tangle yes
-(after! lsp-haskell (setq! lsp-haskell-server-path "haskell-language-server"))
-
-(setq-hook! haskell-mode +format-with-lsp t)
+(after! lsp-haskell
+  (setq! lsp-haskell-server-path "haskell-language-server")
+  (setq! lsp-haskell-floskell-on nil)
+  (setq! lsp-haskell-fourmolu-on nil)
+  (setq! lsp-haskell-brittany-on nil)
+  (setq! lsp-haskell-stylish-haskell-on nil)
+  (setq-hook! haskell-mode +format-with-lsp t))
 #+end_src
+
+* LSP
+** tweak file watchers
+*** don't watch nix materializtion and golden files for haskell
+#+begin_src emacs-lisp :tangle yes
+(after! lsp-mode
+  (setq! lsp-file-watch-ignored-directories
+         (append lsp-file-watch-ignored-directories '("[/\\\\]\\materialized\\'"
+                                                      ;; NOTE: we don't set up lsp for nix, so probably fine for now
+                                                      "[/\\\\]\\nix\\'"
+                                                      "[/\\\\]\\spec\\'"
+                                                      "[/\\\\]\\golden\\'"))))
+#+end_src
+
+*** don't watch gitignore
+- https://github.com/emacs-lsp/lsp-mode/issues/713#issuecomment-985653873
+#+begin_src emacs-lisp :tangle yes
+(after! lsp-mode
+  (defun ++git-ignore-p (path)
+    (let* (           ; trailing / breaks git check-ignore if path is a symlink:
+           (path (directory-file-name path))
+           (default-directory (file-name-directory path))
+           (relpath (file-name-nondirectory path))
+           (cmd (format "git check-ignore '%s'" relpath))
+           (status (call-process-shell-command cmd)))
+      (eq status 0)))
+
+  (defun ++lsp--path-is-watchable-directory-a
+      (fn path dir ignored-directories)
+    (and (not (++git-ignore-p (f-join dir path)))
+         (funcall fn path dir ignored-directories)))
+
+  (advice-add 'lsp--path-is-watchable-directory
+              :around #'++lsp--path-is-watchable-directory-a))
+#+end_src
+
+
 
 * Elfeed
 #+begin_src emacs-lisp :tangle yes
