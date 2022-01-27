@@ -181,9 +181,10 @@
                                                       "[/\\\\]\\golden\\'"))))
 #+end_src
 
-*** don't watch gitignore
+*** don't watch gitignore :No:
 - https://github.com/emacs-lsp/lsp-mode/issues/713#issuecomment-985653873
-#+begin_src emacs-lisp :tangle yes
+- edit :: seems bad for performance?
+#+begin_src emacs-lisp :tangle no
 (after! lsp-mode
   (defun ++git-ignore-p (path)
     (let* (           ; trailing / breaks git check-ignore if path is a symlink:
