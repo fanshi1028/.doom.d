@@ -20,7 +20,6 @@
 (setq doom-font (font-spec :family "Sarasa Fixed HC" :size 12 :weight 'light)
       doom-variable-pitch-font (font-spec :family "Sarasa Fixed HC" :size 13 :weight 'light)
       doom-big-font nil
-      ;; doom-big-font nil
       )
 
 ;; There are two ways to load a theme. Both assume the theme is installed and
@@ -59,7 +58,6 @@
 
 (setq! +format-on-save-enabled-modes '(haskell-mode nix-mode))
 
-;; NOTE: https://www.reddit.com/r/emacs/comments/b7rsxu/behold_orgbabelexecutetypescript/
 (defun org-babel-execute:typescript (body params)
   "babel execute typescript"
   (let* ((tmp-ts-file (org-babel-temp-file "scripts" ".ts"))
@@ -95,6 +93,7 @@
        ;; NOTE: when lookup doc using lsp, it use pop-up.
        ;; NOTE: when we kill the popped up look-up, whole edit session gone because it was a pop-up
        ;; NOTE: so change the window to non-pop up, and window it more convenient than pop than code editing too.
+       ;; FIXME: use set-popup-rule! ?
        (+popup/raise (selected-window)))
      ))
 
@@ -120,9 +119,22 @@
                  "main = do\n"
                  "  putText \"Surprise Motherfucker!\"")))
 
-(after! lsp-haskell (setq! lsp-haskell-server-path "haskell-language-server"))
+(after! lsp-haskell
+  (setq! lsp-haskell-server-path "haskell-language-server")
+  (setq! lsp-haskell-floskell-on nil)
+  (setq! lsp-haskell-fourmolu-on nil)
+  (setq! lsp-haskell-brittany-on nil)
+  (setq! lsp-haskell-stylish-haskell-on nil)
+  (setq-hook! haskell-mode +format-with-lsp t))
 
-(setq-hook! haskell-mode +format-with-lsp t)
+(after! lsp-mode
+  (setq! lsp-file-watch-ignored-directories
+         (append lsp-file-watch-ignored-directories '("[/\\\\]materialized\\'"
+                                                      ;; NOTE: we don't set up lsp for nix, so probably fine for now
+                                                      "[/\\\\]nix\\'"
+                                                      "[/\\\\]spec\\'"
+                                                      "[/\\\\]golden\\'"
+                                                      "[/\\\\]\\.postgres\\'"))))
 
 (after! elfeed
   (setq! elfeed-feeds
@@ -150,156 +162,91 @@
          elfeed-search-filter "+unread @1-month-ago"))
 
 (after! org
-  (setq! org-hide-emphasis-markers t)
-  ;; https://explog.in/notes/writingsetup.html
-  ;; (setq! org-adapt-indentation nil)
-  ;; (setq! org-indent-indentation-per-level 1)
+  (setq! org-archive-location "archive/%s_archive"
+         org-hide-emphasis-markers t
+         ;; https://explog.in/notes/writingsetup.html
+         ;; org-adapt-indentation nil
+         ;; org-indent-indentation-per-level 1
+         org-log-into-drawer t))
+
+(after! org
   (setq! org-todo-keywords '((sequence "TODO(t!)"
-                                       "WAIT(w@/!)"
+                                       "WAIT(w@)"
+                                       "HOLD(h@)"
+                                       "SOMEDAY(s)"
                                        "|"
                                        "DONE(d!)"
-                                       "CANCELED(k@)")
-                             (sequence "TOREAD(r!)"
-                                       "SCAN(!)"
-                                       "READING(!)"
-                                       "|"
-                                       "DONE(d!)"
-                                       "CANCELED(k@)")
+                                       "KILL(k@)")
                              (sequence "PROJ(p!)"
                                        "|"
                                        "DONE(d!)"
-                                       "CANCELED(k@)")
-                             (sequence "INBOX(i!)" "|" )
-                             (sequence "[ ](T!)" "[-](S!)" "[?](W@/!)" "|" "[X](D!)")
-                             ))
-  (setq! org-log-into-drawer t)
-  ;; remove doom's journal template
-  ;; (setq! org-capture-templates
-  ;;        (seq-filter (lambda (x) (not (or (string-match (car x) "j")  (string-match (car x) "n") (string-match (car x) "t")))) org-capture-templates))
+                                       "KILL(k@)")
+                             (sequence "[ ](T!)" "[-](S!)" "[?](W@/!)" "|" "[X](D!)")))
   (pushnew! org-todo-keyword-faces
             '("TOREAD" org-todo)
             '("SCAN" +org-todo-active)
             '("READING" +org-todo-active)
-            '("INBOX" org-todo)
-            )
+            '("INBOX" org-todo)))
 
-  (setq! org-capture-templates '(("i" "inbox" entry (file "inbox.org")
-                                  "* INBOX %^{heading}\n:PROPERTIES:\n:CREATED: %U\n:END:\n %i%?\n %a")
-                                 ("c" "start clock for")
-                                 ("ct" "sudden task with clock" entry (file+olp "projects.org" "fanshi" "Tasks")
-                                  "* TODO %^{Title}\n %i%?\n"
-                                  :clock-in t
-                                  :clock-keep t
-                                  :immediate-finish t
-                                  )
-                                 ("cl" "sudden reading with clock" entry (file+olp "projects.org" "fanshi" "Tasks")
-                                  "* READING %(org-web-tools--org-link-for-url)\n %i%?\n"
-                                  :clock-in t
-                                  :clock-keep t
-                                  :immediate-finish t
-                                  )
-                                 ;; ("c" "clock" entry (function org-journal-find-location)
-                                 ;;  "* %(format-time-string  org-journal-time-format) %^{Title}\n%a"
-                                 ;;  :clock-in t
-                                 ;;  :clock-keep t
-                                 ;;  :immediate-finish t
-                                 ;;  )
-                                 ;; TODO set up meeting cpature
-                                 ;; ("m" "meeting" entry (file "inbox.org")
-                                 ;;  "* MEETING with %^{who}\n:PROPERTIES:\n:CREATED: %U\n:END:\n %i%?\n %U")
-                                 ;; TODO set up email
-                                 ;; ("e" "email" entry (file+headline ,(concat org-directory "emails.org") "Emails")
-                                 ;;  "* TODO [#A] Reply: %a :@home:@school:" :immediate-finish t)
-                                 ("l" "link" entry (file "inbox.org")
-                                  "* INBOX %(org-web-tools--org-link-for-url)\n:PROPERTIES:\n:CREATED: %U\n:END:\n %a" :immediate-finish t)
-                                 ;; TODO set up org protocol
-                                 ;; ("c" "org-protocol-capture" entry (file ,(concat org-directory "inbox.org"))
-                                 ;;  "* TODO [[%:link][%:description]]\n\n %i" :immediate-finish t)
-                                 ;; NOTE Seems capture to journal is not right, every capture should go to inbox first, unless you are more then a capture, and hence not a capture
-                                 ;; ("j" "Journal" entry (function org-journal-find-location)
-                                 ;;  "* %(format-time-string  org-journal-time-format) %^{Title}\n%i%?\n%a")
-                                 ("p" "Templates for projects")
-                                 ("pt" "Project-local todo" entry
-                                  (file+headline +org-capture-project-todo-file "Tasks")
-                                  "* [] %?\n%i\n%a" :prepend t)
-                                 ("pn" "Project-local notes" entry
-                                  (file+headline +org-capture-project-notes-file "Notes")
-                                  "* %U %?\n%i\n%a" :prepend t)
-                                 ("pc" "Project-local changelog" entry
-                                  (file+headline +org-capture-project-changelog-file "Unreleased")
-                                  "* %U %?\n%i\n%a" :prepend t)
-                                 ("o" "Centralized templates for projects")
-                                 ("ot" "Project todo" entry #'+org-capture-central-project-todo-file "* TODO %?\n %i\n %a" :heading "Tasks" :prepend nil)
-                                 ("on" "Project notes" entry #'+org-capture-central-project-notes-file "* %U %?\n %i\n %a" :heading "Notes" :prepend t)
-                                 ("oc" "Project changelog" entry #'+org-capture-central-project-changelog-file "* %U %?\n %i\n %a" :heading "Changelog" :prepend t)
-                                 ))
+(after! org-capture
+  ;; remove unwanted default templates
+  (setq! org-capture-templates
+         (seq-filter
+          (lambda (x)
+            (and
+             (not (string= "t" (car x)))
+             (not (string= "j" (car x)))
+             (not (string= "n" (car x)))))
+          org-capture-templates))
+  ;; add my templates
+  (pushnew! org-capture-templates
+            ;; TODO set up org protocol
+            ;; ("c" "org-protocol-capture" entry (file ,(concat org-directory "inbox.org"))
+            ;;  "* TODO [[%:link][%:description]]\n\n %i" :immediate-finish t)
+            '("l" "link" entry (file "inbox.org")
+              "* INBOX %(org-web-tools--org-link-for-url)\n:PROPERTIES:\n:CREATED: %U\n:END:\n %a" :immediate-finish t)
+            ;; TODO set up email
+            ;; '("e" "email" entry (file+headline ,(concat org-directory "emails.org") "Emails")
+            ;;  "* TODO [#A] Reply: %a :@home:@school:" :immediate-finish t)
+            ;; TODO set up meeting cpature
+            ;; '("m" "meeting" entry (file "inbox.org")
+            ;;  "* MEETING with %^{who}\n:PROPERTIES:\n:CREATED: %U\n:END:\n %i%?\n %U")
+            ;; '("c" "clock" entry (function org-journal-find-location)
+            ;;  "* %(format-time-string  org-journal-time-format) %^{Title}\n%a"
+            ;;  :clock-in t
+            ;;  :clock-keep t
+            ;;  :immediate-finish t
+            ;;  )
+            '("cl" "sudden reading with clock" entry (file+olp "projects.org" "fanshi" "Tasks")
+              "* READING %(org-web-tools--org-link-for-url)\n %i%?\n"
+              :clock-in t :clock-keep t :immediate-finish t)
+            '("ct" "sudden task with clock" entry (file+olp "projects.org" "fanshi" "Tasks")
+              "* TODO %^{Title}\n %i%?\n"
+              :clock-in t :clock-keep t :immediate-finish t)
+            '("c" "start clock for")
+            '("i" "inbox" entry (file "inbox.org") "* INBOX %^{heading}\n:PROPERTIES:\n:CREATED: %U\n:END:\n %i%?\n %a")))
+
+(after! org
   (defun fanshi/org-todo-trigger (change-plist) ""
          (when (equal (plist-get change-plist :type) 'todo-state-change)
-           (when (equal (plist-get change-plist :from) "INBOX")
-             (if (equal (plist-get change-plist :to) "TOREAD")
-                 (let ((org-refile-targets '(("~/org/read.org" . (:level . 1))))) (org-refile))
-               (when (equal (plist-get change-plist :to) "TODO")
-                 (let ((org-refile-targets '(("~/org/projects.org" . (:level . 2))))) (org-refile))
-                 )))
-           ))
-  (setq! org-trigger-hook 'fanshi/org-todo-trigger)
-  ;; (setq! org-refile-allow-creating-parent-nodes "confirm")
-  )
+           (let ((org-refile-targets
+                  (pcase (plist-get change-plist :from)
+                    ("INBOX" (pcase (plist-get change-plist :to)
+                               ("TOREAD" '(("~/org/read.org" . (:level . 1))))
+                               ("TODO" '(("~/org/projects.org" . (:level . 2))))
+                               ("IDEA" '(("~/org/idea.org" . (:level . 1))))
+                               (x nil)))
+                    ("IDEA" (pcase (plist-get change-plist :to)
+                              ("TODO" '(("~/org/projects.org" . (:level . 2))))
+                              (x nil)))
+                    (x nil))))
+             (when org-refile-targets (org-refile))))))
+
+(after! org (setq! org-trigger-hook 'fanshi/org-todo-trigger))
+;; org-refile-allow-creating-parent-nodes "confirm"
 
 (setq! fanshi/org-roam-directory "~/org/roam/")
 (after! org-roam (setq! org-roam-directory fanshi/org-roam-directory))
-
-;; (after! org-journal
-;;   (setq! org-journal-dir (concat fanshi/org-roam-directory "journal/"))
-;;   (setq! org-journal-enable-agenda-integration t)
-
-;;   (setq! org-journal-carryover-items nil)
-
-;;   ;; NOTE no need auto close I think
-;;   ;; close after save hook
-;;   ;; (add-hook! org-journal-mode :append (add-hook! 'after-save-hook :local 'kill-buffer-and-window))
-
-;;   ;; highlight time string with org-date face
-;;   (font-lock-add-keywords 'org-journal-mode '(("\\(\\*\\)\\(\\*\\) .*\\([0-9]\\{2\\}:[0-9]\\{2\\}\\) \\(.+\\)"
-;;                                                (1 'org-hide t)
-;;                                                (2 'org-level-2 t)
-;;                                                (3 'org-date t)
-;;                                                (4 'org-level-2 t)
-;;                                                )))
-;;   ;; org capture
-
-;;   ;; helper function
-;;   (defun org-journal-find-location ()
-;;     ;; Open today's journal, but specify a non-nil prefix argument in order to
-;;     ;; inhibit inserting the heading; org-capture will insert the heading.
-;;     (org-journal-new-entry t)
-;;     ;; Position point on the journal's top-level heading so that org-capture
-;;     ;; will add the new entry as a child entry.
-;;     (goto-char (point-min))))
-
-;; (use-package! org-roam-bibtex
-;;   :after (org-roam)
-;;   :hook (org-roam-mode . org-roam-bibtex-mode)
-;;   :config
-;;   (setq orb-preformat-keywords
-;;         '("=key=" "title" "url" "file" "author-or-editor" "keywords"))
-;;   (setq orb-templates
-;;         `(("r" "ref" plain (function org-roam-capture--get-point)
-;;            ""
-;;            :file-name "lit/${slug}"
-;;            :head ,(concat
-;;                    "#+setupfile: ./hugo_setup.org\n"
-;;                    "#+title: ${=key=}: ${title}\n"
-;;                    "#+roam_key: ${ref}\n\n"
-;;                    "* ${title}\n"
-;;                    "  :PROPERTIES:\n"
-;;                    "  :Custom_ID: ${=key=}\n"
-;;                    "  :URL: ${url}\n"
-;;                    "  :AUTHOR: ${author-or-editor}\n"
-;;                    "  :NOTER_DOCUMENT: %(orb-process-file-field \"${=key=}\")\n"
-;;                    "  :NOTER_PAGE: \n"
-;;                    "  :END:\n")
-;;            :unnarrowed t))))
 
 ;; (use-package! bibtex-completion
 ;;   :defer t
@@ -329,15 +276,7 @@
 ;;   :config
 ;;   (citeproc-org-setup))
 
-;; (after! org-noter
-;;   (defun fanshi/noter-capture-note ()
-;;     (interactive)
-;;     (call-interactively #'org-noter-insert-precise-note)
-;;     (insert "#+ATTR_ORG: :width 500 ")
-;;     (call-interactively #'org-download-screenshot)
-;;     )
-;;   (setq! org-noter-notes-search-path (list (concat fanshi/org-roam-directory "notes/"))
-;;          org-noter-doc-split-fraction '(0.57 0.43)))
+(defun fanshi/make-line () "" (concat "\n" (make-string (window-width) 9472)))
 
 (after! org-agenda
   ;;  for clock
@@ -347,50 +286,39 @@
    ;;                              (append (directory-files (concat fanshi/org-roam-directory "notes/") 'FUll "\\.org$")
    ;;                                      (directory-files org-directory 'FULL "\\.org$")
    ;;                                      ))
-   ;; org-agenda-start-with-log-mode t
    org-clock-report-include-clocking-task t
-   org-agenda-clockreport-parameter-plist(quote (:link t :maxlevel 4 :fileskip0 t :compact t :narrow 80))
+   org-agenda-clockreport-parameter-plist (quote (:link t :maxlevel 4 :fileskip0 t :compact t :narrow 80))
    )
-  (setq! org-agenda-skip-scheduled-if-done t
-         org-agenda-skip-deadline-if-done t
-         org-agenda-include-deadlines t
-         org-agenda-block-separator 9472
-         org-deadline-warning-days 60
+  (setq! org-agenda-block-separator 9472
          org-agenda-compact-blocks t
-         ;; org-agenda-breadcrumbs-separator " > "
          org-agenda-breadcrumbs-separator " / "
-         ;; org-agenda-breadcrumbs-separator "->"
          org-agenda-span 'day
-         org-agenda-start-day nil ;; i.e. today
+         org-agenda-start-day nil
          org-agenda-start-on-weekday nil
          org-agenda-current-time-string "⬲ NOW -- NOW --"
-         org-agenda-prefix-format '(
-                                    ;; (agenda . " %-3i %18s  %?-12t %-25b ")
-                                    ;; (agenda . " %-3i %18s  %?-12t %-25b ")
-                                    ;; (agenda . " %-3i %-45b %18s  %?-12t")
-                                    (agenda . " %-3i %-25b %18s  %?-12t")
+         org-agenda-prefix-format '(;; (agenda . " %-3i %18s  %?-12t %-25b ")
+                                    ;; (agenda . " %-3i %-44b %?18s %?-12t")
+                                    ;; (agenda . " %-3i %-44b %?-18s %?-12t")
+                                    (agenda . " %-3i %-44b %11s %?-12t")
                                     (todo . " %-3i                     ")
                                     (tags . " %i %-12:c")
                                     (search . " %i %-12:c"))
-         org-agenda-format-date (lambda (date) (concat "\n"
-                                                       (make-string (window-width) 9472)
-                                                       "\n"
-                                                       (org-agenda-format-date-aligned date)))))
+         org-agenda-format-date (lambda (date) (concat (fanshi/make-line) "\n" (org-agenda-format-date-aligned date)))))
 
-(setq! fanshi/private-agenda
+(setq! fanshi/agenda
        '((:name "Clocked Today 📰📰📰" :log t)
          (:name "Calendar 📅📅📅" :time-grid t :and (:scheduled today :not (:habit t) ))
+         ;; (:name "Calendar 📅📅📅" :time-grid t :scheduled today)
          (:name "Deadlines Just Aren't Real To Me Until I'm Staring One In The Face 🚨🚨🚨" :deadline today :order 2)
          (:name "What Is Dead May Never Die 🚣🚣🚣" :deadline past :order 3)
-         (:name "Defuse The Bomb 💣💣💣" :deadline future :deadline today :order 4)
-         (:name "Déjà Vu 🔁🔁🔁" :and (:habit t :not (:scheduled future))) ;; 🧟🧟🧟
+         (:name "Defuse The Bomb 💣💣💣" :deadline future :order 4)
+         (:name "Déjà Vu 🔁🔁🔁" :and (:habit t :not (:scheduled future)) :order 5) ;; 🧟🧟🧟
          ;; (:name "Meetings"
          ;;  :and (:todo "MEETING" :scheduled future)
          ;;  :order 8)
-         (:name "Should Be Nothing" :order 99)
-         ;; (:discard (:anything t))
          ))
-(setq! fanshi/private-alltodo
+
+(setq! fanshi/alltodo
        '((:discard (:scheduled today :deadline t))
          (:name "Important 💎💎💎" :tag "Payment" :priority "A" :order 2) ;;🚔🚔🚔
          (:name "Inbox 📬📬📬" :todo "INBOX" :order 3)
@@ -400,61 +328,53 @@
          (:name "Reading 📚📚📚" :todo "READING" :order 7)
          (:name "Quick Picks 🚀🚀🚀" :and (:effort< "0:30" :todo "TODO") :order 8)
          (:name "Others 🏝🏝🏝" :and (:priority "B" :not (:file-path "projects")) :order 20)
-         (:name "Should Be Nothing" :not (:file-path "projects" :file-path "read") :order 99)
          ;; (:name "Optional 🧧🧧🧧" :and (:priority "C" :not (:file-path "projects")) :order 90)
          ;; (:name "waht 🧧🧧🧧" :todo "TOREAD" :order 90)
-         (:name "Camping 🏕🏕🏕" :todo "WAITING" :order 9) ; Set order of this section 💎💎💎
+         ;; NOTE: check
+         ;; (:name "Should Be Nothing"
+         ;;  :not (:file-path "projects"
+         ;;        :file-path "read"
+         ;;        :file-path "idea")
+         ;;  :order 99)
+         (:name "Camping 🏕🏕🏕" :todo "WAIT" :order 9) ; Set order of this section 💎💎💎
+         ;; NOTE Project
          (:discard (:not (:file-path "projects")))
-         (:auto-outline-path t :order 5)
-         ;; (:name "Projects" :file-path "project" :order 5)
-         ;; (:discard (:anything t))
-         ))
+         (:auto-outline-path t :order 5)))
 
-(setq! fanshi/alltodo (cons '(:discard (:tag "Private")) fanshi/private-alltodo ))
-(setq! fanshi/agenda (cons '(:discard (:tag "Private")) fanshi/private-agenda ))
-
+(setq! fanshi/private-alltodo (cons '(:discard (:tag "AgnesNg")) fanshi/alltodo)
+       fanshi/private-agenda (cons '(:discard (:tag "AgnesNg")) fanshi/agenda)
+       fanshi/public-alltodo (cons '(:discard (:tag "Private")) fanshi/private-alltodo)
+       fanshi/public-agenda (cons '(:discard (:tag "Private")) fanshi/private-agenda)
+       agnes/alltodo (cons '(:discard (:not (:tag "AgnesNg"))) fanshi/alltodo)
+       agnes/agenda (cons '(:discard (:not (:tag "AgnesNg"))) fanshi/agenda))
 (use-package! org-super-agenda
   :after org-agenda
   ;; :defer-incrementally org-roam org-journal
   :init
-  (setq
-   ;; org-super-agenda-header-separator (make-string (window-width) 9473)
-   ;; org-super-agenda-header-separator "\n"
-   org-super-agenda-header-map (make-sparse-keymap) ;; https://github.com/alphapapa/org-super-agenda/issues/50#issuecomment-446272744
-   )
-  (setq org-agenda-custom-commands '(
-                                     ;; ("w" "WEEKLY REVIEW"
-                                     ;;  ((todo "DONE"
-                                     ;;         ((org-agenda-overriding-header "DONE!")
-                                     ;;   (todo "CANCELLED"
-                                     ;;         ((org-agenda-overriding-header "CANCELLED")))
-                                     ;;   (todo "TODO"
-                                     ;;         ((org-agenda-overriding-header "TODO Items (without time attached)")
-                                     ;;          (org-agenda-skip-function '(org-agenda-skip-entry-if 'deadline 'scheduled 'timestamp))))
-                                     ;;   (todo "WAITING"
-                                     ;;         ((org-agenda-overriding-header "WAIT: Items on hold (without time attached)")
-                                     ;;          (org-agenda-skip-function '(org-agenda-skip-entry-if 'deadline 'scheduled 'timestamp))))))
-                                     ("a" "Agenda"
-                                      ((agenda "" ((org-super-agenda-groups fanshi/agenda)))
-                                       (alltodo "" ((org-agenda-overriding-header (concat
-                                                                                   "\n"
-                                                                                   (make-string (window-width) 9472) ;; ፨ lag, sad
-                                                                                   ))
-                                                    (org-super-agenda-groups fanshi/alltodo)))))
-                                     ("d" "Agenda"
-                                      ((agenda "" ((org-super-agenda-groups fanshi/private-agenda)))
-                                       (alltodo "" ((org-agenda-overriding-header (concat
-                                                                                   "\n"
-                                                                                   (make-string (window-width) 9472)
-                                                                                   ))
-                                                    (org-super-agenda-groups fanshi/private-alltodo)))))))
+  (setq org-agenda-show-log t
+        ;; NOTE: https://github.com/alphapapa/org-super-agenda/issues/50
+        org-super-agenda-header-map (make-sparse-keymap)
+        ;; fanshi/org-agenda-header (concat "\n" (make-string (window-width) 9472))
+        ;; fanshi/make-org-agenda-header (defun () (concat "\n" (make-string (window-width) 9472)))
+        org-agenda-custom-commands '(("a" . "Agenda")
+                                     ("aa" "My Agenda"
+                                      ((agenda "" ((org-super-agenda-groups fanshi/public-agenda)))
+                                       (alltodo "" ((org-agenda-overriding-header (fanshi/make-line))
+                                                    (org-super-agenda-groups fanshi/public-alltodo)))))
+                                     ("ag" "Agnes's Agenda"
+                                      ((agenda "" ((org-super-agenda-groups agnes/agenda)))
+                                       (alltodo "" ((org-agenda-overriding-header (fanshi/make-line))
+                                                    (org-super-agenda-groups agnes/alltodo)))))
+                                     ("p" . "Private")
+                                     ("pa" "Agenda" ((agenda "" ((org-super-agenda-groups fanshi/private-agenda)))
+                                                     (alltodo "" ((org-agenda-overriding-header (fanshi/make-line))
+                                                                  (org-super-agenda-groups fanshi/private-alltodo)))))))
   :config
   (org-super-agenda-mode))
 
 (use-package! org-web-tools
-  :commands (org-web-tools--org-link-for-url)
   ;; :after-call org-capture
-  )
+  :commands (org-web-tools--org-link-for-url))
 
 (after! langtool (setq! langtool-bin "languagetool-commandline"))
 
@@ -521,6 +441,16 @@
             (setq ammonite-term-repl-auto-detect-predef-file nil)
             ;; (setq ammonite-term-repl-program-args '("-s" "--no-default-predef"))
             (set-repl-handler! 'scala-mode #'run-ammonite :persist t)))
+
+(defun fanshi/doom-dashboard-draw-ascii-banner-fn ())
+(setq! +doom-dashboard-ascii-banner-fn #'fanshi/doom-dashboard-draw-ascii-banner-fn)
+
+(after! pass (setq! pass-show-keybindings nil))
+
+(after! notmuch (setq! +notmuch-sync-backend 'mbsync))
+;; (setq +notmuch-sync-backend 'mbsync-xdg)
+
+(after! sendmail (setq! sendmail-program (executable-find "msmtp")))
 
 ;; Here are some additional functions/macros that could help you configure Doom:
 ;;
