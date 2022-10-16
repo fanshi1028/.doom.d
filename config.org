@@ -1,3 +1,4 @@
+#+PROPERTY: header-args :results silent
 #+begin_src emacs-lisp :tangle yes
 ;; -*- lexical-binding: t -*-
 #+end_src
@@ -38,11 +39,18 @@
 (setq doom-theme 'doom-nord)
 #+end_src
 
-* Org directory
+* Get Org Config Secret
+#+begin_src emacs-lisp :tangle yes
+;; macro to set var with secret
+(defmacro fanshi/setq-secret (var)
+  `(setq ,var (auth-source-pass-get (symbol-name ',var) "OrgConfig")))
+#+end_src
+
+* Org directory :OrgMode:
 #+begin_src emacs-lisp :tangle yes
 ;; If you use `org' and don't want your org files in the default location below,
 ;; change `org-directory'. It must be set before org loads!
-(setq org-directory "~/org/")
+(fanshi/setq-secret org-directory)
 #+end_src
 
 * Misc effects
@@ -58,7 +66,7 @@
 (add-to-list 'initial-frame-alist '(fullscreen . maximized))
 
 ;; tranparency NOTE It makes the text transparent too
-(set-frame-parameter (selected-frame) 'alpha '(100 85))
+;; (set-frame-parameter (selected-frame) 'alpha '(100 85))
 ;; (add-to-list 'default-frame-alist '(alpha 100 10))
 
 (setq tab-width 4)
@@ -68,14 +76,15 @@
 (setq! scroll-lock-mode t)
 #+end_src
 
-* Org scratch buffer
+* Org scratch buffer :OrgMode:
 #+begin_src emacs-lisp :tangle yes
 ;; scratch buffer default `org-mode'
 (setq! doom-scratch-initial-major-mode 'org-mode)
 #+end_src
 
-* Vterm use fish
+* Vterm use fish :Vterm:
 #+begin_src emacs-lisp :tangle yes
+;; use 'vterm' with 'fish'
 (after! vterm (setq! vterm-shell "~/.nix-profile/bin/fish"))
 #+end_src
 
@@ -84,8 +93,8 @@
 (setq! +format-on-save-enabled-modes '(haskell-mode nix-mode))
 #+end_src
 
-* Org babel
-** Typescript
+* Org babel :OrgBabel:
+** Typescript :TypeScript:
 - ref :: https://www.reddit.com/r/emacs/comments/b7rsxu/behold_orgbabelexecutetypescript/
 #+begin_src emacs-lisp :tangle yes
 (defun org-babel-execute:typescript (body params)
@@ -146,7 +155,7 @@
                                            (apply f args))))
 #+end_src
 
-* Haskell
+* Haskell :Haskell:
 ** Template
 #+begin_src emacs-lisp :tangle yes
 (after! haskell-mode
@@ -157,7 +166,7 @@
                  "  putText \"Surprise Motherfucker!\"")))
 #+end_src
 
-** Lsp
+** Lsp :LSP:
 #+begin_src emacs-lisp :tangle yes
 (after! lsp-haskell
   (setq! lsp-haskell-server-path "haskell-language-server")
@@ -168,7 +177,7 @@
   (setq-hook! haskell-mode +format-with-lsp t))
 #+end_src
 
-* LSP
+* LSP :LSP:
 ** tweak file watchers
 *** don't watch nix materializtion and golden files for haskell
 #+begin_src emacs-lisp :tangle yes
@@ -205,7 +214,7 @@
               :around #'++lsp--path-is-watchable-directory-a))
 #+end_src
 
-* Elfeed
+* Elfeed :Elfeed:
 #+begin_src emacs-lisp :tangle yes
 (after! elfeed
   (setq! elfeed-feeds
@@ -233,140 +242,90 @@
          elfeed-search-filter "+unread @1-month-ago"))
 #+end_src
 
-* Org
+* Org :OrgMode:
 ** Simple org configs
 #+begin_src emacs-lisp :tangle yes
 (after! org
-  (setq! org-archive-location "archive/%s_archive"
+  (setq! org-archive-location "archive/%s_archive::"
          org-hide-emphasis-markers t
          ;; https://explog.in/notes/writingsetup.html
          ;; org-adapt-indentation nil
          ;; org-indent-indentation-per-level 1
-         org-log-into-drawer t))
+         org-complete-tags-always-offer-all-agenda-tags t
+         org-log-into-drawer t
+         org-log-reschedule "note"
+         org-log-redeadline "note"))
+#+end_src
+
+** Priority
+#+begin_src emacs-lisp :tangle yes
+(after! org
+  (setq! org-priority-default 67
+         org-priority-lowest 69
+         org-priority-faces '((65 . error) (66 . warning) (67 . warning) (68 . success) (69 . success))))
+;; org-priority-faces
+#+end_src
+
+** Org-crypt :OrgCrypt:
+#+begin_src emacs-lisp :tangle yes
+(after! org (fanshi/setq-secret org-crypt-key))
 #+end_src
 
 ** Todo keywords
 #+begin_src emacs-lisp :tangle yes
 (after! org
   (setq! org-todo-keywords '((sequence "TODO(t!)"
+                                       "NEXT(n!)"
                                        "WAIT(w@)"
                                        "HOLD(h@)"
-                                       "SOMEDAY(s)"
+                                       "SOMEDAY(s!)"
+                                       "IDEA(i!)"
                                        "|"
                                        "DONE(d!)"
                                        "KILL(k@)")
-                             (sequence "PROJ(p!)"
+                             (sequence "TOPLAN(p!)"
+                                       ;; "BRAINSTORM(b!)"
+                                       "PROJ(P!)"
+                                       "HOLD(h@)"
+                                       "SOMEDAY(s!)"
                                        "|"
                                        "DONE(d!)"
                                        "KILL(k@)")
-                             (sequence "[ ](T!)" "[-](S!)" "[?](W@/!)" "|" "[X](D!)")))
+                             ;; (sequence "[ ](T!)" "[-](S!)" "[?](W@/!)" "|" "[X](D!)")
+                             ))
   (pushnew! org-todo-keyword-faces
+            '("IDEA" org-todo)
             '("TOREAD" org-todo)
+            '("TOPLAN" org-todo)
+            '("DEAL" org-todo)
+            '("PICK" org-todo-active)
+            ;; '("BRAINSTORM" +org-todo-active)
             '("SCAN" +org-todo-active)
+            '("NEXT" +org-todo-active)
             '("READING" +org-todo-active)
-            '("INBOX" org-todo)))
+            '("INBOX" org-todo)
+            '("RECIPE" org-todo)))
 #+end_src
 
-** Templates
+** Roam :OrgRoam:
 #+begin_src emacs-lisp :tangle yes
-(after! org-capture
-  ;; remove unwanted default templates
-  (setq! org-capture-templates
-         (seq-filter
-          (lambda (x)
-            (and
-             (not (string= "t" (car x)))
-             (not (string= "j" (car x)))
-             (not (string= "n" (car x)))))
-          org-capture-templates))
-  ;; add my templates
-  (pushnew! org-capture-templates
-            ;; TODO set up org protocol
-            ;; ("c" "org-protocol-capture" entry (file ,(concat org-directory "inbox.org"))
-            ;;  "* TODO [[%:link][%:description]]\n\n %i" :immediate-finish t)
-            '("l" "link" entry (file "inbox.org")
-              "* INBOX %(org-web-tools--org-link-for-url)\n:PROPERTIES:\n:CREATED: %U\n:END:\n %a" :immediate-finish t)
-            ;; TODO set up email
-            ;; '("e" "email" entry (file+headline ,(concat org-directory "emails.org") "Emails")
-            ;;  "* TODO [#A] Reply: %a :@home:@school:" :immediate-finish t)
-            ;; TODO set up meeting cpature
-            ;; '("m" "meeting" entry (file "inbox.org")
-            ;;  "* MEETING with %^{who}\n:PROPERTIES:\n:CREATED: %U\n:END:\n %i%?\n %U")
-            ;; '("c" "clock" entry (function org-journal-find-location)
-            ;;  "* %(format-time-string  org-journal-time-format) %^{Title}\n%a"
-            ;;  :clock-in t
-            ;;  :clock-keep t
-            ;;  :immediate-finish t
-            ;;  )
-            '("cl" "sudden reading with clock" entry (file+olp "projects.org" "fanshi" "Tasks")
-              "* READING %(org-web-tools--org-link-for-url)\n %i%?\n"
-              :clock-in t :clock-keep t :immediate-finish t)
-            '("ct" "sudden task with clock" entry (file+olp "projects.org" "fanshi" "Tasks")
-              "* TODO %^{Title}\n %i%?\n"
-              :clock-in t :clock-keep t :immediate-finish t)
-            '("c" "start clock for")
-            '("i" "inbox" entry (file "inbox.org") "* INBOX %^{heading}\n:PROPERTIES:\n:CREATED: %U\n:END:\n %i%?\n %a")))
-#+end_src
-** Org trigger hook for auto-refile during Todo keywords changes
-*** fanshi/org-todo-trigger
-#+begin_src emacs-lisp :tangle no
-(after! org
-  (defun fanshi/org-todo-trigger (change-plist) ""
-         (let ((to (plist-get change-plist :to)) (from (plist-get change-plist :from)))
-           (when (equal (plist-get change-plist :type) 'todo-state-change)
-             (cond
-              ((equal from "INBOX")
-               (cond ((equal to "TOREAD") (let ((org-refile-targets '(("~/org/read.org" . (:level . 1))))) (org-refile)))
-                     ((equal to "TODO") (let ((org-refile-targets '(("~/org/projects.org" . (:level . 2))))) (org-refile)))
-                     ((equal to "IDEA") (let ((org-refile-targets '(("~/org/idea.org" . (:level . 1))))) (org-refile)))))
-              ((and (equal from "IDEA") (equal to "TODO"))
-               (let ((org-refile-targets '(("~/org/projects.org" . (:level . 2))))) (org-refile))))))))
-#+end_src
-
-*** fanshi/org-todo-trigger
-#+begin_src emacs-lisp :tangle yes
-(after! org
-  (defun fanshi/org-todo-trigger (change-plist) ""
-         (when (equal (plist-get change-plist :type) 'todo-state-change)
-           (let ((org-refile-targets
-                  (pcase (plist-get change-plist :from)
-                    ("INBOX" (pcase (plist-get change-plist :to)
-                               ("TOREAD" '(("~/org/read.org" . (:level . 1))))
-                               ("TODO" '(("~/org/projects.org" . (:level . 2))))
-                               ("IDEA" '(("~/org/idea.org" . (:level . 1))))
-                               (x nil)))
-                    ("IDEA" (pcase (plist-get change-plist :to)
-                              ("TODO" '(("~/org/projects.org" . (:level . 2))))
-                              (x nil)))
-                    (x nil))))
-             (when org-refile-targets (org-refile))))))
-#+end_src
-
-#+RESULTS:
-: fanshi/org-todo-trigger
-
-*** hook
-#+begin_src emacs-lisp :tangle yes
-(after! org (setq! org-trigger-hook 'fanshi/org-todo-trigger))
-;; org-refile-allow-creating-parent-nodes "confirm"
-#+end_src
-
-** Roam
-#+begin_src emacs-lisp :tangle yes
-(setq! fanshi/org-roam-directory "~/org/roam/")
-(after! org-roam (setq! org-roam-directory fanshi/org-roam-directory))
+(after! org-roam (setq! org-roam-directory (concat org-directory "roam/")))
 #+end_src
 
 *** Journal
-#+begin_src emacs-lisp :tangle no
+#+begin_src emacs-lisp :tangle yes
 (after! org-journal
-  (setq! org-journal-dir (concat fanshi/org-roam-directory "journal/"))
-  (setq! org-journal-enable-agenda-integration t)
+  (setq! org-journal-dir (concat org-roam-directory "journal/")
+         ;; org-journal-time-format (cdr org-time-stamp-formats)
+         org-journal-encrypt-journal t)
 
-  (setq! org-journal-carryover-items nil)
+  ;; (setq! org-journal-enable-agenda-integration t)
+
+  ;; (setq! org-journal-carryover-items nil)
 
   ;; NOTE no need auto close I think
   ;; close after save hook
+  ;; FIXME NOTE: or use popup window?????
   ;; (add-hook! org-journal-mode :append (add-hook! 'after-save-hook :local 'kill-buffer-and-window))
 
   ;; highlight time string with org-date face
@@ -374,18 +333,7 @@
                                                (1 'org-hide t)
                                                (2 'org-level-2 t)
                                                (3 'org-date t)
-                                               (4 'org-level-2 t)
-                                               )))
-  ;; org capture
-
-  ;; helper function
-  (defun org-journal-find-location ()
-    ;; Open today's journal, but specify a non-nil prefix argument in order to
-    ;; inhibit inserting the heading; org-capture will insert the heading.
-    (org-journal-new-entry t)
-    ;; Position point on the journal's top-level heading so that org-capture
-    ;; will add the new entry as a child entry.
-    (goto-char (point-min))))
+                                               (4 'org-level-2 t)))))
 #+end_src
 
 *** Bibitex
@@ -420,7 +368,7 @@
 ;; (use-package! bibtex-completion
 ;;   :defer t
 ;;   :config
-;;   (setq bibtex-completion-notes-path (concat fanshi/org-roam-directory "notes/")
+;;   (setq bibtex-completion-notes-path (concat org-roam-directory "notes/")
 ;;         ;; bibtex-completion-bibliography "~/.org/braindump/org/biblio.bib"
 ;;         bibtex-completion-pdf-field "file"
 ;;         bibtex-completion-notes-template-multiple-files
@@ -448,134 +396,334 @@
 ;;   :config
 ;;   (citeproc-org-setup))
 #+end_src
-** Noter
+** Templates :OrgCaptureTemplate:
+*** Default templates tweak
+**** Remove unwanted
+#+begin_src emacs-lisp :tangle yes
+(after! org-capture
+  (setq! org-capture-templates
+         (seq-filter
+          (lambda (x)
+            (and
+             (not (string= "t" (car x)))
+             (not (string= "j" (car x)))
+             (not (string= "n" (car x)))))
+          org-capture-templates)))
+#+end_src
+
+**** Clock-in and clock-resume behaviour
+#+begin_src emacs-lisp :tangle yes
+(after! org-capture
+  (setq! org-capture-templates
+         (mapcar
+          (lambda (x) (if (> (length x) 2) (append x '(:clock-in t :clock-resume t)) x))
+          org-capture-templates)))
+#+end_src
+
+*** Add my templates (result in reverse order)
+**** Interrupt event
+#+begin_src emacs-lisp :tangle yes
+(after! org-capture
+  (defun fanshi/org-journal-find-location ()
+    ;; Open today's journal, but specify a non-nil prefix argument in order to
+    ;; inhibit inserting the heading; org-capture will insert the heading.
+    (org-journal-new-entry t)
+    ;; Position point on the journal's top-level heading so that org-capture
+    ;; will add the new entry as a child entry.
+    (goto-char (point-min)))
+  (pushnew! org-capture-templates
+            '("Im" "Meeting" entry
+              ;; (file "inbox.org")
+              (function fanshi/org-journal-find-location)
+               ;; "* MEETING with %? :MEETING:\n%U" :clock-in t :clock-resume t)
+               "* %(format-time-string  org-journal-time-format)with %? :Meeting:\n" :clock-in t :clock-resume t)
+            '("Ip" "Phone call" entry
+              ;; (file "inbox.org")
+              (function fanshi/org-journal-find-location)
+               ;; "* PHONE %? :PHONE:\n%U" :clock-in t :clock-resume t)
+               "* %(format-time-string  org-journal-time-format)%? :@Phone:\n" :clock-in t :clock-resume t)
+            '("I" "Interrupt")))
+#+end_src
+
+**** Sudden clocked tasks
+#+begin_src emacs-lisp :tangle yes
+(after! org-capture
+  (pushnew! org-capture-templates
+            `("cr" "sudden link to read with clock" entry (file+olp "read.org" "Link")
+              ,(string-join
+                '("* READING %(org-web-tools--org-link-for-url)"
+                  " %i%?"
+                  "")
+                "\n")
+              :clock-in t :clock-keep t :immediate-finish t)
+            `("ct" "sudden task with clock" entry (file+olp "fanshi.org.gpg" "Tasks")
+              ,(string-join
+                '("* TODO %^{Title}"
+                  " %i%?"
+                  "")
+                "\n")
+              :clock-in t :clock-keep t :immediate-finish t)
+            '("c" "start clock for")))
+#+end_src
+
+**** link quick capture
+#+begin_src emacs-lisp :tangle yes
+(after! org-capture
+  (pushnew! org-capture-templates
+            `("l" "link" entry (file "inbox.org")
+              ,(string-join
+                '("* INBOX %(org-web-tools--org-link-for-url)"
+                  ":PROPERTIES:"
+                  ":CREATED: %U"
+                  ":END:"
+                  " %a")
+                "\n")
+              :immediate-finish t)))
+#+end_src
+
+**** Inbox
+#+begin_src emacs-lisp :tangle yes
+(after! org-capture
+  (pushnew! org-capture-templates
+            `("i" "inbox" entry (file "inbox.org")
+              ,(string-join
+                '("* INBOX %^{heading}"
+                  ":PROPERTIES:"
+                  ":CREATED: %U"
+                  ":END:"
+                  " %i%?"
+                  " %a")
+                "\n")
+              :clock-in t :clock-resume t)))
+#+end_src
+
+*** Spare template not in use :No:
 #+begin_src emacs-lisp :tangle no
+(after! org-capture
+  (pushnew! org-capture-templates
+            ;; TODO set up org protocol
+            '("c" "org-protocol-capture" entry (file ,(concat org-directory "inbox.org"))
+             "* TODO [[%:link][%:description]]\n\n %i" :immediate-finish t)
+            ;; TODO set up email
+            '("e" "email" entry (file+headline ,(concat org-directory "emails.org") "Emails")
+             "* TODO [#A] Reply: %a :@home:@school:" :immediate-finish t)
+            ;; TODO set up meeting cpature
+            '("m" "meeting" entry (file "inbox.org")
+             "* MEETING with %^{who}\n:PROPERTIES:\n:CREATED: %U\n:END:\n %i%?\n %U")))
+#+end_src
+
+** Org trigger hook for auto-refile during Todo keywords changes
+*** fanshi/org-work-directory
+#+begin_src emacs-lisp :tangle yes
+(after! org
+  (setq! fanshi/org-work-directory (concat org-directory "work/")))
+#+end_src
+
+*** fanshi/org-todo-trigger
+#+begin_src emacs-lisp :tangle yes
+(after! org
+  (defun fanshi/org-todo-trigger (change-plist) ""
+         (when (equal (plist-get change-plist :type) 'todo-state-change)
+           (let ((fanshi/proj-org-refile-targets `((,(mapcar (lambda (y) (funcall #'concat org-directory y))
+                                                             '("fanshi.org.gpg"
+                                                               "agnes_ng.org"
+                                                               "projects.org"))
+                                                    . (:todo . "PROJ"))))
+                 (org-refile-targets (pcase (plist-get change-plist :from)
+                    ("INBOX" (pcase (plist-get change-plist :to)
+                               ("TOREAD" '(("~/org/read.org" . (:level . 1))))
+                               ("TOPLAN" `((("~/org/agnes_ng.org" "~/org/fanshi.org.gpg") . (:level . 1))
+                                                (,(directory-files fanshi/org-work-directory t (rx ".org.gpg" eos)) . (:level . 2))))
+                               ("TODO" `((,(mapcar
+                                            (lambda (y) (funcall #'concat org-directory y))
+                                            '("fanshi.org.gpg"
+                                              "agnes_ng.org"
+                                              "projects.org"))
+                                          . (:todo . "PROJ"))))
+                               ("IDEA" `((,(mapcar
+                                            (lambda (y) (funcall #'concat org-directory y))
+                                            '("fanshi.org.gpg"
+                                              "agnes_ng.org"
+                                              "projects.org"))
+                                          . (:todo . "TOPLAN"))
+                                         (,(mapcar
+                                            (lambda (y) (funcall #'concat org-directory y))
+                                            '("fanshi.org.gpg"
+                                              "agnes_ng.org"
+                                              "projects.org"))
+                                          . (:todo . "PROJ"))))
+                               ("DEAL" '(("~/org/deals.org" . (:maxlevel . 2))))
+                               (_ org-refile-targets)))
+                    ("DONE" (pcase (plist-get change-plist :to)
+                               ("RECIPE" '(("~/org/cooking.org" . (:tag . "Recipe"))))
+                               ("IDEA" `((,(mapcar
+                                            (lambda (y) (funcall #'concat org-directory y))
+                                            '("fanshi.org.gpg"
+                                              "agnes_ng.org"
+                                              "projects.org"))
+                                          . (:todo . "PROJ"))
+                                         ("~/org/cooking.org" . (:tag . ""))
+                                         ))
+                               ("DEAL" '(("~/org/groceries.org" . (:maxlevel . 2))))
+                               (_ nil)))
+                    (_ nil))))
+             (when org-refile-targets (org-refile))))))
+#+end_src
+
+*** hook
+#+begin_src emacs-lisp :tangle yes
+(after! org (setq! org-trigger-hook 'fanshi/org-todo-trigger))
+;; org-refile-allow-creating-parent-nodes "confirm"
+#+end_src
+
+** Noter :OrgNoter:
+#+begin_src emacs-lisp :tangle yes
 (after! org-noter
-  (defun fanshi/noter-capture-note ()
-    (interactive)
-    (call-interactively #'org-noter-insert-precise-note)
-    (insert "#+ATTR_ORG: :width 500 ")
-    (call-interactively #'org-download-screenshot)
-    )
-  (setq! org-noter-notes-search-path (list (concat fanshi/org-roam-directory "notes/"))
+  ;; (defun fanshi/noter-capture-note ()
+  ;;   (interactive)
+  ;;   (call-interactively #'org-noter-insert-precise-note)
+  ;;   (insert "#+ATTR_ORG: :width 500 ")
+  ;;   (call-interactively #'org-download-screenshot)
+  ;;   )
+  (setq! org-noter-notes-search-path (list (concat org-roam-directory "books/"))
          org-noter-doc-split-fraction '(0.57 0.43)))
 #+end_src
 
-** Agenda
+** Agenda :OrgAgenda:
 *** helper
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/make-line () "" (concat "\n" (make-string (window-width) 9472)))
 #+end_src
 
-#+RESULTS:
-: fanshi/make-line
-
 *** Org-Agenda
+**** Clock
 #+begin_src emacs-lisp :tangle yes
 (after! org-agenda
-  ;;  for clock
   (setq!
    ;; org-agenda-start-with-clockreport-mode t
    ;; org-agenda-files (seq-filter (lambda (x) (not (string-match-p "\\.#.*\\.org$" x)))
    ;;                              (append (directory-files (concat fanshi/org-roam-directory "notes/") 'FUll "\\.org$")
    ;;                                      (directory-files org-directory 'FULL "\\.org$")
    ;;                                      ))
+   ;; org-agenda-files '("/Users/fanshi/org/event.org"
+   ;;                    "/Users/fanshi/org/routine.org"
+   ;;                    "/Users/fanshi/org/habit.org.gpg"
+   ;;                    "/Users/fanshi/org/fanshi.org.gpg"
+   ;;                    ;; "/Users/fanshi/org/deals.org"
+   ;;                    "/Users/fanshi/org/agnes_ng_habit.org"
+   ;;                    "/Users/fanshi/org/agnes_ng.org")
+   org-agenda-files '("~/org/")
    org-clock-report-include-clocking-task t
-   org-agenda-clockreport-parameter-plist (quote (:link t :maxlevel 4 :fileskip0 t :compact t :narrow 80))
-   )
+   org-agenda-clockreport-parameter-plist (quote (:link t :maxlevel 4 :fileskip0 t :compact t :narrow 80))))
+#+end_src
+
+**** Agenda Tweak
+#+begin_src emacs-lisp :tangle yes
+(after! org-agenda
   (setq! org-agenda-block-separator 9472
          org-agenda-compact-blocks t
          org-agenda-breadcrumbs-separator " / "
          org-agenda-span 'day
          org-agenda-start-day nil
          org-agenda-start-on-weekday nil
+         org-deadline-warning-days 30
          org-agenda-current-time-string "⬲ NOW -- NOW --"
          org-agenda-prefix-format '(;; (agenda . " %-3i %18s  %?-12t %-25b ")
                                     ;; (agenda . " %-3i %-44b %?18s %?-12t")
                                     ;; (agenda . " %-3i %-44b %?-18s %?-12t")
                                     (agenda . " %-3i %-44b %11s %?-12t")
-                                    (todo . " %-3i                     ")
+                                    ;; (todo . " %-3i                     ")
+                                    (todo . " %-3i %-44b %?-12t")
                                     (tags . " %i %-12:c")
                                     (search . " %i %-12:c"))
-         org-agenda-format-date (lambda (date) (concat (fanshi/make-line) "\n" (org-agenda-format-date-aligned date)))))
+         org-agenda-format-date (lambda (date) (concat (fanshi/make-line) "\n" (org-agenda-format-date-aligned date)))
+         org-agenda-sorting-strategy '((agenda time-up habit-down priority-down category-keep)
+                                      (todo priority-down category-keep)
+                                      (tags priority-down category-keep)
+                                      (search category-keep))))
 #+end_src
 
-#+RESULTS:
-| lambda | (date) | (concat (fanshi/make-line) |
-
-*** org-super-agenda
-**** fanshi/agenda
+**** Org Super Agenda
+***** fanshi/agenda
 #+begin_src emacs-lisp :tangle yes
 (setq! fanshi/agenda
        '((:name "Clocked Today 📰📰📰" :log t)
-         (:name "Calendar 📅📅📅" :time-grid t :and (:scheduled today :not (:habit t) ))
-         ;; (:name "Calendar 📅📅📅" :time-grid t :scheduled today)
+         ;; (:name "Calendar 📅📅📅" :time-grid t :and (:scheduled today :not (:habit t) ))
+         (:name "Calendar 📅📅📅" :time-grid t :and (:scheduled today))
          (:name "Deadlines Just Aren't Real To Me Until I'm Staring One In The Face 🚨🚨🚨" :deadline today :order 2)
          (:name "What Is Dead May Never Die 🚣🚣🚣" :deadline past :order 3)
          (:name "Defuse The Bomb 💣💣💣" :deadline future :order 4)
-         (:name "Déjà Vu 🔁🔁🔁" :and (:habit t :not (:scheduled future)) :order 5) ;; 🧟🧟🧟
+         (:name "Déjà Vu 🔁🔁🔁" :and (:habit t :todo ("TODO" "[ ]")) :order 5) ;; 🧟🧟🧟
+         ;; (:name "Déjà Vu 🔁🔁🔁" :and (:habit t :todo ("TODO" "[ ]") :scheduled today) :order 5) ;; 🧟🧟🧟
+         ;; (:name "Déjà vécu 🥶🥶🥶" :and (:habit t :todo ("TODO" "[ ]") :scheduled past) :order 6) ;; 🧟🧟🧟
+         ;; (:name "Presque vu ⏩⏩⏩" :and (:habit t :todo ("TODO" "[ ]") :scheduled future) :order 7) ;; 🧟🧟🧟
          ;; (:name "Meetings"
          ;;  :and (:todo "MEETING" :scheduled future)
          ;;  :order 8)
          ))
 #+end_src
 
-#+RESULTS:
-| :name | Clocked Today 📰📰📰                                                      | :log       | t                                   |        |                                    |
-| :name | Calendar 📅📅📅                                                           | :time-grid | t                                   | :and   | (:scheduled today :not (:habit t)) |
-| :name | Deadlines Just Aren't Real To Me Until I'm Staring One In The Face 🚨🚨🚨 | :deadline  | today                               | :order |                                  2 |
-| :name | What Is Dead May Never Die 🚣🚣🚣                                         | :deadline  | past                                | :order |                                  3 |
-| :name | Defuse The Bomb 💣💣💣                                                    | :deadline  | future                              | :order |                                  4 |
-| :name | Déjà Vu 🔁🔁🔁                                                            | :and       | (:habit t :not (:scheduled future)) | :order |                                  5 |
-
-**** fanshi/alltodo
+***** fanshi/alltodo
 #+begin_src emacs-lisp :tangle yes
-(setq! fanshi/alltodo
-       '((:discard (:scheduled today :deadline t))
-         (:name "Important 💎💎💎" :tag "Payment" :priority "A" :order 2) ;;🚔🚔🚔
-         (:name "Inbox 📬📬📬" :todo "INBOX" :order 3)
-         (:discard (:habit t))
-         (:name "Peek Into Future 🔮🔮🔮" :scheduled future :order 4)
-         (:name "Watching 📺📺📺" :and (:todo "READING" :tag "TV") :order 6)
-         (:name "Reading 📚📚📚" :todo "READING" :order 7)
-         (:name "Quick Picks 🚀🚀🚀" :and (:effort< "0:30" :todo "TODO") :order 8)
-         (:name "Others 🏝🏝🏝" :and (:priority "B" :not (:file-path "projects")) :order 20)
-         ;; (:name "Optional 🧧🧧🧧" :and (:priority "C" :not (:file-path "projects")) :order 90)
-         ;; (:name "waht 🧧🧧🧧" :todo "TOREAD" :order 90)
-         ;; NOTE: check
-         ;; (:name "Should Be Nothing"
-         ;;  :not (:file-path "projects"
-         ;;        :file-path "read"
-         ;;        :file-path "idea")
-         ;;  :order 99)
-         (:name "Camping 🏕🏕🏕" :todo "WAIT" :order 9) ; Set order of this section 💎💎💎
-         ;; NOTE Project
-         (:discard (:not (:file-path "projects")))
-         (:auto-outline-path t :order 5)))
+(after! org
+  (setq! fanshi/alltodo
+         `((:discard (:scheduled future :deadline future :regexp ,org-scheduled-time-hour-regexp :todo "INBOX"))
+           (:name "Important 💎💎💎" :tag "Payment" :priority "A" :order 2) ;;🚔🚔🚔
+           ;; (:name "Do I really look like a guy with a plan??? 🃏🃏🃏" :and (:todo "TOPLAN" :priority> "D") :order 3)
+           (:name "Do I really look like a guy with a plan??? 🃏🃏🃏" :todo "TOPLAN" :order 3)
+           (:name "Camping 🏕🏕🏕" :todo "WAIT" :order 11) ; Set order of this section 💎💎💎
+           ;; (:name "Inbox 📬📬📬" :todo "INBOX" :order 30)
+           ;; (:name "Peek Into Future 🔮🔮🔮" :scheduled future :order 4)
+           (:name "Watching 📺📺📺" :and (:todo "READING" :tag "TV") :order 9)
+           (:name "こっちも見ろ 👁👁👁" :todo ("READING" "SCAN") :order 8)
+           ;; (:name "Reading 📚📚📚" :todo ("READING" "SCAN") :order 10)
+           (:name "Quick Picks 🚀🚀🚀" :and (:effort< "0:10" :todo "TODO") :order 4)
+           ;; NOTE: tried to follow logic in org-habit-insert-consistency-graphs to find dying habit but seems not easy
+           ;; (:name "Dying Habit" :and (:habit t
+           ;;                      :todo ("TODO" "[ ]")
+           ;;                      :not (:regexp ,org-scheduled-time-hour-regexp)) :order 5)))
+           ;; (:name "Déjà Vu 🔁🔁🔁" :and (:habit t
+           ;;                               :todo ("TODO" "[ ]")
+           ;;                               :scheduled t
+           ;;                               :not (:scheduled future))
+           ;;                :order 6)
+           ;; (:name "Super B 👶🏿👶🏿👶🏿" :and (:priority "B" :not (:file-path "projects")) :order 9)
+           (:name "Super B 👶👶👶" :and (:priority "B" :not (:file-path "projects")) :order 7)
+           ;; (:name "Others 🏝🏝🏝" :and (:priority "C" :not (:file-path "projects")) :order 21)
+           ;; (:name "Optional 🧧🧧🧧" :and (:priority "C" :not (:file-path "projects")) :order 90)
+           ;; (:name "waht 🧧🧧🧧" :todo "TOREAD" :order 90)
+           ;; NOTE: check
+           ;; (:name "Should Be Nothing"
+           ;;  :not (:file-path "projects"
+           ;;        :file-path "read"
+           ;;        :file-path "idea")
+           ;;  :order 99)
+           ;; (:discard (:habit t))
+           ;; NOTE Project
+           (:discard (:not (:file-path "projects")))
+           (:auto-outline-path t :order 5))))
 #+end_src
 
-#+RESULTS:
-| :discard           | (:scheduled today :deadline t) |            |                                          |           |    |        |   |
-| :name              | Important 💎💎💎               | :tag       | Payment                                  | :priority |  A | :order | 2 |
-| :name              | Inbox 📬📬📬                   | :todo      | INBOX                                    | :order    |  3 |        |   |
-| :discard           | (:habit t)                     |            |                                          |           |    |        |   |
-| :name              | Peek Into Future 🔮🔮🔮        | :scheduled | future                                   | :order    |  4 |        |   |
-| :name              | Watching 📺📺📺                | :and       | (:todo READING :tag TV)                  | :order    |  6 |        |   |
-| :name              | Reading 📚📚📚                 | :todo      | READING                                  | :order    |  7 |        |   |
-| :name              | Quick Picks 🚀🚀🚀             | :and       | (:effort< 0:30 :todo TODO)               | :order    |  8 |        |   |
-| :name              | Others 🏝🏝🏝                     | :and       | (:priority B :not (:file-path projects)) | :order    | 20 |        |   |
-| :name              | Camping 🏕🏕🏕                    | :todo      | WAIT                                     | :order    |  9 |        |   |
-| :discard           | (:not (:file-path projects))   |            |                                          |           |    |        |   |
-| :auto-outline-path | t                              | :order     | 5                                        |           |    |        |   |
-
-**** setup
+***** fanshi/org-agenda-file-regexp (for GPG)
+[[https://emacs.stackexchange.com/a/36543][org mode - Include .org.gpg files in org-agenda - Emacs Stack Exchange]]
 #+begin_src emacs-lisp :tangle yes
-(setq! fanshi/private-alltodo (cons '(:discard (:tag "AgnesNg")) fanshi/alltodo)
-       fanshi/private-agenda (cons '(:discard (:tag "AgnesNg")) fanshi/agenda)
-       fanshi/public-alltodo (cons '(:discard (:tag "Private")) fanshi/private-alltodo)
-       fanshi/public-agenda (cons '(:discard (:tag "Private")) fanshi/private-agenda)
-       agnes/alltodo (cons '(:discard (:not (:tag "AgnesNg"))) fanshi/alltodo)
-       agnes/agenda (cons '(:discard (:not (:tag "AgnesNg"))) fanshi/agenda))
+(after! org-agenda
+  (setq! fanshi/org-agenda-file-regexp
+         (replace-regexp-in-string "\\\\\\.org" "\\\\.org\\\\(\\\\.gpg\\\\)?" org-agenda-file-regexp)))
+#+end_src
+
+***** setup
+****** fanshi :No:
+#+begin_src emacs-lisp :tangle no
+(after! org
+  (setq! fanshi/my-alltodo (cons '(:discard (:tag "AgnesNgHabit")) fanshi/alltodo)
+         fanshi/my-agenda (cons '(:discard (:tag "AgnesNgHabit")) fanshi/agenda)
+         agnes/alltodo (cons '(:discard (:not (:tag "AgnesNg"))) fanshi/alltodo)
+         agnes/agenda (cons '(:discard (:not (:tag "AgnesNg"))) fanshi/agenda)))
+#+end_src
+
+****** use package org-super-agenda
+#+begin_src emacs-lisp :tangle yes
 (use-package! org-super-agenda
   :after org-agenda
   ;; :defer-incrementally org-roam org-journal
@@ -585,27 +733,49 @@
         org-super-agenda-header-map (make-sparse-keymap)
         ;; fanshi/org-agenda-header (concat "\n" (make-string (window-width) 9472))
         ;; fanshi/make-org-agenda-header (defun () (concat "\n" (make-string (window-width) 9472)))
+        fanshi/org-agenda-file-regexp (replace-regexp-in-string
+                                       "\\\\\\.org" "\\\\.org\\\\(\\\\.gpg\\\\)?"
+                                       org-agenda-file-regexp)
         org-agenda-custom-commands '(("a" . "Agenda")
                                      ("aa" "My Agenda"
-                                      ((agenda "" ((org-super-agenda-groups fanshi/public-agenda)))
+                                      ((agenda "" ((org-super-agenda-groups fanshi/agenda)))
                                        (alltodo "" ((org-agenda-overriding-header (fanshi/make-line))
-                                                    (org-super-agenda-groups fanshi/public-alltodo)))))
+                                                    (org-super-agenda-groups fanshi/alltodo))))
+                                      ((org-agenda-files '("/Users/fanshi/org/routine.org"
+                                                           "/Users/fanshi/org/event.org"
+                                                           "/Users/fanshi/org/deals.org"
+                                                           "/Users/fanshi/org/agnes_ng.org"))))
                                      ("ag" "Agnes's Agenda"
-                                      ((agenda "" ((org-super-agenda-groups agnes/agenda)))
+                                      ((agenda "" ((org-super-agenda-groups fanshi/agenda)))
                                        (alltodo "" ((org-agenda-overriding-header (fanshi/make-line))
-                                                    (org-super-agenda-groups agnes/alltodo)))))
+                                                    (org-super-agenda-groups fanshi/alltodo))))
+                                      ((org-agenda-files '("/Users/fanshi/org/agnes_ng_habit.org"
+                                                           "/Users/fanshi/org/agnes_ng.org"))))
                                      ("p" . "Private")
-                                     ("pa" "Agenda" ((agenda "" ((org-super-agenda-groups fanshi/private-agenda)))
+                                     ("pa" "Agenda" ((agenda "" ((org-super-agenda-groups fanshi/agenda)))
                                                      (alltodo "" ((org-agenda-overriding-header (fanshi/make-line))
-                                                                  (org-super-agenda-groups fanshi/private-alltodo)))))))
+                                                                  (org-super-agenda-groups fanshi/alltodo))))
+                                      ((org-agenda-files '("/Users/fanshi/org/routine.org"
+                                                           "/Users/fanshi/org/habit.org.gpg"
+                                                           "/Users/fanshi/org/fanshi.org.gpg"
+                                                           "/Users/fanshi/org/event.org"
+                                                           "/Users/fanshi/org/deals.org"
+                                                           "/Users/fanshi/org/agnes_ng.org"
+                                                           "/Users/fanshi/org/groceries.org"))))
+                                     ("c" "Cooking" todo "" (
+                                                                 (org-super-agenda-groups fanshi/alltodo)
+                                                                 (org-agenda-files '("/Users/fanshi/org/cooking.org"))))
+                                     ("r" "Reading" todo "" (
+                                                             ;; (org-super-agenda-groups fanshi/alltodo)
+                                                             (org-agenda-files '("/Users/fanshi/org/read.org"))))
+                                     ;; ("g" "Groceries List" agenda "" ((org-super-agenda-groups fanshi/agenda)
+                                     ;;                                (org-agenda-files '("/Users/fanshi/org/groceries-list.org"))))
+                                     ))
   :config
   (org-super-agenda-mode))
 #+end_src
 
-#+RESULTS:
-: t
-
-** Web tool
+** Web tool :OrgWebTool:
 #+begin_src emacs-lisp :tangle yes
 (use-package! org-web-tools
   ;; :after-call org-capture
@@ -618,7 +788,6 @@
 #+end_src
 
 * Plantuml
-- set up plantuml-mode
 #+begin_src emacs-lisp :tangle yes
 (after! plantuml-mode (setq! plantuml-default-exec-mode 'executable))
 #+end_src
@@ -645,19 +814,31 @@
 (after! dired (setq dired-use-ls-dired nil))
 #+end_src
 
-* Python
+* Python :Python:
 ** Lpy
+[[file:/nix/store/0wgjp2lz4w3dihbsqhilaibrfp7wja47-emacs-pgtkgcc-20220225.0/share/emacs/29.0.50/lisp/progmodes/python.el.gz::cl-letf (((symbol-function 'python-shell-send-string][<ref>]]
 #+begin_src emacs-lisp :tangle yes
-(use-package! lpy
-  :hook (python-mode . lpy-mode)
-  :init (setq lispy-override-python-binary "python"))
+;; NOTE: https://github.com/abo-abo/lispy/issues/509
+(after! (lispy python lpy)
+  (add-hook 'lpy-mode-hook (lambda () (progn
+                                   (setq-local python-shell-completion-native-disabled-interpreters (append python-shell-completion-native-disabled-interpreters '("python3")))
+                                   (setq-local completion-at-point-functions '(lsp-completion-at-point python-completion-at-point t))
+                                   (let ((lispy-python-proc-name (concat "lispy-python-" (projectile-project-name))))
+                                     (condition-case nil
+                                         (lispy--python-proc lispy-python-proc-name)
+                                       (error (setq-local lispy-python-proc (get-process lispy-python-proc-name)))))
+                                   (cl-letf (((symbol-function 'python-shell-send-string)
+                                              (lambda (str process) (comint-send-string process (format "exec(%s)\n" (python-shell--encode-string str))))))
+                                     (python-shell-send-string-no-output python-shell-eval-setup-code lispy-python-proc)
+                                     (python-shell-send-string-no-output python-shell-eval-file-setup-code lispy-python-proc))
+                                   (lispy-python-middleware-reload)))))
+;; NOTE: https://github.com/abo-abo/lispy/issues/509
 #+end_src
 
 * Lisp
 ** Lispy
 #+begin_src emacs-lisp :tangle yes
-(use-package! lispy
-  :init (setq lispy-compat '(edebug cider)))
+(after! lispy (setq lispy-compat '(edebug cider)))
 #+end_src
 
 * Gif screencast
@@ -676,11 +857,6 @@
 (use-package! nov :mode ("\\.\\(epub\\|mobi\\)\\'" . nov-mode))
 #+end_src
 
-* Music Player
-#+begin_src emacs-lisp :tangle yes
-;; (use-package! vuiet :defer)
-#+end_src
-
 * Keycast
 #+begin_src emacs-lisp :tangle yes
 (use-package! keycast
@@ -690,16 +866,15 @@
             :global t
             (if keycast-mode
                 (add-hook 'pre-command-hook 'keycast-mode-line-update t) (remove-hook 'pre-command-hook 'keycast-mode-line-update)))
-  (add-to-list 'global-mode-string '("" mode-line-keycast))
-  )
+  (add-to-list 'global-mode-string '("" mode-line-keycast)))
 #+end_src
 
-* Calendar
-#+begin_src emacs-lisp :tangle yes
+* Calendar :No:
+#+begin_src emacs-lisp :tangle no
 ;; (use-package! calfw)
 #+end_src
 
-* Pdf-view
+* Pdf-view :Pdf:
 #+begin_src emacs-lisp :tangle yes
 (after! pdf-view
   (setq! pdf-tools-installer-os "nixos")
@@ -715,7 +890,7 @@
 (use-package! jest :hook (js2-mode . jest-minor-mode))
 #+end_src
 
-* Scala
+* Scala :Scala:
 #+begin_src emacs-lisp :tangle yes
 (push '("\\.sc\\'" . scala-mode) auto-mode-alist)
 (use-package! sbt-mode :disabled)
@@ -731,10 +906,10 @@
             ;; (setq ammonite-term-repl-program-args '("-s" "--no-default-predef"))
             (set-repl-handler! 'scala-mode #'run-ammonite :persist t)))
 #+end_src
-* no dashboard banner
+* No dashboard banner
 #+begin_src elisp :tangle yes
-(defun fanshi/doom-dashboard-draw-ascii-banner-fn ())
-(setq! +doom-dashboard-ascii-banner-fn #'fanshi/doom-dashboard-draw-ascii-banner-fn)
+(setq! +doom-dashboard-ascii-banner-fn #'(lambda ()))
+(setq! +doom-dashboard-menu-sections '())
 #+end_src
 
 * pass config
@@ -742,7 +917,7 @@
 (after! pass (setq! pass-show-keybindings nil))
 #+end_src
 
-* email
+* Email :Email:
 #+BEGIN_SRC elisp :tangle yes
 (after! notmuch (setq! +notmuch-sync-backend 'mbsync))
 ;; (setq +notmuch-sync-backend 'mbsync-xdg)
@@ -751,6 +926,16 @@
 #+BEGIN_SRC elisp :tangle yes
 (after! sendmail (setq! sendmail-program (executable-find "msmtp")))
 #+END_SRC
+
+* Projectile :Projectile:
+#+begin_src emacs-lisp :tangle yes
+(after! projectile
+  (setq projectile-project-name-function (lambda (project-root)
+                                           (let ((name (funcall 'projectile-default-project-name project-root)))
+                                             (if (member name '("python" "haskell" "bootstrap"))
+                                                 (concat (funcall 'projectile-default-project-name (file-name-directory (directory-file-name project-root))) "/" name)
+                                               name)))))
+#+end_src
 
 * Custom
 #+begin_src emacs-lisp :tangle yes

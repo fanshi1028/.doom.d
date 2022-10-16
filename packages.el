@@ -67,8 +67,43 @@
 
 (package! ammonite-term-repl)
 
-;; https://github.com/hlissner/doom-emacs/issues/5207#issuecomment-877750996
-(package! gcmh
-  :recipe (:host github
-           :repo "emacsmirror/gcmh")
-  :pin "0089f9c3a6d4e9a310d0791cf6fa8f35642ecfd9")
+
+
+
+;; No org-babel-execute function for ledger!
+;; NOTE: https://github.com/purcell/emacs.d/issues/791
+;; NOTE: https://github.com/emacsmirror/org-contrib/commit/17f3c514356430448627104e015f155008b45575
+;; (package! org-contrib
+;;   :recipe (:host github
+;;            :repo "emacsmirror/org-contrib")
+;;   :pin "17f3c514356430448627104e015f155008b45575")
+
+;; NOTE: copy from ~/.emacs.d/modules/lang/org/packages.el:::pin "e7ea951ac976ac78d4f6c3df9979bb9e942ef086")
+;; except using the latest pin
+;; (package! org
+;;   :recipe (:host github
+;;            ;; REVIEW I intentionally avoid git.savannah.gnu.org because of SSL
+;;            ;;   issues (see #5655), uptime issues, download time, and lack of
+;;            ;;   shallow clone support.
+;;            :repo "emacs-straight/org-mode"
+;;            :files (:defaults "etc")
+;;            :depth 1
+;;            ;; HACK Org requires a post-install compilation step to generate a
+;;            ;;   org-version.el with org-release and org-git-version functions,
+;;            ;;   using a 'git describe ...' call.  This won't work in a sparse
+;;            ;;   clone and I value smaller network burdens on users over
+;;            ;;   non-essential variables so we fake it:
+;;            :build t
+;;            :pre-build
+;;            (with-temp-file "org-version.el"
+;;              (let ((version
+;;                     (with-temp-buffer
+;;                       (insert-file-contents (doom-path "lisp/org.el") nil 0 1024)
+;;                       (if (re-search-forward "^;; Version: \\([^\n-]+\\)" nil t)
+;;                           (match-string-no-properties 1)
+;;                         "Unknown"))))
+;;                (insert (format "(defun org-release () %S)\n" version)
+;;                        (format "(defun org-git-version (&rest _) \"%s-??-%s\")\n"
+;;                                version (cdr (doom-call-process "git" "rev-parse" "--short" "HEAD")))
+;;                        "(provide 'org-version)\n"))))
+;;   :pin "971eb6885ec996c923e955730df3bafbdc244e54")
