@@ -644,6 +644,9 @@
 (setq! +doom-dashboard-menu-sections '())
 
 (after! pass (setq! pass-show-keybindings nil))
+(after! auth-source
+  (setq! auth-sources '("~/.authinfo.gpg" ))
+  (auth-source-pass-enable))
 
 (after! notmuch (setq! +notmuch-sync-backend 'mbsync))
 ;; (setq +notmuch-sync-backend 'mbsync-xdg)

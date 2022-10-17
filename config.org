@@ -912,9 +912,12 @@
 (setq! +doom-dashboard-menu-sections '())
 #+end_src
 
-* pass config
+* pass/auth-source config
 #+begin_src elisp :tangle yes
 (after! pass (setq! pass-show-keybindings nil))
+(after! auth-source
+  (setq! auth-sources '("~/.authinfo.gpg" ))
+  (auth-source-pass-enable))
 #+end_src
 
 * Email :Email:
