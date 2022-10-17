@@ -999,6 +999,12 @@
       (user-error "There are no known projects")))
 #+end_src
 
+* Magit Forge
+#+begin_src emacs-lisp :tangle yes
+(after! forge
+  (setq! forge-owned-accounts '(("fanshi1028"))))
+#+end_src
+
 * Custom
 #+begin_src emacs-lisp :tangle yes
 ;; Here are some additional functions/macros that could help you configure Doom:

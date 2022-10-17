@@ -711,6 +711,9 @@
         (projectile-completing-read "Clone project: " projects :action #'fanshi/clone-from-project)
       (user-error "There are no known projects")))
 
+(after! forge
+  (setq! forge-owned-accounts '(("fanshi1028"))))
+
 ;; Here are some additional functions/macros that could help you configure Doom:
 ;;
 ;; - `load!' for loading external *.el files relative to this one
