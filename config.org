@@ -936,6 +936,65 @@
                                                  (concat (funcall 'projectile-default-project-name (file-name-directory (directory-file-name project-root))) "/" name)
                                                name)))))
 #+end_src
+* Clone project
+#+begin_src emacs-lisp :tangle yes
+;; NOTE: What file to clone for specify project type
+(setq fanshi/project-files-to-copy/python-poetry '(".envrc" ".gitignore" "flake.lock" "flake.nix" "poetry.lock" "pyproject.toml"))
+#+end_src
+
+#+begin_src emacs-lisp :tangle yes
+(defun fasnhi/init-new-project (&optional dir)
+    "Init a directory as a new project"
+    (interactive)
+
+    ;; NOTE: init git repo
+    (require 'magit)
+    (magit-call-git "init" (magit-convert-filename-for-git (expand-file-name dir)))
+
+    (let ((default-directory (or dir default-directory)))
+
+            ;; NOTE: to load the .envrc
+            (require 'envrc)
+            (envrc-allow)
+            (+vterm/toggle nil)
+
+            ;; NOTE: init commit
+            (magit-gitignore-in-gitdir ".envrc")
+            (magit-stage-modified t)
+            (magit-call-git "commit" '("-m" "init"))))
+#+end_src
+
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/clone-from-project (project)
+    "Clone the infrastructure of an existing project to make a new project"
+    (require 'projectile)
+    (if-let ((default-directory project) ;; FIXME
+             (project-type (projectile-project-type project))
+             (project-files-to-copy (symbol-value (intern-soft (concat "fanshi/project-files-to-copy/" (prin1-to-string project-type)))))
+             (new-project-directory (file-name-as-directory (read-directory-name "Create new project at directory: "))))
+        (progn
+          ;; NOTE: make new directory
+          (make-directory new-project-directory t)
+          ;; NOTE: copy files
+          (dolist (file project-files-to-copy)
+            (dired-copy-file (concat project "/" file) new-project-directory 1))
+          ;; NOTE: init project
+          (fasnhi/init-new-project new-project-directory)
+          ;; NOTE: switch to the new project
+          (projectile-switch-project-by-name new-project-directory))
+      (user-error (concat "Unsupported project type to clones: " (prin1-to-string project) " + " (prin1-to-string project-type) " + " (prin1-to-string project-files-to-copy)))))
+#+end_src
+
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/choose-and-clone-for-new-project ()
+    "To choose an existing porject, and clone the infrastructure of it to make a new project"
+    (interactive)
+    (require 'projectile)
+    (if-let ((projectile-current-project-on-switch 'keep)
+             (projects (projectile-relevant-known-projects)))
+        (projectile-completing-read "Clone project: " projects :action #'fanshi/clone-from-project)
+      (user-error "There are no known projects")))
+#+end_src
 
 * Custom
 #+begin_src emacs-lisp :tangle yes
