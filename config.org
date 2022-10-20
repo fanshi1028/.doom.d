@@ -946,25 +946,23 @@
 #+end_src
 
 #+begin_src emacs-lisp :tangle yes
-    "Init a directory as a new project"
-    (interactive)
-
 (defun fanshi/init-new-project (&optional dir)
+  "Init a directory as a new project"
+  (interactive)
+  (let ((default-directory (expand-file-name (or dir default-directory))))
     ;; NOTE: init git repo
     (require 'magit)
-    (magit-call-git "init" (magit-convert-filename-for-git (expand-file-name dir)))
+    (magit-call-git "init" (magit-convert-filename-for-git default-directory))
 
-    (let ((default-directory (or dir default-directory)))
+    ;; NOTE: to load the .envrc
+    (require 'envrc)
+    (envrc-allow)
+    (+vterm/toggle nil)
 
-            ;; NOTE: to load the .envrc
-            (require 'envrc)
-            (envrc-allow)
-            (+vterm/toggle nil)
-
-            ;; NOTE: init commit
-            (magit-gitignore-in-gitdir ".envrc")
-            (magit-stage-modified t)
-            (magit-call-git "commit" '("-m" "init"))))
+    ;; NOTE: init commit
+    (magit-gitignore-in-gitdir ".envrc")
+    (magit-stage-modified t)
+    (magit-call-git "commit" '("-m" "init"))))
 #+end_src
 
 #+begin_src emacs-lisp :tangle yes
