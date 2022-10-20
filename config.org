@@ -935,14 +935,20 @@
 (after! projectile
   (setq projectile-project-name-function (lambda (project-root)
                                            (let ((name (funcall 'projectile-default-project-name project-root)))
-                                             (if (member name '("python" "haskell" "bootstrap"))
+                                             (if (member name '("python" "haskell" "bootstrap" "clojure"))
                                                  (concat (funcall 'projectile-default-project-name (file-name-directory (directory-file-name project-root))) "/" name)
                                                name)))))
 #+end_src
 * Clone project
 #+begin_src emacs-lisp :tangle yes
 ;; NOTE: What file to clone for specify project type
-(setq fanshi/project-files-to-copy/python-poetry '(".envrc" ".gitignore" "flake.lock" "flake.nix" "poetry.lock" "pyproject.toml"))
+;; `generic', the default.
+(setq fanshi/project-files-to-copy/generic '(".envrc" ".gitignore"))
+;; `nix'.
+(setq fanshi/project-files-to-copy/nix-flake  (append fanshi/project-files-to-copy/generic '("flake.lock" "flake.nix")))
+;; I am using the `nix' with `python' and `clojure'.
+(setq fanshi/project-files-to-copy/python-poetry (append fanshi/project-files-to-copy/nix-flake '("poetry.lock" "pyproject.toml")))
+(setq fanshi/project-files-to-copy/clojure-cli (append  fanshi/project-files-to-copy/nix-flake '("deps-lock.json" "deps.edn")))
 #+end_src
 
 #+begin_src emacs-lisp :tangle yes
