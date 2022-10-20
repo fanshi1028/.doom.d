@@ -946,10 +946,10 @@
 #+end_src
 
 #+begin_src emacs-lisp :tangle yes
-(defun fasnhi/init-new-project (&optional dir)
     "Init a directory as a new project"
     (interactive)
 
+(defun fanshi/init-new-project (&optional dir)
     ;; NOTE: init git repo
     (require 'magit)
     (magit-call-git "init" (magit-convert-filename-for-git (expand-file-name dir)))
@@ -982,7 +982,7 @@
           (dolist (file project-files-to-copy)
             (dired-copy-file (concat project "/" file) new-project-directory 1))
           ;; NOTE: init project
-          (fasnhi/init-new-project new-project-directory)
+          (fanshi/init-new-project new-project-directory)
           ;; NOTE: switch to the new project
           (projectile-switch-project-by-name new-project-directory))
       (user-error (concat "Unsupported project type to clones: " (prin1-to-string project) " + " (prin1-to-string project-type) " + " (prin1-to-string project-files-to-copy)))))
