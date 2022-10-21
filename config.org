@@ -941,6 +941,7 @@
 #+end_src
 * Clone project
 #+begin_src emacs-lisp :tangle yes
+(setq fanshi/clonable-project-types `(nix-flake python-poetry clojure-cli))
 ;; NOTE: What file to clone for specify project type
 ;; `generic', the default.
 (setq fanshi/project-files-to-copy/generic '(".envrc" ".gitignore"))
@@ -993,13 +994,14 @@
 
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/choose-and-clone-for-new-project ()
-    "To choose an existing porject, and clone the infrastructure of it to make a new project"
-    (interactive)
-    (require 'projectile)
-    (if-let ((projectile-current-project-on-switch 'keep)
-             (projects (projectile-relevant-known-projects)))
-        (projectile-completing-read "Clone project: " projects :action #'fanshi/clone-from-project)
-      (user-error "There are no known projects")))
+  "To choose an existing porject, and clone the infrastructure of it to make a new project"
+  (interactive )
+  (require 'projectile)
+  (if-let ((project-type (completing-read "Project type to clone: " fanshi/clonable-project-types))
+           (projects (cl-remove-if (lambda (p) (progn (message p) (not (string-equal project-type (projectile-project-type p)))))
+                                    projectile-known-projects)))
+      (projectile-completing-read "Clone project: " projects :action #'fanshi/clone-from-project)
+    (user-error "There are no clonable projects")))
 #+end_src
 
 * Magit Forge
