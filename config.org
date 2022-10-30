@@ -947,7 +947,9 @@
 (setq fanshi/clonable-project-types `(nix-flake python-poetry clojure-cli))
 ;; NOTE: What file to clone for specify project type
 ;; `generic', the default.
-(setq fanshi/project-files-to-copy/generic '(".envrc" ".gitignore"))
+(setq fanshi/project-files-to-copy/generic '(".envrc" ".gitignore"
+                                             ;; NOTE: copy the .direnv cache to speed up direnv for the first time
+                                             ".direnv" ))
 ;; `nix'.
 (setq fanshi/project-files-to-copy/nix-flake  (append fanshi/project-files-to-copy/generic '("flake.lock" "flake.nix")))
 ;; I am using the `nix' with `python' and `clojure'.
