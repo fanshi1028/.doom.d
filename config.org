@@ -968,15 +968,16 @@
     (require 'magit)
     (magit-call-git "init" (magit-convert-filename-for-git default-directory))
 
+    ;; NOTE: init commit
+    (magit-gitignore-in-gitdir "/.envrc")
+    (magit-gitignore-in-gitdir "/.direnv/")
+    (magit-stage-modified t)
+    (magit-call-git "commit" '("-m" "init"))
+
     ;; NOTE: to load the .envrc
     (require 'envrc)
     (envrc-allow)
-    (+vterm/toggle nil)
-
-    ;; NOTE: init commit
-    (magit-gitignore-in-gitdir ".envrc")
-    (magit-stage-modified t)
-    (magit-call-git "commit" '("-m" "init"))))
+    (+vterm/toggle nil)))
 #+end_src
 
 #+begin_src emacs-lisp :tangle yes
