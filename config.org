@@ -944,7 +944,7 @@
 #+end_src
 * Clone project
 #+begin_src emacs-lisp :tangle yes
-(setq fanshi/clonable-project-types `(nix-flake python-poetry clojure-cli))
+(setq fanshi/clonable-project-types `(nix-flake python-poetry clojure-cli haskell-cabal))
 ;; NOTE: What file to clone for specify project type
 ;; `generic', the default.
 (setq fanshi/project-files-to-copy/generic '(".envrc" ".gitignore"
@@ -955,6 +955,8 @@
 ;; I am using the `nix' with `python' and `clojure'.
 (setq fanshi/project-files-to-copy/python-poetry (append fanshi/project-files-to-copy/nix-flake '("poetry.lock" "pyproject.toml")))
 (setq fanshi/project-files-to-copy/clojure-cli (append  fanshi/project-files-to-copy/nix-flake '("deps-lock.json" "deps.edn")))
+;; using haskell.nix for 'haskell'
+(setq fanshi/project-files-to-copy/haskell-cabal (append  fanshi/project-files-to-copy/nix-flake '("nix" "*.cabal" )))
 #+end_src
 
 #+begin_src emacs-lisp :tangle yes
