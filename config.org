@@ -937,7 +937,10 @@
                                            (let ((name (funcall 'projectile-default-project-name project-root)))
                                              (if (member name '("python" "haskell" "bootstrap" "clojure"))
                                                  (concat (funcall 'projectile-default-project-name (file-name-directory (directory-file-name project-root))) "/" name)
-                                               name)))))
+                                               name))))
+  ;; NOTE: higher priority for haskell-cabal (than the nix-flake) for projectile project detection
+  (if-let ((cabal-project (cl-find-if (lambda (project-type-record) (string= (car project-type-record) 'haskell-cabal)) projectile-project-types)))
+             (setq! projectile-project-types (cons cabal-project  projectile-project-types))))
 #+end_src
 * Clone project
 #+begin_src emacs-lisp :tangle yes
