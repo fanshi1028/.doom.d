@@ -973,18 +973,19 @@
 #+end_src
 
 #+begin_src emacs-lisp :tangle yes
-(defun fanshi/clone-from-project (project)
-  "Clone the infrastructure of an existing project to make a new project"
+(defun fanshi/clone-from-project (dir)
+  "Clone the infrastructure of an existing project DIR to make a new project"
   (require 'projectile)
-  (if-let ((project-type (projectile-project-type project))
+  (if-let ((project-type (projectile-project-type dir))
            (project-files-to-copy (symbol-value (intern-soft (concat "fanshi/project-files-to-copy/" (prin1-to-string project-type)))))
            (new-project-directory (file-name-as-directory (read-directory-name "Create new project at directory: "))))
       (progn
         ;; NOTE: make new directory
         (make-directory new-project-directory t)
         ;; NOTE: copy files
-        (dolist (file project-files-to-copy)
-          (dired-copy-file (concat project "/" file) new-project-directory 1))
+        (dolist (wildcards-or-file project-files-to-copy)
+          (dolist (file (projectile-verify-file-wildcard wildcards-or-file dir))
+                  (dired-copy-file file new-project-directory 1)))
         ;; NOTE: init project
         (fanshi/init-new-project new-project-directory)
         ;; NOTE: switch to the new project
