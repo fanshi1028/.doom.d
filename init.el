@@ -94,7 +94,7 @@
        (eval +overlay)                ; run code, run (also, repls)
        ;; gist                           ; interacting with github gists
        (lookup +dictionary +offline)  ; navigate your code and its documentation
-       (lsp +peek)
+       (lsp)
        (magit +forge)      ; a git porcelain for Emacs
        ;;make              ; run make tasks from Emacs
        (pass +auth)              ; password manager for nerds
@@ -105,6 +105,7 @@
        ;;terraform         ; infrastructure as code
        ;;tmux              ; an API for interacting with tmux
        ;;upload            ; map local to remote projects via ssh/ftp
+       tree-sitter
 
        :os
        (:if IS-MAC macos)               ; improve compatibility with macOS
@@ -141,7 +142,7 @@
        (javascript +lsp)    ; all(hope(abandon(ye(who(enter(here))))))
        julia                ; a better, faster MATLAB
        ;;kotlin            ; a better, slicker Java(Script)
-       (latex +cdlatex +fold)    ; writing papers in Emacs has never been so fun
+       (latex +cdlatex +fold +latexmk)    ; writing papers in Emacs has never been so fun
        ;;lean
        ledger         ; an accounting system in Emacs
        ;;lua               ; one-based indices? one-based indices
@@ -149,7 +150,7 @@
        ;;nim               ; python + lisp at the speed of c
        nix                              ; I hereby declare "nix geht mehr!"
        ;;ocaml             ; an objective camel
-       (org +roam2 +pomodoro +present +journal +dragdrop +noter) ; organize your plain life in plain text
+       (org +pomodoro  +journal +dragdrop +noter +pandoc +gnuplot) ; organize your plain life in plain text
        ;;php               ; perl's insecure younger brother
        plantuml                 ; diagrams for confusing people more
        ;;purescript        ; javascript, but functional
@@ -168,13 +169,13 @@
        ;;solidity          ; do you need a blockchain? No.
        ;;swift             ; who asked for emoji variables?
        ;;terra             ; Earth and Moon in alignment for performance.
-       web                              ; the tubes
+       (web +tree-sitter)                              ; the tubes
        yaml                             ; JSON, but readable
        ;;zig               ; C, but simpler
 
        :email
        ;;(mu4e +org +gmail)
-       notmuch
+       ;; notmuch
        ;;(wanderlust +gmail)
 
        :app
