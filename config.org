@@ -174,7 +174,7 @@
          (concat haskell-auto-insert-module-format-string
                  "main :: IO ()\n"
                  "main = do\n"
-                 "  putText \"Surprise Motherfucker!\"")))
+                 "  putStrLn \"Surprise Motherfucker!\"")))
 #+end_src
 
 ** Lsp :LSP:
