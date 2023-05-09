@@ -1044,6 +1044,11 @@
   (puthash 'sqlformat nil format-all--executable-table))
 #+end_src
 
+* Wasp-mode
+#+begin_src emacs-lisp :tangle yes
+(use-package! wasp-mode :mode "\\.wasp\\'")
+#+end_src
+
 * Custom
 #+begin_src emacs-lisp :tangle yes
 ;; Here are some additional functions/macros that could help you configure Doom:
