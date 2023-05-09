@@ -1073,6 +1073,16 @@
   ;; NOTE TEMP: https://github.com/doomemacs/doomemacs/issues/6936
   (puthash 'prettier-astro "prettier" format-all--executable-table))
 #+end_src
+
+* Tailwind
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/tailwind-rainbow-config ()
+    (when (and (stringp buffer-file-name)
+               (string-match "/tailwind\\.config\\.\\(js\\|ts\\)\\'"  buffer-file-name))
+      (rainbow-mode)))
+(add-hook 'rjsx-mode-hook 'fanshi/tailwind-rainbow-config)
+#+end_src
+
 * Custom
 #+begin_src emacs-lisp :tangle yes
 ;; Here are some additional functions/macros that could help you configure Doom:
