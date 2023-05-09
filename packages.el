@@ -49,26 +49,25 @@
 ;; ...Or *all* packages (NOT RECOMMENDED; will likely break things)
 ;(unpin! t)
 
-(package! lpy)
+(package! lpy :pin "fa95b11e1023704510cc7dd2897bf8bcc3027cbb")
 ;; (package! worf)
-(package! dired-narrow)
-(package! org-super-agenda)
-(package! org-web-tools)
+(package! dired-narrow :pin "1596e516835099b96cb65d1dc372cfbdff6aea96")
+(package! org-super-agenda :pin "f4f528985397c833c870967884b013cf91a1da4a")
+(package! org-web-tools :pin "b5b7fee01eaac845ca80240f3a2d22d426179ce3")
 ;; (package! citeproc-org)
 ;; (package! org-roam-bibtex)
 ;; (package! bibtex-completion)
-(package! gif-screencast)
-(package! nov)
+(package! gif-screencast :pin "adec408e6adab2e8e057fe0ad828749f473bfb83")
+
+(package! nov :pin "58c35e677e11f5c04a702b42ac753c80c8955089")
 ;; (package! vuiet)
 ;; (package! calfw)
 (package! keycast)
 (package! jest)
 ;; (package! sbt-mode :ignore t)
 
-(package! ammonite-term-repl)
-
-
-
+;; (package! ammonite-term-repl)
+(package! emacsql :pin "2e6056df110e76da4eabb413f8781c4f1edddf20")
 
 ;; No org-babel-execute function for ledger!
 ;; NOTE: https://github.com/purcell/emacs.d/issues/791
