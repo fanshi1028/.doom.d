@@ -1057,6 +1057,22 @@
          org-pomodoro-long-break-length 25
          ))
 #+end_src
+
+* Astro
+#+begin_src emacs-lisp :tangle yes
+(after! format-all
+  (add-to-list 'auto-mode-alist '("\\.astro\\'" .
+                                  (lambda ()
+                                   (rjsx-mode)
+                                   (lsp!)
+                                   (setq-local +format-with-lsp nil
+                                               +format-with 'prettier-astro
+                                               ;; NOTE: class instead of className
+                                               emmet-jsx-major-modes (remove 'rjsx-mode emmet-jsx-major-modes)))))
+  (set-formatter! 'prettier-astro '("prettier" "--parser=astro" ("--plugin-search-dir=%s" (projectile-project-root))) :modes '((rxjs-mode ".astro")))
+  ;; NOTE TEMP: https://github.com/doomemacs/doomemacs/issues/6936
+  (puthash 'prettier-astro "prettier" format-all--executable-table))
+#+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
 ;; Here are some additional functions/macros that could help you configure Doom:
