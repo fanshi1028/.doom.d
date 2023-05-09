@@ -62,8 +62,8 @@
 (package! nov :pin "58c35e677e11f5c04a702b42ac753c80c8955089")
 ;; (package! vuiet)
 ;; (package! calfw)
-(package! keycast)
-(package! jest)
+;; (package! keycast)
+;; (package! jest)
 ;; (package! sbt-mode :ignore t)
 
 ;; (package! ammonite-term-repl)

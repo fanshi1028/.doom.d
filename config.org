@@ -875,7 +875,7 @@
 #+end_src
 
 * Keycast
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (use-package! keycast
   :defer
   :config (define-minor-mode keycast-mode
@@ -903,7 +903,7 @@
 #+end_src
 
 * Jest
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (use-package! jest :hook (js2-mode . jest-minor-mode))
 #+end_src
 
@@ -914,7 +914,7 @@
 #+end_src
 
 ** ammonite-term-repl
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (use-package! ammonite-term-repl
   :after scala-mode
   :config (progn
