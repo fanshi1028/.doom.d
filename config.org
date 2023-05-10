@@ -188,7 +188,7 @@
 #+end_src
 ** Cabal
 #+begin_src emacs-lisp :tangle yes
-(after! haskell-cabal
+(after! (:and haskell-cabal format-all)
   (set-formatter! 'cabal-fmt "cabal-fmt" :modes 'haskell-cabal-mode)
   ;; NOTE TEMP: https://github.com/doomemacs/doomemacs/issues/6936
   (puthash 'cabal-fmt "cabal-fmt" format-all--executable-table))
