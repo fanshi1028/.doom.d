@@ -107,3 +107,5 @@
 ;;                                version (cdr (doom-call-process "git" "rev-parse" "--short" "HEAD")))
 ;;                        "(provide 'org-version)\n"))))
 ;;   :pin "971eb6885ec996c923e955730df3bafbdc244e54")
+
+(package! lsp-tailwindcss :pin "b36304210421160477a4ab453fa272fc411ce297")

@@ -1081,6 +1081,12 @@
                (string-match "/tailwind\\.config\\.\\(js\\|ts\\)\\'"  buffer-file-name))
       (rainbow-mode)))
 (add-hook 'rjsx-mode-hook 'fanshi/tailwind-rainbow-config)
+(use-package! lsp-tailwindcss :init (setq lsp-tailwindcss-add-on-mode t))
+(after! lsp-tailwindcss
+  (if-let (client (gethash 'tailwindcss lsp-clients))
+      (setf (lsp--client-new-connection client) (lsp-stdio-connection '("tailwindcss-language-server" "--stdio")))
+      (lsp-register-client client))
+  (lsp-dependency 'tailwindcss-language-server '((:system "tailwindcss-language-server"))))
 #+end_src
 
 * Custom
