@@ -25,10 +25,13 @@
 ;; font string. You generally only need these two:
 ;; (setq doom-font (font-spec :family "monospace" :size 12 :weight 'semi-light)
 ;;       doom-variable-pitch-font (font-spec :family "sans" :size 13))
-(setq doom-font (font-spec :family "Sarasa Fixed HC" :size 12 :weight 'light)
-      doom-variable-pitch-font (font-spec :family "Sarasa Fixed HC" :size 13 :weight 'light)
-      doom-big-font nil
-      )
+(setq
+ doom-font (font-spec :family "Sarasa Mono HC" :size 12 :weight 'medium)
+ doom-variable-pitch-font (font-spec :family "Sarasa UI HC" :size 12 :weight 'medium))
+#+end_src
+** Nerd
+#+begin_src emacs-lisp :tangle yes
+(after! nerd-icons (setq! nerd-icons-font-names '("SymbolsNerdFontMono-Regular.ttf")))
 #+end_src
 
 * Theme
