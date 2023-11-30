@@ -846,14 +846,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   (map! :map dired-mode-map :n "/" #'dired-narrow-fuzzy))
 #+end_src
 
-** Bug temp fix
-- why :: ls does not support --dired; see ‘dired-use-ls-dired’ for more details.
-- ref :: https://stackoverflow.com/questions/25125200/emacs-error-ls-does-not-support-dired
-#+begin_src emacs-lisp :tangle yes
-(after! dired (setq dired-use-ls-dired nil))
-#+end_src
-
-* Python :Python:
+* Python
 ** Lpy
 [[file:/nix/store/0wgjp2lz4w3dihbsqhilaibrfp7wja47-emacs-pgtkgcc-20220225.0/share/emacs/29.0.50/lisp/progmodes/python.el.gz::cl-letf (((symbol-function 'python-shell-send-string][<ref>]]
 #+begin_src emacs-lisp :tangle yes
