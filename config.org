@@ -826,11 +826,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   :commands (org-web-tools--org-link-for-url))
 #+end_src
 
-* Langtool
-#+begin_src emacs-lisp :tangle no
-(after! langtool (setq! langtool-bin "languagetool-commandline"))
-#+end_src
-
 * Plantuml
 #+begin_src emacs-lisp :tangle yes
 (after! plantuml-mode (setq! plantuml-default-exec-mode 'executable))
@@ -913,12 +908,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   (add-to-list 'global-mode-string '("" mode-line-keycast)))
 #+end_src
 
-* Calendar :No:
-#+begin_src emacs-lisp :tangle no
-;; (use-package! calfw)
-#+end_src
-
-* Pdf-view :Pdf:
+* Pdf-view
 #+begin_src emacs-lisp :tangle yes
 (after! pdf-view
   (setq! pdf-tools-installer-os "nixos")
@@ -929,12 +919,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   )
 #+end_src
 
-* Jest
-#+begin_src emacs-lisp :tangle no
-(use-package! jest :hook (js2-mode . jest-minor-mode))
-#+end_src
-
-* Scala :Scala:
+* Scala
 #+begin_src emacs-lisp :tangle yes
 (push '("\\.sc\\'" . scala-mode) auto-mode-alist)
 (use-package! sbt-mode :disabled)
