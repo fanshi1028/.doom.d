@@ -886,7 +886,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+end_src
 
 * Gif screencast
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (use-package! gif-screencast
   :commands (gif-screencast-start-or-stop)
   :init (setq gif-screencast-args '("-x")

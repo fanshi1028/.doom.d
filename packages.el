@@ -57,8 +57,7 @@
 ;; (package! citeproc-org)
 ;; (package! org-roam-bibtex)
 ;; (package! bibtex-completion)
-(package! gif-screencast :pin "adec408e6adab2e8e057fe0ad828749f473bfb83")
-
+;; (package! gif-screencast :pin "adec408e6adab2e8e057fe0ad828749f473bfb83")
 (package! nov :pin "58c35e677e11f5c04a702b42ac753c80c8955089")
 ;; (package! vuiet)
 ;; (package! calfw)
