@@ -11,7 +11,7 @@
       user-mail-address "jackychany321@gmail.com")
 #+end_src
 
-* Font
+* Fonts
 #+begin_src emacs-lisp :tangle yes
 ;; Doom exposes five (optional) variables for controlling fonts in Doom. Here
 ;; are the three important ones:
@@ -49,14 +49,14 @@
   `(setq ,var (auth-source-pass-get (symbol-name ',var) "OrgConfig")))
 #+end_src
 
-* Org directory :OrgMode:
+* Org Directory
 #+begin_src emacs-lisp :tangle yes
 ;; If you use `org' and don't want your org files in the default location below,
 ;; change `org-directory'. It must be set before org loads!
 (setq! org-directory "~/org")
 #+end_src
 
-* Misc effects
+* Misc Effects
 #+begin_src emacs-lisp :tangle yes
 ;; This determines the style of line numbers in effect. If set to `nil', line
 ;; numbers are disabled. For relative line numbers, set this to `relative'.
@@ -103,19 +103,19 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 (global-so-long-mode -1)
 #+end_src
 
-* Org scratch buffer :OrgMode:
+* Org Scratch Buffer
 #+begin_src emacs-lisp :tangle yes
 ;; scratch buffer default `org-mode'
 (setq! doom-scratch-initial-major-mode 'org-mode)
 #+end_src
 
-* Vterm use fish :Vterm:
+* Vterm Use Fish
 #+begin_src emacs-lisp :tangle yes
 ;; use 'vterm' with 'fish'
 (after! vterm (setq! vterm-shell "~/.nix-profile/bin/fish"))
 #+end_src
 
-* Auto format modes
+* Auto Format Modes
 #+begin_src emacs-lisp :tangle yes
 ;; (setq! +format-on-save-enabled-modes '(haskell-mode nix-mode haskell-cabal-mode sql-mode ))
 (setq! +format-on-save-enabled-modes
@@ -131,8 +131,8 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   (advice-add 'format-all-buffer--from-hook :around #'envrc-propagate-environment))
 #+end_src
 
-* Org babel :OrgBabel:
-** Typescript :TypeScript:
+* Org Babel
+** Typescript
 - ref :: https://www.reddit.com/r/emacs/comments/b7rsxu/behold_orgbabelexecutetypescript/
 #+begin_src emacs-lisp :tangle yes
 (defun org-babel-execute:typescript (body params)
@@ -193,7 +193,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
                                            (apply f args))))
 #+end_src
 
-* Haskell :Haskell:
+* Haskell
 ** Template
 #+begin_src emacs-lisp :tangle yes
 (after! haskell-mode
@@ -204,7 +204,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
                  "  putStrLn \"Surprise Motherfucker!\"")))
 #+end_src
 
-** Lsp :LSP:
+** LSP
 #+begin_src emacs-lisp :tangle yes
 (after! lsp-haskell
   (setq! lsp-haskell-server-path "haskell-language-server")
@@ -221,8 +221,8 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   (puthash 'cabal-fmt "cabal-fmt" format-all--executable-table))
 #+end_src
 
-* LSP :LSP:
-** tweak file watchers
+* LSP
+** Tweak File Watchers
 *** don't watch nix materializtion and golden files for haskell
 #+begin_src emacs-lisp :tangle yes
 (after! lsp-mode
@@ -235,7 +235,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
                                                       "[/\\\\]\\.postgres\\'"))))
 #+end_src
 
-*** don't watch gitignore :No:
+*** don't watch gitignore
 - https://github.com/emacs-lsp/lsp-mode/issues/713#issuecomment-985653873
 - edit :: bad for performance, emacs stuck to wait for the command to run, may be make it async? disable for now.
 #+begin_src emacs-lisp :tangle no
@@ -286,13 +286,16 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
          elfeed-search-filter "+unread @1-month-ago"))
 #+end_src
 
-* Org :OrgMode:
-** Simple org configs
+* Org
+** Archive Location
+#+begin_src emacs-lisp :tangle yes
+(after! org (setq! org-archive-location "archive/%s_archive::"))
+#+end_src
+** Simple Org Configs
+- ref :: https://explog.in/notes/writingsetup.html
 #+begin_src emacs-lisp :tangle yes
 (after! org
-  (setq! org-archive-location "archive/%s_archive::"
-         org-hide-emphasis-markers t
-         ;; https://explog.in/notes/writingsetup.html
+  (setq! org-hide-emphasis-markers t
          ;; org-adapt-indentation nil
          ;; org-indent-indentation-per-level 1
          org-complete-tags-always-offer-all-agenda-tags t
@@ -310,12 +313,12 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 ;; org-priority-faces
 #+end_src
 
-** Org-crypt :OrgCrypt:
+** Org Crypt
 #+begin_src emacs-lisp :tangle yes
 (after! org (fanshi/setq-secret org-crypt-key))
 #+end_src
 
-** Todo keywords
+** Todo Keywords
 #+begin_src emacs-lisp :tangle yes
 (after! org
   (setq! org-todo-keywords '((sequence "TODO(t!)"
@@ -351,7 +354,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
             '("RECIPE" org-todo)))
 #+end_src
 
-** Roam :OrgRoam:
+** Roam
 #+begin_src emacs-lisp :tangle yes
 (after! org-roam (setq! org-roam-directory (concat org-directory "roam/")))
 #+end_src
@@ -440,7 +443,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 ;;   :config
 ;;   (citeproc-org-setup))
 #+end_src
-** Templates :OrgCaptureTemplate:
+** Templates
 *** Default templates tweak
 **** Remove unwanted
 #+begin_src emacs-lisp :tangle yes
@@ -455,7 +458,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
           org-capture-templates)))
 #+end_src
 
-**** Clock-in and clock-resume behaviour
+*** Clock-In and Clock-Resume Behaviours
 #+begin_src emacs-lisp :tangle yes
 (after! org-capture
   (setq! org-capture-templates
@@ -464,8 +467,8 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
           org-capture-templates)))
 #+end_src
 
-*** Add my templates (result in reverse order)
-**** Interrupt event
+*** Add Mine
+**** Interrupt Event
 #+begin_src emacs-lisp :tangle yes
 (after! org-capture
   (defun fanshi/org-journal-find-location ()
@@ -489,7 +492,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
             '("I" "Interrupt")))
 #+end_src
 
-**** Sudden clocked tasks
+**** Sudden clocked Tasks
 #+begin_src emacs-lisp :tangle yes
 (after! org-capture
   (pushnew! org-capture-templates
@@ -510,7 +513,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
             '("c" "start clock for")))
 #+end_src
 
-**** link quick capture
+**** Link Instant Capture
 #+begin_src emacs-lisp :tangle yes
 (after! org-capture
   (pushnew! org-capture-templates
@@ -524,7 +527,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
                 "\n")
               :immediate-finish t)))
 #+end_src
-
 **** Inbox
 #+begin_src emacs-lisp :tangle yes
 (after! org-capture
@@ -541,7 +543,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
               :clock-in t :clock-resume t)))
 #+end_src
 
-*** Spare template not in use :No:
+*** Spare template not in use
 #+begin_src emacs-lisp :tangle no
 (after! org-capture
   (pushnew! org-capture-templates
@@ -620,7 +622,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 ;; org-refile-allow-creating-parent-nodes "confirm"
 #+end_src
 
-** Noter :OrgNoter:
+** Noter
 #+begin_src emacs-lisp :tangle yes
 (after! org-noter
   ;; (defun fanshi/noter-capture-note ()
@@ -633,8 +635,8 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
          org-noter-doc-split-fraction '(0.57 0.43)))
 #+end_src
 
-** Agenda :OrgAgenda:
-*** helper
+** Agenda
+*** fanshi/make-line
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/make-line () "" (concat "\n" (make-string (window-width) 9472)))
 #+end_src
@@ -756,17 +758,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
          (replace-regexp-in-string "\\\\\\.org" "\\\\.org\\\\(\\\\.gpg\\\\)?" org-agenda-file-regexp)))
 #+end_src
 
-***** setup
-****** fanshi :No:
-#+begin_src emacs-lisp :tangle no
-(after! org
-  (setq! fanshi/my-alltodo (cons '(:discard (:tag "AgnesNgHabit")) fanshi/alltodo)
-         fanshi/my-agenda (cons '(:discard (:tag "AgnesNgHabit")) fanshi/agenda)
-         agnes/alltodo (cons '(:discard (:not (:tag "AgnesNg"))) fanshi/alltodo)
-         agnes/agenda (cons '(:discard (:not (:tag "AgnesNg"))) fanshi/agenda)))
-#+end_src
-
-****** use package org-super-agenda
+***** Use Org Super Agenda
 #+begin_src emacs-lisp :tangle yes
 (use-package! org-super-agenda
   :after org-agenda
@@ -819,7 +811,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   (org-super-agenda-mode))
 #+end_src
 
-** Web tool :OrgWebTool:
+** Web Tool
 #+begin_src emacs-lisp :tangle yes
 (use-package! org-web-tools
   ;; :after-call org-capture
@@ -837,8 +829,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 (after! hl-todo (pushnew! hl-todo-keyword-faces '("TEMP" 'warning 'bold)))
 #+end_src
 
-* Dired
-** Narrow
+* Use Dired Narrow
 #+begin_src emacs-lisp :tangle yes
 (use-package! dired-narrow
   :commands (dired-narrow-fuzzy)
@@ -846,9 +837,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   (map! :map dired-mode-map :n "/" #'dired-narrow-fuzzy))
 #+end_src
 
-* Python
-** Lpy
-[[file:/nix/store/0wgjp2lz4w3dihbsqhilaibrfp7wja47-emacs-pgtkgcc-20220225.0/share/emacs/29.0.50/lisp/progmodes/python.el.gz::cl-letf (((symbol-function 'python-shell-send-string][<ref>]]
+* Use Lpy For Python
 #+begin_src emacs-lisp :tangle yes
 ;; NOTE: https://github.com/abo-abo/lispy/issues/509
 (after! (lispy python lpy)
@@ -867,13 +856,13 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 ;; NOTE: https://github.com/abo-abo/lispy/issues/509
 #+end_src
 
-* Lisp
-** Lispy
 #+begin_src emacs-lisp :tangle yes
-(after! lispy (setq lispy-compat '(edebug cider)))
+* Lispy For Cider
+(use-package! lispy
+  :init (setq lispy-compat '(edebug cider)))
 #+end_src
 
-* Gif screencast
+* Use Gif Screencast
 #+begin_src emacs-lisp :tangle no
 (use-package! gif-screencast
   :commands (gif-screencast-start-or-stop)
@@ -884,12 +873,12 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   :bind ("<f12>" . gif-screencast-start-or-stop))
 #+end_src
 
-* Nov mode
+* Use Nov Mode
 #+begin_src emacs-lisp :tangle yes
 (use-package! nov :mode ("\\.\\(epub\\|mobi\\)\\'" . nov-mode))
 #+end_src
 
-* Keycast
+* Use Keycast
 #+begin_src emacs-lisp :tangle no
 (use-package! keycast
   :defer
@@ -901,7 +890,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   (add-to-list 'global-mode-string '("" mode-line-keycast)))
 #+end_src
 
-* Pdf-view
+* PDF View
 #+begin_src emacs-lisp :tangle yes
 (after! pdf-view
   (setq! pdf-tools-installer-os "nixos")
@@ -912,13 +901,13 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   )
 #+end_src
 
-* Scala
+* Use Scala
 #+begin_src emacs-lisp :tangle yes
 (push '("\\.sc\\'" . scala-mode) auto-mode-alist)
 (use-package! sbt-mode :disabled)
 #+end_src
 
-** ammonite-term-repl
+** Use Ammonite Term Repl
 #+begin_src emacs-lisp :tangle no
 (use-package! ammonite-term-repl
   :after scala-mode
@@ -928,7 +917,8 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
             ;; (setq ammonite-term-repl-program-args '("-s" "--no-default-predef"))
             (set-repl-handler! 'scala-mode #'run-ammonite :persist t)))
 #+end_src
-* No dashboard banner
+
+* No Dashboard Banner
 #+begin_src elisp :tangle yes
 (setq! +doom-dashboard-ascii-banner-fn #'(lambda ()))
 (setq! +doom-dashboard-menu-sections '())
@@ -952,7 +942,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 (after! sendmail (setq! sendmail-program (executable-find "msmtp")))
 #+END_SRC
 
-* Projectile :Projectile:
+* Projectile
 #+begin_src emacs-lisp :tangle yes
 (after! projectile
   (setq projectile-project-name-function (lambda (project-root)
@@ -1049,7 +1039,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   (puthash 'sqlformat nil format-all--executable-table))
 #+end_src
 
-* Wasp-mode
+* Wasp Mode
 #+begin_src emacs-lisp :tangle yes
 (use-package! wasp-mode :mode "\\.wasp\\'")
 #+end_src
