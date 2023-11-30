@@ -827,7 +827,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+end_src
 
 * Langtool
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! langtool (setq! langtool-bin "languagetool-commandline"))
 #+end_src
 
