@@ -243,8 +243,8 @@
               :around #'++lsp--path-is-watchable-directory-a))
 #+end_src
 
-* Elfeed :Elfeed:
-#+begin_src emacs-lisp :tangle yes
+* Elfeed
+#+begin_src emacs-lisp :tangle no
 (after! elfeed
   (setq! elfeed-feeds
          '(("http://feeds.feedburner.com/incodeblog" blog haskell)
@@ -949,13 +949,13 @@
   (auth-source-pass-enable))
 #+end_src
 
-* Email :Email:
-#+BEGIN_SRC elisp :tangle yes
+* Email
+#+BEGIN_SRC elisp :tangle no
 (after! notmuch (setq! +notmuch-sync-backend 'mbsync))
 ;; (setq +notmuch-sync-backend 'mbsync-xdg)
 #+END_SRC
 
-#+BEGIN_SRC elisp :tangle yes
+#+BEGIN_SRC elisp :tangle no
 (after! sendmail (setq! sendmail-program (executable-find "msmtp")))
 #+END_SRC
 
