@@ -565,7 +565,7 @@
 #+end_src
 
 ** Tailwind
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (defun fanshi/tailwind-rainbow-config ()
     (when (and (stringp buffer-file-name)
                (string-match "/tailwind\\.config\\.\\(js\\|ts\\)\\'"  buffer-file-name))
@@ -580,7 +580,7 @@
 #+end_src
 
 ** Lispy For Cider
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (use-package! lispy
   :init (setq lispy-compat '(edebug cider)))
 #+end_src

@@ -65,7 +65,7 @@
 ;; (package! sbt-mode :ignore t)
 
 ;; (package! ammonite-term-repl)
-(package! wasp-mode :pin "76198cdd5f0ece3770c3a586115caea3ea613169")
+;; (package! wasp-mode :pin "76198cdd5f0ece3770c3a586115caea3ea613169")
 (package! emacsql :pin "2e6056df110e76da4eabb413f8781c4f1edddf20")
 
 ;; No org-babel-execute function for ledger!
@@ -76,4 +76,4 @@
 ;;            :repo "emacsmirror/org-contrib")
 ;;   :pin "17f3c514356430448627104e015f155008b45575")
 
-(package! lsp-tailwindcss :pin "b36304210421160477a4ab453fa272fc411ce297")
+;; (package! lsp-tailwindcss :pin "b36304210421160477a4ab453fa272fc411ce297")
