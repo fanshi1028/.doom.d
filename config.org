@@ -449,30 +449,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+end_src
 
 *** Add Mine
-**** Interrupt Event
-#+begin_src emacs-lisp :tangle yes
-(after! org-capture
-  (defun fanshi/org-journal-find-location ()
-    ;; Open today's journal, but specify a non-nil prefix argument in order to
-    ;; inhibit inserting the heading; org-capture will insert the heading.
-    (org-journal-new-entry t)
-    ;; Position point on the journal's top-level heading so that org-capture
-    ;; will add the new entry as a child entry.
-    (goto-char (point-min)))
-  (pushnew! org-capture-templates
-            '("Im" "Meeting" entry
-              ;; (file "inbox.org")
-              (function fanshi/org-journal-find-location)
-               ;; "* MEETING with %? :MEETING:\n%U" :clock-in t :clock-resume t)
-               "* %(format-time-string  org-journal-time-format)with %? :Meeting:\n" :clock-in t :clock-resume t)
-            '("Ip" "Phone call" entry
-              ;; (file "inbox.org")
-              (function fanshi/org-journal-find-location)
-               ;; "* PHONE %? :PHONE:\n%U" :clock-in t :clock-resume t)
-               "* %(format-time-string  org-journal-time-format)%? :@Phone:\n" :clock-in t :clock-resume t)
-            '("I" "Interrupt")))
-#+end_src
-
 **** Sudden clocked Tasks
 #+begin_src emacs-lisp :tangle yes
 (after! org-capture
@@ -522,21 +498,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
                   " %a")
                 "\n")
               :clock-in t :clock-resume t)))
-#+end_src
-
-*** Spare template not in use
-#+begin_src emacs-lisp :tangle no
-(after! org-capture
-  (pushnew! org-capture-templates
-            ;; TODO set up org protocol
-            '("c" "org-protocol-capture" entry (file ,(concat org-directory "inbox.org"))
-             "* TODO [[%:link][%:description]]\n\n %i" :immediate-finish t)
-            ;; TODO set up email
-            '("e" "email" entry (file+headline ,(concat org-directory "emails.org") "Emails")
-             "* TODO [#A] Reply: %a :@home:@school:" :immediate-finish t)
-            ;; TODO set up meeting cpature
-            '("m" "meeting" entry (file "inbox.org")
-             "* MEETING with %^{who}\n:PROPERTIES:\n:CREATED: %U\n:END:\n %i%?\n %U")))
 #+end_src
 
 ** Org trigger hook for auto-refile during Todo keywords changes
