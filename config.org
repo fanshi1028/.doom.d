@@ -54,6 +54,10 @@
 (after! hl-todo (pushnew! hl-todo-keyword-faces '("TEMP" 'warning 'bold)))
 #+end_src
 
+** Pass
+#+begin_src elisp :tangle yes
+(after! pass (setq! pass-show-keybindings nil))
+#+end_src
 ** Others
 #+begin_src emacs-lisp :tangle yes
 ;; This determines the style of line numbers in effect. If set to `nil', line
@@ -447,6 +451,100 @@
   :commands (org-web-tools--org-link-for-url))
 #+end_src
 
+** Pomodoro
+#+begin_src emacs-lisp :tangle yes
+(after! org-pomodoro
+  (setq! org-pomodoro-length 45
+         org-pomodoro-short-break-length 5
+         org-pomodoro-long-break-length 25))
+#+end_src
+
+* Projectile
+#+begin_src emacs-lisp :tangle yes
+(after! projectile
+  (setq projectile-project-name-function (lambda (project-root)
+                                           (let ((name (funcall 'projectile-default-project-name project-root)))
+                                             (if (member name '("python" "haskell" "bootstrap" "clojure"))
+                                                 (concat (funcall 'projectile-default-project-name (file-name-directory (directory-file-name project-root))) "/" name)
+                                               name))))
+  ;; NOTE: higher priority for haskell-cabal (than the nix-flake) for projectile project detection
+  (if-let ((cabal-project (cl-find-if (lambda (project-type-record) (string= (car project-type-record) 'haskell-cabal)) projectile-project-types)))
+             (setq! projectile-project-types (cons cabal-project  projectile-project-types))))
+#+end_src
+* Clone projects
+** clonable project configs
+#+begin_src emacs-lisp :tangle yes
+(setq fanshi/clonable-project-types `(nix-flake python-poetry clojure-cli haskell-cabal))
+;; NOTE: What file to clone for specify project type
+;; `generic', the default.
+(setq fanshi/project-files-to-copy/generic '(".envrc" ".gitignore"
+                                             ;; NOTE: copy the .direnv cache to speed up direnv for the first time
+                                             ".direnv" ))
+;; `nix'.
+(setq fanshi/project-files-to-copy/nix-flake  (append fanshi/project-files-to-copy/generic '("flake.lock" "flake.nix")))
+;; I am using the `nix' with `python' and `clojure'.
+(setq fanshi/project-files-to-copy/python-poetry (append fanshi/project-files-to-copy/nix-flake '("poetry.lock" "pyproject.toml")))
+(setq fanshi/project-files-to-copy/clojure-cli (append  fanshi/project-files-to-copy/nix-flake '("deps-lock.json" "deps.edn")))
+;; using haskell.nix for 'haskell'
+(setq fanshi/project-files-to-copy/haskell-cabal (append  fanshi/project-files-to-copy/nix-flake '("nix" "*.cabal" )))
+#+end_src
+
+** fanshi/init-new-project
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/init-new-project (&optional dir)
+  "Init a directory as a new project"
+  (interactive)
+  (let ((default-directory (expand-file-name (or dir default-directory))))
+    ;; NOTE: init git repo
+    (require 'magit)
+    (magit-call-git "init" (magit-convert-filename-for-git default-directory))
+
+    ;; NOTE: init commit
+    (magit-gitignore-in-gitdir "/.envrc")
+    (magit-gitignore-in-gitdir "/.direnv/")
+    (magit-stage-modified t)
+    (magit-call-git "commit" '("-m" "init"))
+
+    ;; NOTE: to load the .envrc
+    (require 'envrc)
+    (envrc-allow)
+    (+vterm/toggle nil)))
+#+end_src
+
+** fanshi/clone-from-project
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/clone-from-project (dir)
+  "Clone the infrastructure of an existing project DIR to make a new project"
+  (require 'projectile)
+  (if-let ((project-type (projectile-project-type dir))
+           (project-files-to-copy (symbol-value (intern-soft (concat "fanshi/project-files-to-copy/" (prin1-to-string project-type)))))
+           (new-project-directory (file-name-as-directory (read-directory-name "Create new project at directory: "))))
+      (progn
+        ;; NOTE: make new directory
+        (make-directory new-project-directory t)
+        ;; NOTE: copy files
+        (dolist (wildcards-or-file project-files-to-copy)
+          (dolist (file (projectile-verify-file-wildcard wildcards-or-file dir))
+                  (dired-copy-file file new-project-directory 1)))
+        ;; NOTE: init project
+        (fanshi/init-new-project new-project-directory)
+        ;; NOTE: switch to the new project
+        (projectile-switch-project-by-name new-project-directory))
+    (user-error (concat "Unsupported project type to clones: " (prin1-to-string project) " + " (prin1-to-string project-type) " + " (prin1-to-string project-files-to-copy)))))
+#+end_src
+** fanshi/choose-and-clone-for-new-project
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/choose-and-clone-for-new-project ()
+  "To choose an existing porject, and clone the infrastructure of it to make a new project"
+  (interactive )
+  (require 'projectile)
+  (if-let ((project-type (completing-read "Project type to clone: " fanshi/clonable-project-types))
+           (projects (cl-remove-if (lambda (p) (progn (message p) (not (string-equal project-type (projectile-project-type p)))))
+                                    projectile-known-projects)))
+      (projectile-completing-read "Clone project: " projects :action #'fanshi/clone-from-project)
+    (user-error "There are no clonable projects")))
+#+end_src
+
 * Langs
 ** Haskell
 *** Template
@@ -606,53 +704,6 @@
 (use-package! wasp-mode :mode "\\.wasp\\'")
 #+end_src
 
-* fanshi/ediff-init-and-example
-- ref ::  https://github.com/doomemacs/doomemacs/issues/581#issuecomment-645448095
-#+begin_src emacs-lisp :tangle yes
-(defun fanshi/ediff-init-and-example ()
-  "ediff the current `init.el' with the example in doom-emacs-dir"
-  (interactive)
-  (ediff-files (concat doom-private-dir "init.el")
-               (concat doom-emacs-dir "templates/init.example.el")))
-(define-key! help-map
-  "di"   #'fanshi/ediff-init-and-example
-  )
-#+end_src
-* Not so long
-*** Problem
-The so-long.el is for text files with long lines (think of e.g. minified JavaScript or CSS libs).
-No point to enable it globally and moreover it broke some ux for me like the following:
-#+begin_src emacs-lisp :tangle no
-(helpful-callable #'org-toggle-link-display)
-#+end_src
-Because so-long-mode triggered on the source elisp file, the "coding: utf-8" local variable doesn't work and hence asking me for the coding system.
-*** So...
-#+begin_src emacs-lisp :tangle yes
-(global-so-long-mode -1)
-#+end_src
-
-* Vterm Use Fish
-#+begin_src emacs-lisp :tangle yes
-;; use 'vterm' with 'fish'
-(after! vterm (setq! vterm-shell "~/.nix-profile/bin/fish"))
-#+end_src
-
-* Auto Format Modes
-#+begin_src emacs-lisp :tangle yes
-;; (setq! +format-on-save-enabled-modes '(haskell-mode nix-mode haskell-cabal-mode sql-mode ))
-(setq! +format-on-save-enabled-modes
-       '(not emacs-lisp-mode  ; elisp's mechanisms are good enough
-            tex-mode         ; latexindent is broken
-            latex-mode
-            org-msg-edit-mode))  ; doesn't need a formatter
-;; NOTE: https://github.com/doomemacs/doomemacs/issues/6936#issuecomment-1366030502
-(after! format-all (advice-remove 'format-all-buffer--from-hook '+format--all-buffer-from-hook-a))
-(after! (:and format-all envrc)
-  ;; TEMP FIXME https://github.com/doomemacs/doomemacs/issues/3900
-  (advice-add 'format-all-buffer :around #'envrc-propagate-environment)
-  (advice-add 'format-all-buffer--from-hook :around #'envrc-propagate-environment))
-#+end_src
-
 * LSP
 ** Tweak File Watchers
 *** don't watch nix materializtion and golden files for haskell
@@ -690,6 +741,85 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
               :around #'++lsp--path-is-watchable-directory-a))
 #+end_src
 
+* PDF View
+#+begin_src emacs-lisp :tangle yes
+(after! pdf-view
+  (setq! pdf-tools-installer-os "nixos")
+  (setq! pdf-view-midnight-colors '("#ABB2BF" . "#282C35"))
+  (add-hook! pdf-tools-enabled #'pdf-view-midnight-minor-mode)
+  ;; (add-hook! pdf-tools-enabled #'hide-mode-line-mode)
+  )
+#+end_src
+
+* Vterm Use Fish
+#+begin_src emacs-lisp :tangle yes
+;; use 'vterm' with 'fish'
+(after! vterm (setq! vterm-shell "~/.nix-profile/bin/fish"))
+#+end_src
+
+* Not so long
+*** Problem
+The so-long.el is for text files with long lines (think of e.g. minified JavaScript or CSS libs).
+No point to enable it globally and moreover it broke some ux for me like the following:
+#+begin_src emacs-lisp :tangle no
+(helpful-callable #'org-toggle-link-display)
+#+end_src
+Because so-long-mode triggered on the source elisp file, the "coding: utf-8" local variable doesn't work and hence asking me for the coding system.
+*** So...
+#+begin_src emacs-lisp :tangle yes
+(global-so-long-mode -1)
+#+end_src
+* Use Dired Narrow
+#+begin_src emacs-lisp :tangle yes
+(use-package! dired-narrow
+  :commands (dired-narrow-fuzzy)
+  :init
+  (map! :map dired-mode-map :n "/" #'dired-narrow-fuzzy))
+#+end_src
+
+* Auto Format Modes
+#+begin_src emacs-lisp :tangle yes
+;; (setq! +format-on-save-enabled-modes '(haskell-mode nix-mode haskell-cabal-mode sql-mode ))
+(setq! +format-on-save-enabled-modes
+       '(not emacs-lisp-mode  ; elisp's mechanisms are good enough
+            tex-mode         ; latexindent is broken
+            latex-mode
+            org-msg-edit-mode))  ; doesn't need a formatter
+;; NOTE: https://github.com/doomemacs/doomemacs/issues/6936#issuecomment-1366030502
+(after! format-all (advice-remove 'format-all-buffer--from-hook '+format--all-buffer-from-hook-a))
+(after! (:and format-all envrc)
+  ;; TEMP FIXME https://github.com/doomemacs/doomemacs/issues/3900
+  (advice-add 'format-all-buffer :around #'envrc-propagate-environment)
+  (advice-add 'format-all-buffer--from-hook :around #'envrc-propagate-environment))
+#+end_src
+
+* fanshi/ediff-init-and-example
+- ref ::  https://github.com/doomemacs/doomemacs/issues/581#issuecomment-645448095
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/ediff-init-and-example ()
+  "ediff the current `init.el' with the example in doom-emacs-dir"
+  (interactive)
+  (ediff-files (concat doom-private-dir "init.el")
+               (concat doom-emacs-dir "templates/init.example.el")))
+(define-key! help-map
+  "di"   #'fanshi/ediff-init-and-example
+  )
+#+end_src
+* Magit Forge
+#+begin_src emacs-lisp :tangle no
+(after! forge (setq! forge-owned-accounts '(("fanshi1028"))))
+#+end_src
+
+* Email
+#+BEGIN_SRC elisp :tangle no
+(after! notmuch (setq! +notmuch-sync-backend 'mbsync))
+;; (setq +notmuch-sync-backend 'mbsync-xdg)
+#+END_SRC
+
+#+BEGIN_SRC elisp :tangle no
+(after! sendmail (setq! sendmail-program (executable-find "msmtp")))
+#+END_SRC
+
 * Elfeeds
 #+begin_src emacs-lisp :tangle no
 (after! elfeed
@@ -721,24 +851,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 * Plantuml
 #+begin_src emacs-lisp :tangle yes
 (after! plantuml-mode (setq! plantuml-default-exec-mode 'executable))
-#+end_src
-
-* PDF View
-#+begin_src emacs-lisp :tangle yes
-(after! pdf-view
-  (setq! pdf-tools-installer-os "nixos")
-  (setq! pdf-view-midnight-colors '("#ABB2BF" . "#282C35"))
-  (add-hook! pdf-tools-enabled #'pdf-view-midnight-minor-mode)
-  ;; (add-hook! pdf-tools-enabled #'hide-mode-line-mode)
-  )
-#+end_src
-
-* Use Dired Narrow
-#+begin_src emacs-lisp :tangle yes
-(use-package! dired-narrow
-  :commands (dired-narrow-fuzzy)
-  :init
-  (map! :map dired-mode-map :n "/" #'dired-narrow-fuzzy))
 #+end_src
 
 * Use Gif Screencast
@@ -784,121 +896,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
             (setq ammonite-term-repl-auto-detect-predef-file nil)
             ;; (setq ammonite-term-repl-program-args '("-s" "--no-default-predef"))
             (set-repl-handler! 'scala-mode #'run-ammonite :persist t)))
-#+end_src
-
-* Pass/Auth Source Config
-#+begin_src elisp :tangle yes
-(after! pass (setq! pass-show-keybindings nil))
-(after! auth-source
-  (setq! auth-sources '("~/.authinfo.gpg" ))
-  (auth-source-pass-enable))
-#+end_src
-
-* Email
-#+BEGIN_SRC elisp :tangle no
-(after! notmuch (setq! +notmuch-sync-backend 'mbsync))
-;; (setq +notmuch-sync-backend 'mbsync-xdg)
-#+END_SRC
-
-#+BEGIN_SRC elisp :tangle no
-(after! sendmail (setq! sendmail-program (executable-find "msmtp")))
-#+END_SRC
-
-* Projectile
-#+begin_src emacs-lisp :tangle yes
-(after! projectile
-  (setq projectile-project-name-function (lambda (project-root)
-                                           (let ((name (funcall 'projectile-default-project-name project-root)))
-                                             (if (member name '("python" "haskell" "bootstrap" "clojure"))
-                                                 (concat (funcall 'projectile-default-project-name (file-name-directory (directory-file-name project-root))) "/" name)
-                                               name))))
-  ;; NOTE: higher priority for haskell-cabal (than the nix-flake) for projectile project detection
-  (if-let ((cabal-project (cl-find-if (lambda (project-type-record) (string= (car project-type-record) 'haskell-cabal)) projectile-project-types)))
-             (setq! projectile-project-types (cons cabal-project  projectile-project-types))))
-#+end_src
-* Clone project
-#+begin_src emacs-lisp :tangle yes
-(setq fanshi/clonable-project-types `(nix-flake python-poetry clojure-cli haskell-cabal))
-;; NOTE: What file to clone for specify project type
-;; `generic', the default.
-(setq fanshi/project-files-to-copy/generic '(".envrc" ".gitignore"
-                                             ;; NOTE: copy the .direnv cache to speed up direnv for the first time
-                                             ".direnv" ))
-;; `nix'.
-(setq fanshi/project-files-to-copy/nix-flake  (append fanshi/project-files-to-copy/generic '("flake.lock" "flake.nix")))
-;; I am using the `nix' with `python' and `clojure'.
-(setq fanshi/project-files-to-copy/python-poetry (append fanshi/project-files-to-copy/nix-flake '("poetry.lock" "pyproject.toml")))
-(setq fanshi/project-files-to-copy/clojure-cli (append  fanshi/project-files-to-copy/nix-flake '("deps-lock.json" "deps.edn")))
-;; using haskell.nix for 'haskell'
-(setq fanshi/project-files-to-copy/haskell-cabal (append  fanshi/project-files-to-copy/nix-flake '("nix" "*.cabal" )))
-#+end_src
-
-#+begin_src emacs-lisp :tangle yes
-(defun fanshi/init-new-project (&optional dir)
-  "Init a directory as a new project"
-  (interactive)
-  (let ((default-directory (expand-file-name (or dir default-directory))))
-    ;; NOTE: init git repo
-    (require 'magit)
-    (magit-call-git "init" (magit-convert-filename-for-git default-directory))
-
-    ;; NOTE: init commit
-    (magit-gitignore-in-gitdir "/.envrc")
-    (magit-gitignore-in-gitdir "/.direnv/")
-    (magit-stage-modified t)
-    (magit-call-git "commit" '("-m" "init"))
-
-    ;; NOTE: to load the .envrc
-    (require 'envrc)
-    (envrc-allow)
-    (+vterm/toggle nil)))
-#+end_src
-
-#+begin_src emacs-lisp :tangle yes
-(defun fanshi/clone-from-project (dir)
-  "Clone the infrastructure of an existing project DIR to make a new project"
-  (require 'projectile)
-  (if-let ((project-type (projectile-project-type dir))
-           (project-files-to-copy (symbol-value (intern-soft (concat "fanshi/project-files-to-copy/" (prin1-to-string project-type)))))
-           (new-project-directory (file-name-as-directory (read-directory-name "Create new project at directory: "))))
-      (progn
-        ;; NOTE: make new directory
-        (make-directory new-project-directory t)
-        ;; NOTE: copy files
-        (dolist (wildcards-or-file project-files-to-copy)
-          (dolist (file (projectile-verify-file-wildcard wildcards-or-file dir))
-                  (dired-copy-file file new-project-directory 1)))
-        ;; NOTE: init project
-        (fanshi/init-new-project new-project-directory)
-        ;; NOTE: switch to the new project
-        (projectile-switch-project-by-name new-project-directory))
-    (user-error (concat "Unsupported project type to clones: " (prin1-to-string project) " + " (prin1-to-string project-type) " + " (prin1-to-string project-files-to-copy)))))
-#+end_src
-
-#+begin_src emacs-lisp :tangle yes
-(defun fanshi/choose-and-clone-for-new-project ()
-  "To choose an existing porject, and clone the infrastructure of it to make a new project"
-  (interactive )
-  (require 'projectile)
-  (if-let ((project-type (completing-read "Project type to clone: " fanshi/clonable-project-types))
-           (projects (cl-remove-if (lambda (p) (progn (message p) (not (string-equal project-type (projectile-project-type p)))))
-                                    projectile-known-projects)))
-      (projectile-completing-read "Clone project: " projects :action #'fanshi/clone-from-project)
-    (user-error "There are no clonable projects")))
-#+end_src
-
-* Magit Forge
-#+begin_src emacs-lisp :tangle yes
-(after! forge
-  (setq! forge-owned-accounts '(("fanshi1028"))))
-#+end_src
-* Pomodoro
-#+begin_src emacs-lisp :tangle yes
-(after! org-pomodoro
-  (setq! org-pomodoro-length 45
-         org-pomodoro-short-break-length 5
-         org-pomodoro-long-break-length 25
-         ))
 #+end_src
 
 * Custom
