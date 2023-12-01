@@ -321,25 +321,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 ** Todo Keywords
 #+begin_src emacs-lisp :tangle yes
 (after! org
-  (setq! org-todo-keywords '((sequence "TODO(t!)"
-                                       "NEXT(n!)"
-                                       "WAIT(w@)"
-                                       "HOLD(h@)"
-                                       "SOMEDAY(s!)"
-                                       "IDEA(i!)"
-                                       "|"
-                                       "DONE(d!)"
-                                       "KILL(k@)")
-                             (sequence "TOPLAN(p!)"
-                                       ;; "BRAINSTORM(b!)"
-                                       "PROJ(P!)"
-                                       "HOLD(h@)"
-                                       "SOMEDAY(s!)"
-                                       "|"
-                                       "DONE(d!)"
-                                       "KILL(k@)")
-                             ;; (sequence "[ ](T!)" "[-](S!)" "[?](W@/!)" "|" "[X](D!)")
-                             ))
   (pushnew! org-todo-keyword-faces
             '("IDEA" org-todo)
             '("TOREAD" org-todo)
