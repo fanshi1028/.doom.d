@@ -318,21 +318,9 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 (after! org (fanshi/setq-secret org-crypt-key))
 #+end_src
 
-** Todo Keywords
+** Todo Keywords Faces
 #+begin_src emacs-lisp :tangle yes
-(after! org
-  (pushnew! org-todo-keyword-faces
-            '("IDEA" org-todo)
-            '("TOREAD" org-todo)
-            '("TOPLAN" org-todo)
-            '("DEAL" org-todo)
-            '("PICK" org-todo-active)
-            ;; '("BRAINSTORM" +org-todo-active)
-            '("SCAN" +org-todo-active)
-            '("NEXT" +org-todo-active)
-            '("READING" +org-todo-active)
-            '("INBOX" org-todo)
-            '("RECIPE" org-todo)))
+(after! org (pushnew! org-todo-keyword-faces '("INBOX" org-todo)))
 #+end_src
 
 ** Roam
@@ -588,18 +576,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+begin_src emacs-lisp :tangle yes
 (after! org-agenda
   (setq!
-   ;; org-agenda-start-with-clockreport-mode t
-   ;; org-agenda-files (seq-filter (lambda (x) (not (string-match-p "\\.#.*\\.org$" x)))
-   ;;                              (append (directory-files (concat fanshi/org-roam-directory "notes/") 'FUll "\\.org$")
-   ;;                                      (directory-files org-directory 'FULL "\\.org$")
-   ;;                                      ))
-   ;; org-agenda-files '("/Users/fanshi/org/event.org"
-   ;;                    "/Users/fanshi/org/routine.org"
-   ;;                    "/Users/fanshi/org/habit.org.gpg"
-   ;;                    "/Users/fanshi/org/fanshi.org.gpg"
-   ;;                    ;; "/Users/fanshi/org/deals.org"
-   ;;                    "/Users/fanshi/org/agnes_ng_habit.org"
-   ;;                    "/Users/fanshi/org/agnes_ng.org")
    org-agenda-files '("~/org/")
    org-clock-report-include-clocking-task t
    org-agenda-clockreport-parameter-plist (quote (:link t :maxlevel 4 :fileskip0 t :compact t :narrow 80))))
@@ -692,9 +668,9 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
            (:auto-outline-path t :order 5))))
 #+end_src
 
-***** fanshi/org-agenda-file-regexp (for GPG)
+***** fanshi/org-agenda-file-regexp (include GPG)
 [[https://emacs.stackexchange.com/a/36543][org mode - Include .org.gpg files in org-agenda - Emacs Stack Exchange]]
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! org-agenda
   (setq! fanshi/org-agenda-file-regexp
          (replace-regexp-in-string "\\\\\\.org" "\\\\.org\\\\(\\\\.gpg\\\\)?" org-agenda-file-regexp)))
@@ -704,51 +680,18 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+begin_src emacs-lisp :tangle yes
 (use-package! org-super-agenda
   :after org-agenda
-  ;; :defer-incrementally org-roam org-journal
   :init
   (setq org-agenda-show-log t
         ;; NOTE: https://github.com/alphapapa/org-super-agenda/issues/50
         org-super-agenda-header-map (make-sparse-keymap)
         ;; fanshi/org-agenda-header (concat "\n" (make-string (window-width) 9472))
         ;; fanshi/make-org-agenda-header (defun () (concat "\n" (make-string (window-width) 9472)))
-        fanshi/org-agenda-file-regexp (replace-regexp-in-string
-                                       "\\\\\\.org" "\\\\.org\\\\(\\\\.gpg\\\\)?"
-                                       org-agenda-file-regexp)
-        org-agenda-custom-commands '(("a" . "Agenda")
-                                     ("aa" "My Agenda"
+        org-agenda-custom-commands '(("p" "Private Agenda"
                                       ((agenda "" ((org-super-agenda-groups fanshi/agenda)))
                                        (alltodo "" ((org-agenda-overriding-header (fanshi/make-line))
                                                     (org-super-agenda-groups fanshi/alltodo))))
                                       ((org-agenda-files '("/Users/fanshi/org/routine.org"
-                                                           "/Users/fanshi/org/event.org"
-                                                           "/Users/fanshi/org/deals.org"
-                                                           "/Users/fanshi/org/agnes_ng.org"))))
-                                     ("ag" "Agnes's Agenda"
-                                      ((agenda "" ((org-super-agenda-groups fanshi/agenda)))
-                                       (alltodo "" ((org-agenda-overriding-header (fanshi/make-line))
-                                                    (org-super-agenda-groups fanshi/alltodo))))
-                                      ((org-agenda-files '("/Users/fanshi/org/agnes_ng_habit.org"
-                                                           "/Users/fanshi/org/agnes_ng.org"))))
-                                     ("p" . "Private")
-                                     ("pa" "Agenda" ((agenda "" ((org-super-agenda-groups fanshi/agenda)))
-                                                     (alltodo "" ((org-agenda-overriding-header (fanshi/make-line))
-                                                                  (org-super-agenda-groups fanshi/alltodo))))
-                                      ((org-agenda-files '("/Users/fanshi/org/routine.org"
-                                                           "/Users/fanshi/org/habit.org.gpg"
-                                                           "/Users/fanshi/org/fanshi.org.gpg"
-                                                           "/Users/fanshi/org/event.org"
-                                                           "/Users/fanshi/org/deals.org"
-                                                           "/Users/fanshi/org/agnes_ng.org"
-                                                           "/Users/fanshi/org/groceries.org"))))
-                                     ("c" "Cooking" todo "" (
-                                                                 (org-super-agenda-groups fanshi/alltodo)
-                                                                 (org-agenda-files '("/Users/fanshi/org/cooking.org"))))
-                                     ("r" "Reading" todo "" (
-                                                             ;; (org-super-agenda-groups fanshi/alltodo)
-                                                             (org-agenda-files '("/Users/fanshi/org/read.org"))))
-                                     ;; ("g" "Groceries List" agenda "" ((org-super-agenda-groups fanshi/agenda)
-                                     ;;                                (org-agenda-files '("/Users/fanshi/org/groceries-list.org"))))
-                                     ))
+                                                           "/Users/fanshi/org/event.org"))))))
   :config
   (org-super-agenda-mode))
 #+end_src
@@ -836,7 +779,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+begin_src emacs-lisp :tangle yes
 (after! pdf-view
   (setq! pdf-tools-installer-os "nixos")
-  (pdf-tools-install)
   (setq! pdf-view-midnight-colors '("#ABB2BF" . "#282C35"))
   (add-hook! pdf-tools-enabled #'pdf-view-midnight-minor-mode)
   ;; (add-hook! pdf-tools-enabled #'hide-mode-line-mode)
