@@ -42,13 +42,6 @@
 (setq doom-theme 'doom-nord)
 #+end_src
 
-* Get Org Config Secret
-#+begin_src emacs-lisp :tangle yes
-;; macro to set var with secret
-(defmacro fanshi/setq-secret (var)
-  `(setq ,var (auth-source-pass-get (symbol-name ',var) "OrgConfig")))
-#+end_src
-
 * Org Directory
 #+begin_src emacs-lisp :tangle yes
 ;; If you use `org' and don't want your org files in the default location below,
@@ -311,11 +304,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
          org-priority-lowest 69
          org-priority-faces '((65 . error) (66 . warning) (67 . warning) (68 . success) (69 . success))))
 ;; org-priority-faces
-#+end_src
-
-** Org Crypt
-#+begin_src emacs-lisp :tangle yes
-(after! org (fanshi/setq-secret org-crypt-key))
 #+end_src
 
 ** Todo Keywords Faces
