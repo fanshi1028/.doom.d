@@ -11,7 +11,8 @@
       user-mail-address "jackychany321@gmail.com")
 #+end_src
 
-* Fonts
+* UI/Look
+** Fonts
 #+begin_src emacs-lisp :tangle yes
 ;; Doom exposes five (optional) variables for controlling fonts in Doom. Here
 ;; are the three important ones:
@@ -34,7 +35,7 @@
 (after! nerd-icons (setq! nerd-icons-font-names '("SymbolsNerdFontMono-Regular.ttf")))
 #+end_src
 
-* Theme
+** Theme
 #+begin_src emacs-lisp :tangle yes
 ;; There are two ways to load a theme. Both assume the theme is installed and
 ;; available. You can either set `doom-theme' or manually load a theme with the
@@ -42,14 +43,18 @@
 (setq doom-theme 'doom-nord)
 #+end_src
 
-* Org Directory
+** No Dashboard Banner
+#+begin_src elisp :tangle yes
+(setq! +doom-dashboard-ascii-banner-fn #'(lambda ()))
+(setq! +doom-dashboard-menu-sections '())
+#+end_src
+** hl-todo
 #+begin_src emacs-lisp :tangle yes
-;; If you use `org' and don't want your org files in the default location below,
-;; change `org-directory'. It must be set before org loads!
-(setq! org-directory "~/org")
+;; TEMP keywords
+(after! hl-todo (pushnew! hl-todo-keyword-faces '("TEMP" 'warning 'bold)))
 #+end_src
 
-* Misc Effects
+** Others
 #+begin_src emacs-lisp :tangle yes
 ;; This determines the style of line numbers in effect. If set to `nil', line
 ;; numbers are disabled. For relative line numbers, set this to `relative'.
@@ -71,214 +76,18 @@
 
 (setq! scroll-lock-mode t)
 #+end_src
-** Ediff doom init file
-- ref ::  https://github.com/doomemacs/doomemacs/issues/581#issuecomment-645448095
+* Org Directory
 #+begin_src emacs-lisp :tangle yes
-(defun doom/ediff-init-and-example ()
-  "ediff the current `init.el' with the example in doom-emacs-dir"
-  (interactive)
-  (ediff-files (concat doom-private-dir "init.el")
-               (concat doom-emacs-dir "templates/init.example.el")))
-(define-key! help-map
-  "di"   #'doom/ediff-init-and-example
-  )
-#+end_src
-** Not so long
-*** Problem
-The so-long.el is for text files with long lines (think of e.g. minified JavaScript or CSS libs).
-No point to enable it globally and moreover it broke some ux for me like the following:
-#+begin_src emacs-lisp :tangle no
-(helpful-callable #'org-toggle-link-display)
-#+end_src
-Because so-long-mode triggered on the source elisp file, the "coding: utf-8" local variable doesn't work and hence asking me for the coding system.
-*** So...
-#+begin_src emacs-lisp :tangle yes
-(global-so-long-mode -1)
+;; If you use `org' and don't want your org files in the default location below,
+;; change `org-directory'. It must be set before org loads!
+(setq! org-directory "~/org")
 #+end_src
 
-* Org Scratch Buffer
+* Scratch Buffer Use Org Mode
 #+begin_src emacs-lisp :tangle yes
 ;; scratch buffer default `org-mode'
 (setq! doom-scratch-initial-major-mode 'org-mode)
 #+end_src
-
-* Vterm Use Fish
-#+begin_src emacs-lisp :tangle yes
-;; use 'vterm' with 'fish'
-(after! vterm (setq! vterm-shell "~/.nix-profile/bin/fish"))
-#+end_src
-
-* Auto Format Modes
-#+begin_src emacs-lisp :tangle yes
-;; (setq! +format-on-save-enabled-modes '(haskell-mode nix-mode haskell-cabal-mode sql-mode ))
-(setq! +format-on-save-enabled-modes
-       '(not emacs-lisp-mode  ; elisp's mechanisms are good enough
-            tex-mode         ; latexindent is broken
-            latex-mode
-            org-msg-edit-mode))  ; doesn't need a formatter
-;; NOTE: https://github.com/doomemacs/doomemacs/issues/6936#issuecomment-1366030502
-(after! format-all (advice-remove 'format-all-buffer--from-hook '+format--all-buffer-from-hook-a))
-(after! (:and format-all envrc)
-  ;; TEMP FIXME https://github.com/doomemacs/doomemacs/issues/3900
-  (advice-add 'format-all-buffer :around #'envrc-propagate-environment)
-  (advice-add 'format-all-buffer--from-hook :around #'envrc-propagate-environment))
-#+end_src
-
-* Org Babel
-** Typescript
-- ref :: https://www.reddit.com/r/emacs/comments/b7rsxu/behold_orgbabelexecutetypescript/
-#+begin_src emacs-lisp :tangle yes
-(defun org-babel-execute:typescript (body params)
-  "babel execute typescript"
-  (let* ((tmp-ts-file (org-babel-temp-file "scripts" ".ts"))
-         (tmp-js-file (concat (substring tmp-ts-file 0 -2) "js"))
-         (strict (if (assq :strict params) "--strict " ""))
-         (cmd (concat "tsc " strict (shell-quote-argument tmp-ts-file))))
-    (with-temp-file tmp-ts-file (insert body))
-    (with-temp-buffer
-      (if (eq (call-process-shell-command cmd nil t) 0)
-          (progn
-            (insert-file-contents tmp-js-file)
-            (if (assq :js params)
-                (buffer-string)
-              (require 'ob-js)
-              (org-babel-execute:js (buffer-string) params)))
-        (buffer-string)))))
-
-;; NOTE when async
-;; executing Typescript code block...
-;; error in process sentinel: async-handle-result: Cannot open load file: No such file or directory, ob-typescript
-;; maybe related? https://github.com/hlissner/doom-emacs/issues/2198
-;; TEMP FIXME
-(setq ob-async-no-async-languages-alist '("typescript"))
-#+end_src
-
-** Org special edit's lsp support
-#+begin_src emacs-lisp :tangle yes
-;; NOTE: https://github.com/emacs-lsp/lsp-mode/issues/2842#issuecomment-870807018
-(defmacro fanshi/org-babel-edit-lsp-prep (lang ext)
-  `(defun ,(intern (concat "org-babel-edit-prep:" lang))  (babel-info)
-     "prep for `org-edit-special' using lsp for some lang"
-     (let* ((tmp-src-file (org-babel-temp-file ,(concat lang "-src-edit-") ,(concat "." ext))))
-       (with-temp-file tmp-src-file (insert (cadr babel-info)))
-       (setq-local buffer-file-name tmp-src-file)
-       (lsp)
-       ;; NOTE: when lookup doc using lsp, it use pop-up.
-       ;; NOTE: when we kill the popped up look-up, whole edit session gone because it was a pop-up
-       ;; NOTE: so change the window to non-pop up, and window it more convenient than pop than code editing too.
-       ;; FIXME: use set-popup-rule! ?
-       (+popup/raise (selected-window)))
-     ))
-
-(defvar fanshi/org-babel-edit-lsp-langs '(("haskell" . "hs") ("typescript" . "ts") ("js" . "js") ("python" . "py") ("rust" . "rs"))
-  "alist for langs that will use lsp when `org-edit-special', key is the lang, and value is lang's file extension")
-
-;; NOTE: defun org-babel-edit-prep:lang for each lang in `fanshi/org-babel-edit-lsp-langs'
-(mapc (lambda (x) (eval `(fanshi/org-babel-edit-lsp-prep ,(car x) ,(cdr x)))) fanshi/org-babel-edit-lsp-langs)
-
-;; NOTE: in `fanshi/org-babel-edit-lsp-prep', the `org-edit-special' pop-up it promoted, and after `org-edit-src-exit', we got one duplicate pop-up shaped window.
-;; NOTE: this advice automatically delete that window for better ux
-(advice-add 'org-edit-src-exit :around (lambda (f &rest args)
-                                         (if-let* ((babel-info org-src--babel-info)
-                                                   (lang (car babel-info))
-                                                   (babel-lsp-lang (assoc lang fanshi/org-babel-edit-lsp-langs)))
-                                             (progn (apply f args) (evil-window-delete))
-                                           (apply f args))))
-#+end_src
-
-* Haskell
-** Template
-#+begin_src emacs-lisp :tangle yes
-(after! haskell-mode
-  (setq! haskell-auto-insert-module-format-string
-         (concat haskell-auto-insert-module-format-string
-                 "main :: IO ()\n"
-                 "main = do\n"
-                 "  putStrLn \"Surprise Motherfucker!\"")))
-#+end_src
-
-** LSP
-#+begin_src emacs-lisp :tangle yes
-(after! lsp-haskell
-  (setq! lsp-haskell-server-path "haskell-language-server")
-  (setq! lsp-haskell-floskell-on nil)
-  (setq! lsp-haskell-fourmolu-on nil)
-  (setq! lsp-haskell-brittany-on nil)
-  (setq! lsp-haskell-stylish-haskell-on nil))
-#+end_src
-** Cabal
-#+begin_src emacs-lisp :tangle yes
-(after! (:and haskell-cabal format-all)
-  (set-formatter! 'cabal-fmt "cabal-fmt" :modes 'haskell-cabal-mode)
-  ;; NOTE TEMP: https://github.com/doomemacs/doomemacs/issues/6936
-  (puthash 'cabal-fmt "cabal-fmt" format-all--executable-table))
-#+end_src
-
-* LSP
-** Tweak File Watchers
-*** don't watch nix materializtion and golden files for haskell
-#+begin_src emacs-lisp :tangle yes
-(after! lsp-mode
-  (setq! lsp-file-watch-ignored-directories
-         (append lsp-file-watch-ignored-directories '("[/\\\\]materialized\\'"
-                                                      ;; NOTE: we don't set up lsp for nix, so probably fine for now
-                                                      "[/\\\\]nix\\'"
-                                                      "[/\\\\]spec\\'"
-                                                      "[/\\\\]golden\\'"
-                                                      "[/\\\\]\\.postgres\\'"))))
-#+end_src
-
-*** don't watch gitignore
-- https://github.com/emacs-lsp/lsp-mode/issues/713#issuecomment-985653873
-- edit :: bad for performance, emacs stuck to wait for the command to run, may be make it async? disable for now.
-#+begin_src emacs-lisp :tangle no
-(after! lsp-mode
-  (defun ++git-ignore-p (path)
-    (let* (           ; trailing / breaks git check-ignore if path is a symlink:
-           (path (directory-file-name path))
-           (default-directory (file-name-directory path))
-           (relpath (file-name-nondirectory path))
-           (cmd (format "git check-ignore '%s'" relpath))
-           (status (call-process-shell-command cmd)))
-      (eq status 0)))
-
-  (defun ++lsp--path-is-watchable-directory-a
-      (fn path dir ignored-directories)
-    (and (not (++git-ignore-p (f-join dir path)))
-         (funcall fn path dir ignored-directories)))
-
-  (advice-add 'lsp--path-is-watchable-directory
-              :around #'++lsp--path-is-watchable-directory-a))
-#+end_src
-
-* Elfeed
-#+begin_src emacs-lisp :tangle no
-(after! elfeed
-  (setq! elfeed-feeds
-         '(("http://feeds.feedburner.com/incodeblog" blog haskell)
-           ("https://noonker.github.io/index.xml" blog tech)
-           ("https://mollermara.com/rss.xml" emacs blog stat)
-           ("https://notxor.nueva-actitud.org/rss.xml" es blog)
-           ("http://pragmaticemacs.com/feed/" blog emacs)
-           ("https://blog.thomasheartman.com/rss.xml" blog emacs haskell)
-           ("https://medium.com/feed/@mojia" en blog)
-           ("https://mac-ra.com/feed/atom/" jp blog)
-           ("https://www.parsonsmatt.org/feed.xml" en haskell blog)
-           ("https://www.fosskers.ca/jp/rss" jp haskell blog)
-           ("https://www.fosskers.ca/en/rss" en haskell blog)
-           ("https://lexi-lambda.github.io/feeds/all.atom.xml" en haskell blog)
-           ("https://kseo.github.io/atom.xml" en haskell blog)
-           ("https://sandymaguire.me/atom.xml" en blog)
-           ("https://reasonablypolymorphic.com/atom.xml" en haskell blog)
-           ("https://www.youtube.com/feeds/videos.xml?channel_id=UCXf8jlTSP9kp6g4ROCfgvbQ" youtube )
-           ;; ("https://dev.to/bradparker" en haskell blog)
-           ("https://www.williamyaoh.com/feed.atom" en haskell blog)
-           ;; ("https://www.reddit.com/r/haskell/top/.rss?t=week" top haskell reddit)
-           ;; ("https://www.reddit.com/r/hongkong/top/.rss?t=week" top hongkong reddit)
-           )
-         elfeed-search-filter "+unread @1-month-ago"))
-#+end_src
-
 * Org
 ** Archive Location
 #+begin_src emacs-lisp :tangle yes
@@ -311,98 +120,45 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 (after! org (pushnew! org-todo-keyword-faces '("INBOX" org-todo)))
 #+end_src
 
-** Roam
+** Org Babel Edit's LSP Support
+*** fanshi/org-babel-edit-lsp-langs
 #+begin_src emacs-lisp :tangle yes
-(after! org-roam (setq! org-roam-directory (concat org-directory "roam/")))
+(defvar fanshi/org-babel-edit-lsp-langs '(("haskell" . "hs") ("typescript" . "ts") ("js" . "js") ("python" . "py") ("rust" . "rs"))
+  "alist for langs that will use lsp when `org-edit-special', key is the lang, and value is lang's file extension")
 #+end_src
-
-*** Journal
+*** fanshi/org-babel-edit-lsp-prep
+- ref :: https://github.com/emacs-lsp/lsp-mode/issues/2842#issuecomment-870807018
 #+begin_src emacs-lisp :tangle yes
-(after! org-journal
-  (setq! org-journal-dir (concat org-roam-directory "journal/")
-         ;; org-journal-time-format (cdr org-time-stamp-formats)
-         org-journal-encrypt-journal t)
-
-  ;; (setq! org-journal-enable-agenda-integration t)
-
-  ;; (setq! org-journal-carryover-items nil)
-
-  ;; NOTE no need auto close I think
-  ;; close after save hook
-  ;; FIXME NOTE: or use popup window?????
-  ;; (add-hook! org-journal-mode :append (add-hook! 'after-save-hook :local 'kill-buffer-and-window))
-
-  ;; highlight time string with org-date face
-  (font-lock-add-keywords 'org-journal-mode '(("\\(\\*\\)\\(\\*\\) .*\\([0-9]\\{2\\}:[0-9]\\{2\\}\\) \\(.+\\)"
-                                               (1 'org-hide t)
-                                               (2 'org-level-2 t)
-                                               (3 'org-date t)
-                                               (4 'org-level-2 t)))))
+(defmacro fanshi/org-babel-edit-lsp-prep (lang ext)
+  `(defun ,(intern (concat "org-babel-edit-prep:" lang))  (babel-info)
+     "prep for `org-edit-special' using lsp for some lang"
+     (let* ((tmp-src-file (org-babel-temp-file ,(concat lang "-src-edit-") ,(concat "." ext))))
+       (with-temp-file tmp-src-file (insert (cadr babel-info)))
+       (setq-local buffer-file-name tmp-src-file)
+       (lsp)
+       ;; NOTE: when lookup doc using lsp, it use pop-up.
+       ;; NOTE: when we kill the popped up look-up, whole edit session gone because it was a pop-up
+       ;; NOTE: so change the window to non-pop up, and window it more convenient than pop than code editing too.
+       ;; FIXME: use set-popup-rule! ?
+       (+popup/raise (selected-window)))
+     ))
 #+end_src
-
-*** Bibitex
-#+begin_src emacs-lisp :tangle no
-(use-package! org-roam-bibtex
-  :after (org-roam)
-  :hook (org-roam-mode . org-roam-bibtex-mode)
-  :config
-  (setq orb-preformat-keywords
-        '("=key=" "title" "url" "file" "author-or-editor" "keywords"))
-  (setq orb-templates
-        `(("r" "ref" plain (function org-roam-capture--get-point)
-           ""
-           :file-name "lit/${slug}"
-           :head ,(concat
-                   "#+setupfile: ./hugo_setup.org\n"
-                   "#+title: ${=key=}: ${title}\n"
-                   "#+roam_key: ${ref}\n\n"
-                   "* ${title}\n"
-                   "  :PROPERTIES:\n"
-                   "  :Custom_ID: ${=key=}\n"
-                   "  :URL: ${url}\n"
-                   "  :AUTHOR: ${author-or-editor}\n"
-                   "  :NOTER_DOCUMENT: %(orb-process-file-field \"${=key=}\")\n"
-                   "  :NOTER_PAGE: \n"
-                   "  :END:\n")
-           :unnarrowed t))))
-#+end_src
-
-**** Completion
+*** provide the support
 #+begin_src emacs-lisp :tangle yes
-;; (use-package! bibtex-completion
-;;   :defer t
-;;   :config
-;;   (setq bibtex-completion-notes-path (concat org-roam-directory "notes/")
-;;         ;; bibtex-completion-bibliography "~/.org/braindump/org/biblio.bib"
-;;         bibtex-completion-pdf-field "file"
-;;         bibtex-completion-notes-template-multiple-files
-;;         (concat
-;;          "#+title: ${title}\n"
-;;          "#+roam_key: cite:${=key=}\n"
-;;          "* TODO Notes\n"
-;;          ":PROPERTIES:\n"
-;;          ":Custom_ID: ${=key=}\n"
-;;          ":NOTER_DOCUMENT: %(orb-process-file-field \"${=key=}\")\n"
-;;          ":AUTHOR: ${author-abbrev}\n"
-;;          ":JOURNAL: ${journaltitle}\n"
-;;          ":DATE: ${date}\n"
-;;          ":YEAR: ${year}\n"
-;;          ":DOI: ${doi}\n"
-;;          ":URL: ${url}\n"
-;;          ":END:\n\n"
-;;          )))
-#+end_src
+;; NOTE: defun org-babel-edit-prep:lang for each lang in `fanshi/org-babel-edit-lsp-langs'
+(mapc (lambda (x) (eval `(fanshi/org-babel-edit-lsp-prep ,(car x) ,(cdr x)))) fanshi/org-babel-edit-lsp-langs)
 
-**** Citeproc
-#+begin_src emacs-lisp :tangle yes
-;; (use-package! citeproc-org
-;;   :after org
-;;   :config
-;;   (citeproc-org-setup))
+;; NOTE: in `fanshi/org-babel-edit-lsp-prep', the `org-edit-special' pop-up it promoted, and after `org-edit-src-exit', we got one duplicate pop-up shaped window.
+;; NOTE: this advice automatically delete that window for better ux
+(advice-add 'org-edit-src-exit :around (lambda (f &rest args)
+                                         (if-let* ((babel-info org-src--babel-info)
+                                                   (lang (car babel-info))
+                                                   (babel-lsp-lang (assoc lang fanshi/org-babel-edit-lsp-langs)))
+                                             (progn (apply f args) (evil-window-delete))
+                                           (apply f args))))
 #+end_src
 ** Templates
-*** Default templates tweak
-**** Remove unwanted
+*** Remove Unwanted
 #+begin_src emacs-lisp :tangle yes
 (after! org-capture
   (setq! org-capture-templates
@@ -691,26 +447,97 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   :commands (org-web-tools--org-link-for-url))
 #+end_src
 
-* Plantuml
+* Langs
+** Haskell
+*** Template
 #+begin_src emacs-lisp :tangle yes
-(after! plantuml-mode (setq! plantuml-default-exec-mode 'executable))
+(after! haskell-mode
+  (setq! haskell-auto-insert-module-format-string
+         (concat haskell-auto-insert-module-format-string
+                 "main :: IO ()\n"
+                 "main = do\n"
+                 "  putStrLn \"Surprise Motherfucker!\"")))
 #+end_src
 
-* hl-todo
+*** LSP
 #+begin_src emacs-lisp :tangle yes
-;; TEMP keywords
-(after! hl-todo (pushnew! hl-todo-keyword-faces '("TEMP" 'warning 'bold)))
+(after! lsp-haskell
+  (setq! lsp-haskell-server-path "haskell-language-server")
+  (setq! lsp-haskell-floskell-on nil)
+  (setq! lsp-haskell-fourmolu-on nil)
+  (setq! lsp-haskell-brittany-on nil)
+  (setq! lsp-haskell-stylish-haskell-on nil))
+#+end_src
+*** Cabal
+#+begin_src emacs-lisp :tangle yes
+(after! (:and haskell-cabal format-all)
+  (set-formatter! 'cabal-fmt "cabal-fmt" :modes 'haskell-cabal-mode)
+  ;; NOTE TEMP: https://github.com/doomemacs/doomemacs/issues/6936
+  (puthash 'cabal-fmt "cabal-fmt" format-all--executable-table))
 #+end_src
 
-* Use Dired Narrow
+** Typescript
+- ref :: https://www.reddit.com/r/emacs/comments/b7rsxu/behold_orgbabelexecutetypescript/
 #+begin_src emacs-lisp :tangle yes
-(use-package! dired-narrow
-  :commands (dired-narrow-fuzzy)
-  :init
-  (map! :map dired-mode-map :n "/" #'dired-narrow-fuzzy))
+(defun org-babel-execute:typescript (body params)
+  "babel execute typescript"
+  (let* ((tmp-ts-file (org-babel-temp-file "scripts" ".ts"))
+         (tmp-js-file (concat (substring tmp-ts-file 0 -2) "js"))
+         (strict (if (assq :strict params) "--strict " ""))
+         (cmd (concat "tsc " strict (shell-quote-argument tmp-ts-file))))
+    (with-temp-file tmp-ts-file (insert body))
+    (with-temp-buffer
+      (if (eq (call-process-shell-command cmd nil t) 0)
+          (progn
+            (insert-file-contents tmp-js-file)
+            (if (assq :js params)
+                (buffer-string)
+              (require 'ob-js)
+              (org-babel-execute:js (buffer-string) params)))
+        (buffer-string)))))
+
+;; NOTE when async
+;; executing Typescript code block...
+;; error in process sentinel: async-handle-result: Cannot open load file: No such file or directory, ob-typescript
+;; maybe related? https://github.com/hlissner/doom-emacs/issues/2198
+;; TEMP FIXME
+(setq ob-async-no-async-languages-alist '("typescript"))
 #+end_src
 
-* Use Lpy For Python
+*** Org special edit's lsp support
+#+begin_src emacs-lisp :tangle yes
+;; NOTE: https://github.com/emacs-lsp/lsp-mode/issues/2842#issuecomment-870807018
+(defmacro fanshi/org-babel-edit-lsp-prep (lang ext)
+  `(defun ,(intern (concat "org-babel-edit-prep:" lang))  (babel-info)
+     "prep for `org-edit-special' using lsp for some lang"
+     (let* ((tmp-src-file (org-babel-temp-file ,(concat lang "-src-edit-") ,(concat "." ext))))
+       (with-temp-file tmp-src-file (insert (cadr babel-info)))
+       (setq-local buffer-file-name tmp-src-file)
+       (lsp)
+       ;; NOTE: when lookup doc using lsp, it use pop-up.
+       ;; NOTE: when we kill the popped up look-up, whole edit session gone because it was a pop-up
+       ;; NOTE: so change the window to non-pop up, and window it more convenient than pop than code editing too.
+       ;; FIXME: use set-popup-rule! ?
+       (+popup/raise (selected-window)))
+     ))
+
+(defvar fanshi/org-babel-edit-lsp-langs '(("haskell" . "hs") ("typescript" . "ts") ("js" . "js") ("python" . "py") ("rust" . "rs"))
+  "alist for langs that will use lsp when `org-edit-special', key is the lang, and value is lang's file extension")
+
+;; NOTE: defun org-babel-edit-prep:lang for each lang in `fanshi/org-babel-edit-lsp-langs'
+(mapc (lambda (x) (eval `(fanshi/org-babel-edit-lsp-prep ,(car x) ,(cdr x)))) fanshi/org-babel-edit-lsp-langs)
+
+;; NOTE: in `fanshi/org-babel-edit-lsp-prep', the `org-edit-special' pop-up it promoted, and after `org-edit-src-exit', we got one duplicate pop-up shaped window.
+;; NOTE: this advice automatically delete that window for better ux
+(advice-add 'org-edit-src-exit :around (lambda (f &rest args)
+                                         (if-let* ((babel-info org-src--babel-info)
+                                                   (lang (car babel-info))
+                                                   (babel-lsp-lang (assoc lang fanshi/org-babel-edit-lsp-langs)))
+                                             (progn (apply f args) (evil-window-delete))
+                                           (apply f args))))
+#+end_src
+
+** Python
 #+begin_src emacs-lisp :tangle yes
 ;; NOTE: https://github.com/abo-abo/lispy/issues/509
 (after! (lispy python lpy)
@@ -728,11 +555,190 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
                                    (lispy-python-middleware-reload)))))
 ;; NOTE: https://github.com/abo-abo/lispy/issues/509
 #+end_src
-
+** Sql
 #+begin_src emacs-lisp :tangle yes
-* Lispy For Cider
+(after! sql
+  (set-formatter! 'pg_format "pg_format" :modes 'sql-mode)
+  ;; NOTE TEMP: https://github.com/doomemacs/doomemacs/issues/6936
+  (puthash 'pg_format "pg_format" format-all--executable-table)
+  (puthash 'sqlformat nil format-all--executable-table))
+#+end_src
+
+** Tailwind
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/tailwind-rainbow-config ()
+    (when (and (stringp buffer-file-name)
+               (string-match "/tailwind\\.config\\.\\(js\\|ts\\)\\'"  buffer-file-name))
+      (rainbow-mode)))
+(add-hook 'rjsx-mode-hook 'fanshi/tailwind-rainbow-config)
+(use-package! lsp-tailwindcss :init (setq lsp-tailwindcss-add-on-mode t))
+(after! lsp-tailwindcss
+  (if-let (client (gethash 'tailwindcss lsp-clients))
+      (setf (lsp--client-new-connection client) (lsp-stdio-connection '("tailwindcss-language-server" "--stdio")))
+      (lsp-register-client client))
+  (lsp-dependency 'tailwindcss-language-server '((:system "tailwindcss-language-server"))))
+#+end_src
+
+** Lispy For Cider
+#+begin_src emacs-lisp :tangle yes
 (use-package! lispy
   :init (setq lispy-compat '(edebug cider)))
+#+end_src
+
+** Astro
+#+begin_src emacs-lisp :tangle no
+(after! format-all
+  (add-to-list 'auto-mode-alist '("\\.astro\\'" .
+                                  (lambda ()
+                                   (rjsx-mode)
+                                   (lsp!)
+                                   (setq-local +format-with-lsp nil
+                                               +format-with 'prettier-astro
+                                               ;; NOTE: class instead of className
+                                               emmet-jsx-major-modes (remove 'rjsx-mode emmet-jsx-major-modes)))))
+  (set-formatter! 'prettier-astro '("prettier" "--parser=astro" ("--plugin-search-dir=%s" (projectile-project-root))) :modes '((rxjs-mode ".astro")))
+  ;; NOTE TEMP: https://github.com/doomemacs/doomemacs/issues/6936
+  (puthash 'prettier-astro "prettier" format-all--executable-table))
+#+end_src
+
+** Wasp Mode
+#+begin_src emacs-lisp :tangle no
+(use-package! wasp-mode :mode "\\.wasp\\'")
+#+end_src
+
+* fanshi/ediff-init-and-example
+- ref ::  https://github.com/doomemacs/doomemacs/issues/581#issuecomment-645448095
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/ediff-init-and-example ()
+  "ediff the current `init.el' with the example in doom-emacs-dir"
+  (interactive)
+  (ediff-files (concat doom-private-dir "init.el")
+               (concat doom-emacs-dir "templates/init.example.el")))
+(define-key! help-map
+  "di"   #'fanshi/ediff-init-and-example
+  )
+#+end_src
+* Not so long
+*** Problem
+The so-long.el is for text files with long lines (think of e.g. minified JavaScript or CSS libs).
+No point to enable it globally and moreover it broke some ux for me like the following:
+#+begin_src emacs-lisp :tangle no
+(helpful-callable #'org-toggle-link-display)
+#+end_src
+Because so-long-mode triggered on the source elisp file, the "coding: utf-8" local variable doesn't work and hence asking me for the coding system.
+*** So...
+#+begin_src emacs-lisp :tangle yes
+(global-so-long-mode -1)
+#+end_src
+
+* Vterm Use Fish
+#+begin_src emacs-lisp :tangle yes
+;; use 'vterm' with 'fish'
+(after! vterm (setq! vterm-shell "~/.nix-profile/bin/fish"))
+#+end_src
+
+* Auto Format Modes
+#+begin_src emacs-lisp :tangle yes
+;; (setq! +format-on-save-enabled-modes '(haskell-mode nix-mode haskell-cabal-mode sql-mode ))
+(setq! +format-on-save-enabled-modes
+       '(not emacs-lisp-mode  ; elisp's mechanisms are good enough
+            tex-mode         ; latexindent is broken
+            latex-mode
+            org-msg-edit-mode))  ; doesn't need a formatter
+;; NOTE: https://github.com/doomemacs/doomemacs/issues/6936#issuecomment-1366030502
+(after! format-all (advice-remove 'format-all-buffer--from-hook '+format--all-buffer-from-hook-a))
+(after! (:and format-all envrc)
+  ;; TEMP FIXME https://github.com/doomemacs/doomemacs/issues/3900
+  (advice-add 'format-all-buffer :around #'envrc-propagate-environment)
+  (advice-add 'format-all-buffer--from-hook :around #'envrc-propagate-environment))
+#+end_src
+
+* LSP
+** Tweak File Watchers
+*** don't watch nix materializtion and golden files for haskell
+#+begin_src emacs-lisp :tangle yes
+(after! lsp-mode
+  (setq! lsp-file-watch-ignored-directories
+         (append lsp-file-watch-ignored-directories '("[/\\\\]materialized\\'"
+                                                      ;; NOTE: we don't set up lsp for nix, so probably fine for now
+                                                      "[/\\\\]nix\\'"
+                                                      "[/\\\\]spec\\'"
+                                                      "[/\\\\]golden\\'"
+                                                      "[/\\\\]\\.postgres\\'"))))
+#+end_src
+
+*** don't watch gitignore
+- https://github.com/emacs-lsp/lsp-mode/issues/713#issuecomment-985653873
+- edit :: bad for performance, emacs stuck to wait for the command to run, may be make it async? disable for now.
+#+begin_src emacs-lisp :tangle no
+(after! lsp-mode
+  (defun ++git-ignore-p (path)
+    (let* (           ; trailing / breaks git check-ignore if path is a symlink:
+           (path (directory-file-name path))
+           (default-directory (file-name-directory path))
+           (relpath (file-name-nondirectory path))
+           (cmd (format "git check-ignore '%s'" relpath))
+           (status (call-process-shell-command cmd)))
+      (eq status 0)))
+
+  (defun ++lsp--path-is-watchable-directory-a
+      (fn path dir ignored-directories)
+    (and (not (++git-ignore-p (f-join dir path)))
+         (funcall fn path dir ignored-directories)))
+
+  (advice-add 'lsp--path-is-watchable-directory
+              :around #'++lsp--path-is-watchable-directory-a))
+#+end_src
+
+* Elfeeds
+#+begin_src emacs-lisp :tangle no
+(after! elfeed
+  (setq! elfeed-feeds
+         '(("http://feeds.feedburner.com/incodeblog" blog haskell)
+           ("https://noonker.github.io/index.xml" blog tech)
+           ("https://mollermara.com/rss.xml" emacs blog stat)
+           ("https://notxor.nueva-actitud.org/rss.xml" es blog)
+           ("http://pragmaticemacs.com/feed/" blog emacs)
+           ("https://blog.thomasheartman.com/rss.xml" blog emacs haskell)
+           ("https://medium.com/feed/@mojia" en blog)
+           ("https://mac-ra.com/feed/atom/" jp blog)
+           ("https://www.parsonsmatt.org/feed.xml" en haskell blog)
+           ("https://www.fosskers.ca/jp/rss" jp haskell blog)
+           ("https://www.fosskers.ca/en/rss" en haskell blog)
+           ("https://lexi-lambda.github.io/feeds/all.atom.xml" en haskell blog)
+           ("https://kseo.github.io/atom.xml" en haskell blog)
+           ("https://sandymaguire.me/atom.xml" en blog)
+           ("https://reasonablypolymorphic.com/atom.xml" en haskell blog)
+           ("https://www.youtube.com/feeds/videos.xml?channel_id=UCXf8jlTSP9kp6g4ROCfgvbQ" youtube )
+           ;; ("https://dev.to/bradparker" en haskell blog)
+           ("https://www.williamyaoh.com/feed.atom" en haskell blog)
+           ;; ("https://www.reddit.com/r/haskell/top/.rss?t=week" top haskell reddit)
+           ;; ("https://www.reddit.com/r/hongkong/top/.rss?t=week" top hongkong reddit)
+           )
+         elfeed-search-filter "+unread @1-month-ago"))
+#+end_src
+
+* Plantuml
+#+begin_src emacs-lisp :tangle yes
+(after! plantuml-mode (setq! plantuml-default-exec-mode 'executable))
+#+end_src
+
+* PDF View
+#+begin_src emacs-lisp :tangle yes
+(after! pdf-view
+  (setq! pdf-tools-installer-os "nixos")
+  (setq! pdf-view-midnight-colors '("#ABB2BF" . "#282C35"))
+  (add-hook! pdf-tools-enabled #'pdf-view-midnight-minor-mode)
+  ;; (add-hook! pdf-tools-enabled #'hide-mode-line-mode)
+  )
+#+end_src
+
+* Use Dired Narrow
+#+begin_src emacs-lisp :tangle yes
+(use-package! dired-narrow
+  :commands (dired-narrow-fuzzy)
+  :init
+  (map! :map dired-mode-map :n "/" #'dired-narrow-fuzzy))
 #+end_src
 
 * Use Gif Screencast
@@ -763,16 +769,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   (add-to-list 'global-mode-string '("" mode-line-keycast)))
 #+end_src
 
-* PDF View
-#+begin_src emacs-lisp :tangle yes
-(after! pdf-view
-  (setq! pdf-tools-installer-os "nixos")
-  (setq! pdf-view-midnight-colors '("#ABB2BF" . "#282C35"))
-  (add-hook! pdf-tools-enabled #'pdf-view-midnight-minor-mode)
-  ;; (add-hook! pdf-tools-enabled #'hide-mode-line-mode)
-  )
-#+end_src
-
 * Use Scala
 #+begin_src emacs-lisp :tangle yes
 (push '("\\.sc\\'" . scala-mode) auto-mode-alist)
@@ -788,12 +784,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
             (setq ammonite-term-repl-auto-detect-predef-file nil)
             ;; (setq ammonite-term-repl-program-args '("-s" "--no-default-predef"))
             (set-repl-handler! 'scala-mode #'run-ammonite :persist t)))
-#+end_src
-
-* No Dashboard Banner
-#+begin_src elisp :tangle yes
-(setq! +doom-dashboard-ascii-banner-fn #'(lambda ()))
-(setq! +doom-dashboard-menu-sections '())
 #+end_src
 
 * Pass/Auth Source Config
@@ -902,20 +892,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 (after! forge
   (setq! forge-owned-accounts '(("fanshi1028"))))
 #+end_src
-* Sql
-#+begin_src emacs-lisp :tangle yes
-(after! sql
-  (set-formatter! 'pg_format "pg_format" :modes 'sql-mode)
-  ;; NOTE TEMP: https://github.com/doomemacs/doomemacs/issues/6936
-  (puthash 'pg_format "pg_format" format-all--executable-table)
-  (puthash 'sqlformat nil format-all--executable-table))
-#+end_src
-
-* Wasp Mode
-#+begin_src emacs-lisp :tangle yes
-(use-package! wasp-mode :mode "\\.wasp\\'")
-#+end_src
-
 * Pomodoro
 #+begin_src emacs-lisp :tangle yes
 (after! org-pomodoro
@@ -923,37 +899,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
          org-pomodoro-short-break-length 5
          org-pomodoro-long-break-length 25
          ))
-#+end_src
-
-* Astro
-#+begin_src emacs-lisp :tangle yes
-(after! format-all
-  (add-to-list 'auto-mode-alist '("\\.astro\\'" .
-                                  (lambda ()
-                                   (rjsx-mode)
-                                   (lsp!)
-                                   (setq-local +format-with-lsp nil
-                                               +format-with 'prettier-astro
-                                               ;; NOTE: class instead of className
-                                               emmet-jsx-major-modes (remove 'rjsx-mode emmet-jsx-major-modes)))))
-  (set-formatter! 'prettier-astro '("prettier" "--parser=astro" ("--plugin-search-dir=%s" (projectile-project-root))) :modes '((rxjs-mode ".astro")))
-  ;; NOTE TEMP: https://github.com/doomemacs/doomemacs/issues/6936
-  (puthash 'prettier-astro "prettier" format-all--executable-table))
-#+end_src
-
-* Tailwind
-#+begin_src emacs-lisp :tangle yes
-(defun fanshi/tailwind-rainbow-config ()
-    (when (and (stringp buffer-file-name)
-               (string-match "/tailwind\\.config\\.\\(js\\|ts\\)\\'"  buffer-file-name))
-      (rainbow-mode)))
-(add-hook 'rjsx-mode-hook 'fanshi/tailwind-rainbow-config)
-(use-package! lsp-tailwindcss :init (setq lsp-tailwindcss-add-on-mode t))
-(after! lsp-tailwindcss
-  (if-let (client (gethash 'tailwindcss lsp-clients))
-      (setf (lsp--client-new-connection client) (lsp-stdio-connection '("tailwindcss-language-server" "--stdio")))
-      (lsp-register-client client))
-  (lsp-dependency 'tailwindcss-language-server '((:system "tailwindcss-language-server"))))
 #+end_src
 
 * Custom
