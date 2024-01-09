@@ -560,7 +560,6 @@
 *** LSP
 #+begin_src emacs-lisp :tangle yes
 (after! lsp-haskell
-  (setq! lsp-haskell-server-path "haskell-language-server")
   (setq! lsp-haskell-floskell-on nil)
   (setq! lsp-haskell-fourmolu-on nil)
   (setq! lsp-haskell-brittany-on nil)
