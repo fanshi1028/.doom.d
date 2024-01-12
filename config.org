@@ -175,15 +175,6 @@
           org-capture-templates)))
 #+end_src
 
-*** Clock-In and Clock-Resume Behaviours
-#+begin_src emacs-lisp :tangle yes
-(after! org-capture
-  (setq! org-capture-templates
-         (mapcar
-          (lambda (x) (if (> (length x) 2) (append x '(:clock-in t :clock-resume t)) x))
-          org-capture-templates)))
-#+end_src
-
 *** Add Mine
 **** Sudden clocked Tasks
 #+begin_src emacs-lisp :tangle yes
@@ -232,8 +223,7 @@
                   ":END:"
                   " %i%?"
                   " %a")
-                "\n")
-              :clock-in t :clock-resume t)))
+                "\n"))))
 #+end_src
 
 ** Autorefile from inbox at todo keywords change
