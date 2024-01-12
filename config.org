@@ -252,10 +252,10 @@
                                              (lambda (y) (funcall #'concat org-directory y))
                                              '("/projects.org.gpg"))
                                            . (:level . 2))))
-                               ("[ ]" `((,(mapcar
-                                           (lambda (y) (funcall #'concat org-directory y))
-                                           '("/projects.org.gpg"))
-                                         . (:todo . "PROJ"))))
+                               ;; ("[ ]" `((,(mapcar
+                               ;;             (lambda (y) (funcall #'concat org-directory y))
+                               ;;             '("/projects.org.gpg"))
+                               ;;           . (:todo . "PROJ"))))
                                (_ org-refile-targets)))
                     (_ nil))))
              (when org-refile-targets (org-refile))))))
