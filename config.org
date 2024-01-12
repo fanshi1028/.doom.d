@@ -384,7 +384,7 @@
 
 ***** fanshi/org-private-agenda-file-regexp (include GPG for private agenda)
 [[https://emacs.stackexchange.com/a/36543][org mode - Include .org.gpg files in org-agenda - Emacs Stack Exchange]]
-#+begin_src emacs-lisp :tangle no
+#+begin_src emacs-lisp :tangle yes
 (setq! fanshi/org-private-agenda-file-regexp "\\`[^.].*\\.org\\\(\\.gpg\\\)?\\'")
 #+end_src
 
