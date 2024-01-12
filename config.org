@@ -115,7 +115,11 @@
 (after! org
   (setq! org-priority-default 67
          org-priority-lowest 69
-         org-priority-faces '((65 . error) (66 . warning) (67 . warning) (68 . success) (69 . success))))
+         org-priority-faces '((65 . error)
+                              (66 . warning)
+                              (67 . warning)
+                              (68 . success)
+                              (69 . success))))
 ;; org-priority-faces
 #+end_src
 
@@ -127,7 +131,12 @@
 ** Org Babel Edit's LSP Support
 *** fanshi/org-babel-edit-lsp-langs
 #+begin_src emacs-lisp :tangle yes
-(defvar fanshi/org-babel-edit-lsp-langs '(("haskell" . "hs") ("typescript" . "ts") ("js" . "js") ("python" . "py") ("rust" . "rs"))
+(defvar fanshi/org-babel-edit-lsp-langs
+  '(("haskell" . "hs")
+    ("typescript" . "ts")
+    ("js" . "js")
+    ("python" . "py")
+    ("rust" . "rs"))
   "alist for langs that will use lsp when `org-edit-special', key is the lang, and value is lang's file extension")
 #+end_src
 *** fanshi/org-babel-edit-lsp-prep
