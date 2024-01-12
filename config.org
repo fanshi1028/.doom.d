@@ -505,6 +505,11 @@
 
 * Langs
 ** Haskell
+*** Config
+#+begin_src emacs-lisp :tangle yes
+(after! haskell-mode
+  (pushnew! haskell-font-lock-keywords "cases"))
+#+end_src
 *** Template
 #+begin_src emacs-lisp :tangle yes
 (after! haskell-mode
