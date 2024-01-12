@@ -350,7 +350,7 @@
          `((:discard (:scheduled future :deadline future :regexp ,org-scheduled-time-hour-regexp :todo "INBOX"))
            (:name "Important 💎💎💎" :tag "Payment" :priority "A" :order 2) ;;🚔🚔🚔
            ;; (:name "Do I really look like a guy with a plan??? 🃏🃏🃏" :and (:todo "TOPLAN" :priority> "D") :order 3)
-           (:name "Do I really look like a guy with a plan??? 🃏🃏🃏" :todo "TOPLAN" :order 3)
+           (:name "Do I really look like a guy with a plan??? 🃏🃏🃏" :todo "IDEA" :order 3)
            (:name "Camping 🏕🏕🏕" :todo "WAIT" :order 11) ; Set order of this section 💎💎💎
            ;; (:name "Inbox 📬📬📬" :todo "INBOX" :order 30)
            ;; (:name "Peek Into Future 🔮🔮🔮" :scheduled future :order 4)
@@ -406,8 +406,8 @@
                                       ((agenda "" ((org-super-agenda-groups fanshi/agenda)))
                                        (alltodo "" ((org-agenda-overriding-header (fanshi/make-line))
                                                     (org-super-agenda-groups fanshi/alltodo))))
-                                      ((org-agenda-files '("/Users/fanshi/org/routine.org"
-                                                           "/Users/fanshi/org/event.org"))))))
+                                      ""
+                                      ((org-agenda-file-regexp fanshi/org-agenda-file-regexp)))))
   :config
   (org-super-agenda-mode))
 #+end_src
