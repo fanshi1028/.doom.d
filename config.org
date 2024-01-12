@@ -236,67 +236,35 @@
               :clock-in t :clock-resume t)))
 #+end_src
 
-** Org trigger hook for auto-refile during Todo keywords changes
-*** fanshi/org-work-directory
+** Autorefile from inbox at todo keywords change
+*** fanshi/org-inbox-todo-trigger
 #+begin_src emacs-lisp :tangle yes
 (after! org
-  (setq! fanshi/org-work-directory (concat org-directory "work/")))
-#+end_src
-
-*** fanshi/org-todo-trigger
-#+begin_src emacs-lisp :tangle yes
-(after! org
-  (defun fanshi/org-todo-trigger (change-plist) ""
+  (defun fanshi/org-inbox-todo-trigger (change-plist) ""
          (when (equal (plist-get change-plist :type) 'todo-state-change)
-           (let ((fanshi/proj-org-refile-targets `((,(mapcar (lambda (y) (funcall #'concat org-directory y))
-                                                             '("fanshi.org.gpg"
-                                                               "agnes_ng.org"
-                                                               "projects.org"))
-                                                    . (:todo . "PROJ"))))
-                 (org-refile-targets (pcase (plist-get change-plist :from)
+           (let ((org-refile-targets
+                  (pcase (plist-get change-plist :from)
                     ("INBOX" (pcase (plist-get change-plist :to)
-                               ("TOREAD" '(("~/org/read.org" . (:level . 1))))
-                               ("TOPLAN" `((("~/org/agnes_ng.org" "~/org/fanshi.org.gpg") . (:level . 1))
-                                                (,(directory-files fanshi/org-work-directory t (rx ".org.gpg" eos)) . (:level . 2))))
-                               ("TODO" `((,(mapcar
+                               ("PROJ" `((,(mapcar
                                             (lambda (y) (funcall #'concat org-directory y))
-                                            '("fanshi.org.gpg"
-                                              "agnes_ng.org"
-                                              "projects.org"))
-                                          . (:todo . "PROJ"))))
-                               ("IDEA" `((,(mapcar
-                                            (lambda (y) (funcall #'concat org-directory y))
-                                            '("fanshi.org.gpg"
-                                              "agnes_ng.org"
-                                              "projects.org"))
-                                          . (:todo . "TOPLAN"))
-                                         (,(mapcar
-                                            (lambda (y) (funcall #'concat org-directory y))
-                                            '("fanshi.org.gpg"
-                                              "agnes_ng.org"
-                                              "projects.org"))
-                                          . (:todo . "PROJ"))))
-                               ("DEAL" '(("~/org/deals.org" . (:maxlevel . 2))))
+                                            '("/projects.org.gpg"))
+                                          . (:level . 1))))
+                               ("TODO"  `((,(mapcar
+                                             (lambda (y) (funcall #'concat org-directory y))
+                                             '("/projects.org.gpg"))
+                                           . (:level . 2))))
+                               ("[ ]" `((,(mapcar
+                                           (lambda (y) (funcall #'concat org-directory y))
+                                           '("/projects.org.gpg"))
+                                         . (:todo . "PROJ"))))
                                (_ org-refile-targets)))
-                    ("DONE" (pcase (plist-get change-plist :to)
-                               ("RECIPE" '(("~/org/cooking.org" . (:tag . "Recipe"))))
-                               ("IDEA" `((,(mapcar
-                                            (lambda (y) (funcall #'concat org-directory y))
-                                            '("fanshi.org.gpg"
-                                              "agnes_ng.org"
-                                              "projects.org"))
-                                          . (:todo . "PROJ"))
-                                         ("~/org/cooking.org" . (:tag . ""))
-                                         ))
-                               ("DEAL" '(("~/org/groceries.org" . (:maxlevel . 2))))
-                               (_ nil)))
                     (_ nil))))
              (when org-refile-targets (org-refile))))))
 #+end_src
 
 *** hook
 #+begin_src emacs-lisp :tangle yes
-(after! org (setq! org-trigger-hook 'fanshi/org-todo-trigger))
+(after! org (setq! org-trigger-hook 'fanshi/org-inbox-todo-trigger))
 ;; org-refile-allow-creating-parent-nodes "confirm"
 #+end_src
 
@@ -386,8 +354,8 @@
            (:name "Camping 🏕🏕🏕" :todo "WAIT" :order 11) ; Set order of this section 💎💎💎
            ;; (:name "Inbox 📬📬📬" :todo "INBOX" :order 30)
            ;; (:name "Peek Into Future 🔮🔮🔮" :scheduled future :order 4)
-           (:name "Watching 📺📺📺" :and (:todo "READING" :tag "TV") :order 9)
-           (:name "こっちも見ろ 👁👁👁" :todo ("READING" "SCAN") :order 8)
+           ;; (:name "Watching 📺📺📺" :and (:todo "READING" :tag "TV") :order 9)
+           ;; (:name "こっちも見ろ 👁👁👁" :todo ("READING" "SCAN") :order 8)
            ;; (:name "Reading 📚📚📚" :todo ("READING" "SCAN") :order 10)
            (:name "Quick Picks 🚀🚀🚀" :and (:effort< "0:10" :todo "TODO") :order 4)
            ;; NOTE: tried to follow logic in org-habit-insert-consistency-graphs to find dying habit but seems not easy
