@@ -341,7 +341,6 @@
          ;;  :order 8)
          ))
 #+end_src
-
 ***** fanshi/alltodo
 #+begin_src emacs-lisp :tangle yes
 (after! org
@@ -383,12 +382,10 @@
            (:auto-outline-path t :order 5))))
 #+end_src
 
-***** fanshi/org-agenda-file-regexp (include GPG)
+***** fanshi/org-private-agenda-file-regexp (include GPG for private agenda)
 [[https://emacs.stackexchange.com/a/36543][org mode - Include .org.gpg files in org-agenda - Emacs Stack Exchange]]
 #+begin_src emacs-lisp :tangle no
-(after! org-agenda
-  (setq! fanshi/org-agenda-file-regexp
-         (replace-regexp-in-string "\\\\\\.org" "\\\\.org\\\\(\\\\.gpg\\\\)?" org-agenda-file-regexp)))
+(setq! fanshi/org-private-agenda-file-regexp "\\`[^.].*\\.org\\\(\\.gpg\\\)?\\'")
 #+end_src
 
 ***** Use Org Super Agenda
@@ -402,11 +399,11 @@
         ;; fanshi/org-agenda-header (concat "\n" (make-string (window-width) 9472))
         ;; fanshi/make-org-agenda-header (defun () (concat "\n" (make-string (window-width) 9472)))
         org-agenda-custom-commands '(("p" "Private Agenda"
-                                      ((agenda "" ((org-super-agenda-groups fanshi/agenda)))
+                                      ((agenda "" ((org-super-agenda-groups fanshi/agenda)
+                                                   (org-agenda-file-regexp fanshi/org-private-agenda-file-regexp)))
                                        (alltodo "" ((org-agenda-overriding-header (fanshi/make-line))
-                                                    (org-super-agenda-groups fanshi/alltodo))))
-                                      ""
-                                      ((org-agenda-file-regexp fanshi/org-agenda-file-regexp)))))
+                                                    (org-super-agenda-groups fanshi/alltodo)
+                                                    (org-agenda-file-regexp fanshi/org-private-agenda-file-regexp)))))))
   :config
   (org-super-agenda-mode))
 #+end_src
