@@ -801,34 +801,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 (after! sendmail (setq! sendmail-program (executable-find "msmtp")))
 #+END_SRC
 
-* Elfeeds
-#+begin_src emacs-lisp :tangle no
-(after! elfeed
-  (setq! elfeed-feeds
-         '(("http://feeds.feedburner.com/incodeblog" blog haskell)
-           ("https://noonker.github.io/index.xml" blog tech)
-           ("https://mollermara.com/rss.xml" emacs blog stat)
-           ("https://notxor.nueva-actitud.org/rss.xml" es blog)
-           ("http://pragmaticemacs.com/feed/" blog emacs)
-           ("https://blog.thomasheartman.com/rss.xml" blog emacs haskell)
-           ("https://medium.com/feed/@mojia" en blog)
-           ("https://mac-ra.com/feed/atom/" jp blog)
-           ("https://www.parsonsmatt.org/feed.xml" en haskell blog)
-           ("https://www.fosskers.ca/jp/rss" jp haskell blog)
-           ("https://www.fosskers.ca/en/rss" en haskell blog)
-           ("https://lexi-lambda.github.io/feeds/all.atom.xml" en haskell blog)
-           ("https://kseo.github.io/atom.xml" en haskell blog)
-           ("https://sandymaguire.me/atom.xml" en blog)
-           ("https://reasonablypolymorphic.com/atom.xml" en haskell blog)
-           ("https://www.youtube.com/feeds/videos.xml?channel_id=UCXf8jlTSP9kp6g4ROCfgvbQ" youtube )
-           ;; ("https://dev.to/bradparker" en haskell blog)
-           ("https://www.williamyaoh.com/feed.atom" en haskell blog)
-           ;; ("https://www.reddit.com/r/haskell/top/.rss?t=week" top haskell reddit)
-           ;; ("https://www.reddit.com/r/hongkong/top/.rss?t=week" top hongkong reddit)
-           )
-         elfeed-search-filter "+unread @1-month-ago"))
-#+end_src
-
 * Plantuml
 #+begin_src emacs-lisp :tangle yes
 (after! plantuml-mode (setq! plantuml-default-exec-mode 'executable))
