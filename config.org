@@ -644,7 +644,7 @@
 #+end_src
 
 ** Tailwind
-#+begin_src emacs-lisp :tangle no
+#+begin_src emacs-lisp :tangle yes
 (defun fanshi/tailwind-rainbow-config ()
     (when (and (stringp buffer-file-name)
                (string-match "/tailwind\\.config\\.\\(js\\|ts\\)\\'"  buffer-file-name))

@@ -76,6 +76,5 @@
 ;;            :repo "emacsmirror/org-contrib")
 ;;   :pin "17f3c514356430448627104e015f155008b45575")
 
-;; (package! lsp-tailwindcss :pin "b36304210421160477a4ab453fa272fc411ce297")
-(package! typescript-mode :disable t)
+(package! lsp-tailwindcss)
 
