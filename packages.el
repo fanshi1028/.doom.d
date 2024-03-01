@@ -78,3 +78,5 @@
 
 (package! lsp-tailwindcss)
 
+
+(package! typescript-mode :disable t)
