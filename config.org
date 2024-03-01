@@ -686,20 +686,7 @@
 #+end_src
 
 * LSP
-** Tweak File Watchers
-*** don't watch nix materializtion and golden files for haskell
-#+begin_src emacs-lisp :tangle yes
-(after! lsp-mode
-  (setq! lsp-file-watch-ignored-directories
-         (append lsp-file-watch-ignored-directories '("[/\\\\]materialized\\'"
-                                                      ;; NOTE: we don't set up lsp for nix, so probably fine for now
-                                                      "[/\\\\]nix\\'"
-                                                      "[/\\\\]spec\\'"
-                                                      "[/\\\\]golden\\'"
-                                                      "[/\\\\]\\.postgres\\'"))))
-#+end_src
-
-*** don't watch gitignore
+** Don't watch gitignore
 - https://github.com/emacs-lsp/lsp-mode/issues/713#issuecomment-985653873
 - edit :: bad for performance, emacs stuck to wait for the command to run, may be make it async? disable for now.
 #+begin_src emacs-lisp :tangle no
