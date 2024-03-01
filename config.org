@@ -773,16 +773,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   "di"   #'fanshi/ediff-init-and-example
   )
 #+end_src
-* Email
-#+BEGIN_SRC elisp :tangle no
-(after! notmuch (setq! +notmuch-sync-backend 'mbsync))
-;; (setq +notmuch-sync-backend 'mbsync-xdg)
-#+END_SRC
-
-#+BEGIN_SRC elisp :tangle no
-(after! sendmail (setq! sendmail-program (executable-find "msmtp")))
-#+END_SRC
-
 * Plantuml
 #+begin_src emacs-lisp :tangle yes
 (after! plantuml-mode (setq! plantuml-default-exec-mode 'executable))
