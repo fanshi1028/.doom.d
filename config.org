@@ -542,6 +542,11 @@
   (puthash 'cabal-fmt "cabal-fmt" format-all--executable-table))
 #+end_src
 
+*** Consult Hoogle
+#+begin_src emacs-lisp :tangle yes
+(advice-add 'consult-hoogle :around 'inheritenv-apply)
+#+end_src
+
 ** Typescript
 - ref :: https://www.reddit.com/r/emacs/comments/b7rsxu/behold_orgbabelexecutetypescript/
 #+begin_src emacs-lisp :tangle yes
