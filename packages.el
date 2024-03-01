@@ -53,18 +53,10 @@
 (package! dired-narrow :pin "1596e516835099b96cb65d1dc372cfbdff6aea96")
 (package! org-super-agenda :pin "f4f528985397c833c870967884b013cf91a1da4a")
 (package! org-web-tools :pin "b5b7fee01eaac845ca80240f3a2d22d426179ce3")
-;; (package! citeproc-org)
-;; (package! org-roam-bibtex)
-;; (package! bibtex-completion)
 ;; (package! gif-screencast :pin "adec408e6adab2e8e057fe0ad828749f473bfb83")
 (package! nov :pin "58c35e677e11f5c04a702b42ac753c80c8955089")
-;; (package! vuiet)
-;; (package! calfw)
 ;; (package! keycast)
-;; (package! jest)
-;; (package! sbt-mode :ignore t)
 
-;; (package! ammonite-term-repl)
 ;; (package! wasp-mode :pin "76198cdd5f0ece3770c3a586115caea3ea613169")
 (package! emacsql :pin "2e6056df110e76da4eabb413f8781c4f1edddf20")
 
