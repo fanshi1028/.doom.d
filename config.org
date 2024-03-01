@@ -773,11 +773,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   "di"   #'fanshi/ediff-init-and-example
   )
 #+end_src
-* Magit Forge
-#+begin_src emacs-lisp :tangle no
-(after! forge (setq! forge-owned-accounts '(("fanshi1028"))))
-#+end_src
-
 * Email
 #+BEGIN_SRC elisp :tangle no
 (after! notmuch (setq! +notmuch-sync-backend 'mbsync))
