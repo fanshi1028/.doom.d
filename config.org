@@ -352,17 +352,14 @@
 #+begin_src emacs-lisp :tangle yes
 (after! org
   (setq! fanshi/alltodo
-         `((:discard (:scheduled future :deadline future :regexp ,org-scheduled-time-hour-regexp :todo "INBOX"))
+         `((:discard (:scheduled future :deadline future :regexp ,org-scheduled-time-hour-regexp :file-path ("routine" "inbox")))
            (:name "Important 💎💎💎" :tag "Payment" :priority "A" :order 2) ;;🚔🚔🚔
            ;; (:name "Do I really look like a guy with a plan??? 🃏🃏🃏" :and (:todo "TOPLAN" :priority> "D") :order 3)
-           (:name "Do I really look like a guy with a plan??? 🃏🃏🃏" :todo "IDEA" :order 3)
+           (:name "Ideas are worthless 🤯🤯🤯" :and (:file-path "ideas" :todo "IDEA") :order 9)
+           (:discard (:file-path "ideas"))
            (:name "Camping 🏕🏕🏕" :todo "WAIT" :order 11) ; Set order of this section 💎💎💎
-           ;; (:name "Inbox 📬📬📬" :todo "INBOX" :order 30)
-           ;; (:name "Peek Into Future 🔮🔮🔮" :scheduled future :order 4)
-           ;; (:name "Watching 📺📺📺" :and (:todo "READING" :tag "TV") :order 9)
-           ;; (:name "こっちも見ろ 👁👁👁" :todo ("READING" "SCAN") :order 8)
-           ;; (:name "Reading 📚📚📚" :todo ("READING" "SCAN") :order 10)
-           (:name "Quick Picks 🚀🚀🚀" :and (:effort< "0:10" :todo "TODO") :order 4)
+           ;; (:name "Peek Into Future 🔮🔮🔮" :scheduled future :order 5)
+           (:name "Quick Picks 🚀🚀🚀" :and (:effort< "0:15" :todo "TODO") :order 4)
            ;; NOTE: tried to follow logic in org-habit-insert-consistency-graphs to find dying habit but seems not easy
            ;; (:name "Dying Habit" :and (:habit t
            ;;                      :todo ("TODO" "[ ]")
@@ -372,11 +369,10 @@
            ;;                               :scheduled t
            ;;                               :not (:scheduled future))
            ;;                :order 6)
-           ;; (:name "Super B 👶🏿👶🏿👶🏿" :and (:priority "B" :not (:file-path "projects")) :order 9)
-           (:name "Super B 👶👶👶" :and (:priority "B" :not (:file-path "projects")) :order 7)
+           (:name "Super B 👶👶👶" :and (:priority "B" :not (:file-path "projects")) :order 6)
+           (:name "Optional 🧧🧧🧧" :and (:file-path "tasks" :todo "TODO" :priority "C") :order 8)
            ;; (:name "Others 🏝🏝🏝" :and (:priority "C" :not (:file-path "projects")) :order 21)
            ;; (:name "Optional 🧧🧧🧧" :and (:priority "C" :not (:file-path "projects")) :order 90)
-           ;; (:name "waht 🧧🧧🧧" :todo "TOREAD" :order 90)
            ;; NOTE: check
            ;; (:name "Should Be Nothing"
            ;;  :not (:file-path "projects"
@@ -385,8 +381,8 @@
            ;;  :order 99)
            ;; (:discard (:habit t))
            ;; NOTE Project
-           (:discard (:not (:file-path "projects")))
-           (:auto-outline-path t :order 5))))
+           (:discard (:not (:file-path "projects") :todo "PROJ"))
+           (:auto-outline-path t  :order 7))))
 #+end_src
 
 ***** fanshi/org-private-agenda-file-regexp (include GPG for private agenda)
