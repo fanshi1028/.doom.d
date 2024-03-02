@@ -415,14 +415,6 @@
   :commands (org-web-tools--org-link-for-url))
 #+end_src
 
-** Pomodoro
-#+begin_src emacs-lisp :tangle yes
-(after! org-pomodoro
-  (setq! org-pomodoro-length 45
-         org-pomodoro-short-break-length 5
-         org-pomodoro-long-break-length 25))
-#+end_src
-
 * Projectile
 #+begin_src emacs-lisp :tangle yes
 (after! projectile
