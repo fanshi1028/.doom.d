@@ -123,11 +123,18 @@
 ;; org-priority-faces
 #+end_src
 
+** Todo Keywords
+#+begin_src emacs-lisp :tangle yes
+(after! org
+  (setq! org-todo-keywords
+         '((sequence "TODO(t)" "PROJ(p)" "WAIT(w)" "HOLD(h)" "IDEA(i)" "|" "DONE(d)" "KILL(k)")
+           (sequence "[ ](T)" "[?](W)" "|" "[X](D)")
+           (sequence "INBOX" "|" ))))
+#+end_src
 ** Todo Keywords Faces
 #+begin_src emacs-lisp :tangle yes
 (after! org (pushnew! org-todo-keyword-faces '("INBOX" org-todo)))
 #+end_src
-
 ** Org Babel Edit's LSP Support
 *** fanshi/org-babel-edit-lsp-langs
 #+begin_src emacs-lisp :tangle yes
@@ -244,19 +251,19 @@
            (let ((org-refile-targets
                   (pcase (plist-get change-plist :from)
                     ("INBOX" (pcase (plist-get change-plist :to)
-                               ("PROJ" `((,(mapcar
-                                            (lambda (y) (funcall #'concat org-directory y))
-                                            '("/projects.org.gpg"))
-                                          . (:level . 1))))
-                               ("TODO"  `((,(mapcar
-                                             (lambda (y) (funcall #'concat org-directory y))
-                                             '("/projects.org.gpg"))
-                                           . (:level . 2))))
-                               ;; ("[ ]" `((,(mapcar
-                               ;;             (lambda (y) (funcall #'concat org-directory y))
-                               ;;             '("/projects.org.gpg"))
-                               ;;           . (:todo . "PROJ"))))
+                               ("PROJ" `((,(concat org-directory "/projects.org.gpg")
+                                          . (:level . 0))))
+                               ("TODO"  `((,(concat org-directory "/tasks.org.gpg")
+                                           . (:level . 0))))
+                               ("[ ]"  `((, (concat org-directory "/projects.org.gpg")
+                                          . (:todo . "PROJ"))))
+                               ("IDEA"  `((,(concat org-directory "/ideas.org.gpg")
+                                           . (:level . 0))))
                                (_ org-refile-targets)))
+                    ("IDEA" (pcase (plist-get change-plist :to)
+                               ("PROJ" `((,(concat org-directory "/projects.org.gpg")
+                                          . (:level . 0))))
+                               (_ nil)))
                     (_ nil))))
              (when org-refile-targets (org-refile))))))
 #+end_src
