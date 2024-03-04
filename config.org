@@ -441,10 +441,15 @@
   ;; :after-call org-capture
   :commands (org-web-tools--org-link-for-url))
 #+end_src
-** Journal Encrypt
+** Journal
+*** Encrypt
 #+begin_src emacs-lisp :tangle yes
 (after! org-journal (unless (string-suffix-p ".gpg" org-journal-file-format)
                       (setq! org-journal-file-format (concat org-journal-file-format ".gpg"))))
+#+end_src
+*** Zen
+#+begin_src emacs-lisp :tangle yes
+(after! org-journal (pushnew! org-journal-mode-hook #'writeroom-mode))
 #+end_src
 
 * Projectile
