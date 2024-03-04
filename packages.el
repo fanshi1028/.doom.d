@@ -51,7 +51,7 @@
 (package! lpy :pin "fa95b11e1023704510cc7dd2897bf8bcc3027cbb")
 ;; (package! worf)
 (package! dired-narrow :pin "1596e516835099b96cb65d1dc372cfbdff6aea96")
-(package! org-super-agenda :pin "f4f528985397c833c870967884b013cf91a1da4a")
+(package! org-super-agenda :pin "51c9da5ce7b791150758984bab469d2222516844")
 (package! org-web-tools :pin "b5b7fee01eaac845ca80240f3a2d22d426179ce3")
 ;; (package! gif-screencast :pin "adec408e6adab2e8e057fe0ad828749f473bfb83")
 (package! nov :pin "58c35e677e11f5c04a702b42ac753c80c8955089")
