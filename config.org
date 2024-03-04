@@ -127,8 +127,8 @@
 #+begin_src emacs-lisp :tangle yes
 (after! org
   (setq! org-todo-keywords
-         '((sequence "TODO(t)" "PROJ(p)" "WAIT(w)" "HOLD(h)" "IDEA(i)" "|" "DONE(d)" "KILL(k)")
-           (sequence "[ ](T)" "[?](W)" "|" "[X](D)")
+         '((sequence "TODO(t)" "PROJ(p)" "WAIT(w@)" "HOLD(h@)" "IDEA(i)" "|" "DONE(d)" "KILL(k@)")
+           (sequence "[ ](T)" "[?](W@)" "|" "[X](D)")
            (sequence "INBOX" "|" ))))
 #+end_src
 ** Todo Keywords Faces
