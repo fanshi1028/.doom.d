@@ -385,6 +385,14 @@
            (:discard (:not (:file-path "projects") :todo "PROJ"))
            (:auto-outline-path t  :order 7))))
 #+end_src
+***** fanshi/worktodo
+#+begin_src emacs-lisp :tangle yes
+(after! org
+  (setq! fanshi/worktodo
+         `((:discard (:scheduled t :deadline t :regexp ,org-scheduled-time-hour-regexp :not (:file-path "work")))
+           (:auto-outline-path t  :order 7))))
+#+end_src
+
 
 ***** fanshi/org-private-agenda-file-regexp (include GPG for private agenda)
 [[https://emacs.stackexchange.com/a/36543][org mode - Include .org.gpg files in org-agenda - Emacs Stack Exchange]]
@@ -406,17 +414,17 @@
                                       ((agenda "" ((org-super-agenda-groups fanshi/agenda)
                                                    (org-agenda-file-regexp fanshi/org-private-agenda-file-regexp)))
                                        (alltodo "" ((org-agenda-overriding-header (fanshi/make-line))
-                                                    (org-super-agenda-groups fanshi/alltodo)
+                                                    (org-super-agenda-groups (cons `(:discard (:file-path ("work"))) fanshi/alltodo))
                                                     (org-agenda-file-regexp fanshi/org-private-agenda-file-regexp)))
                                        (alltodo "" ((org-agenda-overriding-header (fanshi/make-line))
-                                                    (org-super-agenda-groups (cons `(:discard :not (file-path ("work"))) fanshi/alltodo))
+                                                    (org-super-agenda-groups fanshi/worktodo)
                                                     (org-agenda-file-regexp fanshi/org-private-agenda-file-regexp)))
                                        ))
                                      ("w" "Work Agenda"
                                       ((agenda "" ((org-super-agenda-groups (cons `(:discard (:not (:file-path ("work")))) fanshi/agenda))
                                                    (org-agenda-file-regexp fanshi/org-private-agenda-file-regexp)))
                                        (alltodo "" ((org-agenda-overriding-header (fanshi/make-line))
-                                                    (org-super-agenda-groups (cons `(:discard :not (file-path ("work"))) fanshi/alltodo))
+                                                    (org-super-agenda-groups fanshi/worktodo)
                                                     (org-agenda-file-regexp fanshi/org-private-agenda-file-regexp)))))))
   :config
   (org-super-agenda-mode))
