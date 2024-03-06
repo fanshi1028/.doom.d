@@ -283,7 +283,8 @@
   ;;   (insert "#+ATTR_ORG: :width 500 ")
   ;;   (call-interactively #'org-download-screenshot)
   ;;   )
-  (setq! org-noter-notes-search-path (list (concat org-roam-directory "books/"))
+  (setq! org-noter-notes-search-path (list (concat org-directory "/noter/"))
+         org-noter-find-additional-notes-functions '((lambda (filename) (concat (file-name-base filename) ".org.gpg")))
          org-noter-doc-split-fraction '(0.57 0.43)))
 #+end_src
 
