@@ -355,10 +355,10 @@
 (after! org
   (setq! fanshi/alltodo
          `((:discard (:scheduled t :deadline t :regexp ,org-scheduled-time-hour-regexp :file-path ("routine" "inbox" "work")))
+           ;; (:name "Ideas are worthless 🤯🤯🤯" :and (:file-path "ideas" :todo "IDEA") :order 9)
+           (:discard (:file-path "ideas"))
            (:name "Important 💎💎💎" :tag "Payment" :priority "A" :order 2) ;;🚔🚔🚔
            ;; (:name "Do I really look like a guy with a plan??? 🃏🃏🃏" :and (:todo "TOPLAN" :priority> "D") :order 3)
-           (:name "Ideas are worthless 🤯🤯🤯" :and (:file-path "ideas" :todo "IDEA") :order 9)
-           (:discard (:file-path "ideas"))
            (:name "Camping 🏕🏕🏕" :todo "WAIT" :order 11) ; Set order of this section 💎💎💎
            ;; (:name "Peek Into Future 🔮🔮🔮" :scheduled future :order 5)
            (:name "Quick Picks 🚀🚀🚀" :and (:effort< "0:15" :todo "TODO") :order 4)
