@@ -786,6 +786,16 @@
 ;; use 'vterm' with 'fish'
 (after! vterm (setq! vterm-shell "~/.nix-profile/bin/fish"))
 #+end_src
+* Hledger
+#+begin_src emacs-lisp :tangle no
+(after! ledger-mode
+  (setq!
+   ledger-binary-path "hledger"
+   ledger-init-file-name nil)
+  ;; (rassq-delete-all '('ledger-mode) auto-mode-alist)
+  ;; (add-to-list 'auto-mode-alist '("\\.\\(h?ledger\\|journal\\|j\\)$" . ledger-mode))
+  )
+#+end_src
 
 * Not so long
 *** Problem
