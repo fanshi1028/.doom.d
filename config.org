@@ -337,7 +337,8 @@
 (setq! fanshi/agenda
        '((:name "Clocked Today 📰📰📰" :log t)
          ;; (:name "Calendar 📅📅📅" :time-grid t :and (:scheduled today :not (:habit t) ))
-         (:name "Calendar 📅📅📅" :time-grid t :and (:scheduled today))
+         (:name "Calendar 📅📅📅" :time-grid t :scheduled today)
+         (:discard (:todo ("DONE"  "[X]")))
          (:name "Deadlines Just Aren't Real To Me Until I'm Staring One In The Face 🚨🚨🚨" :deadline today :order 2)
          (:name "What Is Dead May Never Die 🚣🚣🚣" :deadline past :order 3)
          (:name "Defuse The Bomb 💣💣💣" :deadline future :order 4)
@@ -361,7 +362,7 @@
            ;; (:name "Do I really look like a guy with a plan??? 🃏🃏🃏" :and (:todo "TOPLAN" :priority> "D") :order 3)
            (:name "Camping 🏕🏕🏕" :todo "WAIT" :order 11) ; Set order of this section 💎💎💎
            ;; (:name "Peek Into Future 🔮🔮🔮" :scheduled future :order 5)
-           (:name "Quick Picks 🚀🚀🚀" :and (:effort< "0:15" :todo "TODO") :order 4)
+           (:name "Quick Picks 🚀🚀🚀" :and (:effort< "0:15" :todo ("TODO" "[ ]")) :order 4)
            ;; NOTE: tried to follow logic in org-habit-insert-consistency-graphs to find dying habit but seems not easy
            ;; (:name "Dying Habit" :and (:habit t
            ;;                      :todo ("TODO" "[ ]")
@@ -372,7 +373,7 @@
            ;;                               :not (:scheduled future))
            ;;                :order 6)
            (:name "Super B 👶👶👶" :and (:priority "B" :not (:file-path "projects")) :order 6)
-           (:name "Optional 🧧🧧🧧" :and (:file-path "tasks" :todo "TODO" :priority "C") :order 8)
+           (:name "Optional 🧧🧧🧧" :and (:file-path "tasks" :todo ("TODO" "[ ]") :priority "C") :order 8)
            ;; (:name "Others 🏝🏝🏝" :and (:priority "C" :not (:file-path "projects")) :order 21)
            ;; (:name "Optional 🧧🧧🧧" :and (:priority "C" :not (:file-path "projects")) :order 90)
            ;; NOTE: check
