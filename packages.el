@@ -54,7 +54,8 @@
 (package! org-super-agenda :pin "51c9da5ce7b791150758984bab469d2222516844")
 (package! org-web-tools :pin "b5b7fee01eaac845ca80240f3a2d22d426179ce3")
 ;; (package! gif-screencast :pin "adec408e6adab2e8e057fe0ad828749f473bfb83")
-(package! nov :pin "58c35e677e11f5c04a702b42ac753c80c8955089")
+(package! nov
+  :recipe (:host nil :repo "https://depp.brause.cc/nov.el.git"))
 ;; (package! keycast)
 
 ;; (package! wasp-mode :pin "76198cdd5f0ece3770c3a586115caea3ea613169")
