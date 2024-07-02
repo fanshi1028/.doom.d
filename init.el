@@ -22,6 +22,7 @@
 
        :completion
        (company +childframe)            ; the ultimate code completion backend
+       ;;(corfu +orderless)  ; complete with cap(f), cape and a flying feather!
        ;;helm              ; the *other* search engine for love and life
        ;;ido               ; the other *other* search engine...
        ;;(ivy +childframe)  ; a search engine for love and life
@@ -82,7 +83,7 @@
        :checkers
        syntax              ; tasing you for every semicolon you forget
        ;;(spell +flyspell) ; tasing you for misspelling mispelling
-       ;; grammar                          ; tasing grammar mistake every you make
+       ;;grammar           ; tasing grammar mistake every you make
 
        :tools
        ;;ansible
@@ -94,7 +95,6 @@
        ;;editorconfig      ; let someone else argue about tabs vs spaces
        ;;ein               ; tame Jupyter notebooks with emacs
        (eval +overlay)                ; run code, run (also, repls)
-       ;; gist                           ; interacting with github gists
        (lookup +dictionary +offline)  ; navigate your code and its documentation
        (lsp)                    ; M-x vscode
        (magit)      ; a git porcelain for Emacs
@@ -102,22 +102,20 @@
        (pass)              ; password manager for nerds
        pdf        ; pdf enhancements
        ;; prodigy    ; FIXME managing external services & code builders
-       ;;rgb               ; creating color strings
-       ;;taskrunner        ; taskrunner for all your projects
        ;;terraform         ; infrastructure as code
        ;;tmux              ; an API for interacting with tmux
-       ;; tree-sitter       ; syntax and parsing, sitting in a tree...
+       ;;tree-sitter       ; syntax and parsing, sitting in a tree...
        ;;upload            ; map local to remote projects via ssh/ftp
 
        :os
-       (:if IS-MAC macos)  ; improve compatibility with macOS
+       (:if (featurep :system 'macos) macos)  ; improve compatibility with macOS
        ;;tty               ; improve the terminal Emacs experience
 
        :lang
        ;;agda              ; types of types of types of types...
        ;;beancount         ; mind the GAAP
        ;;(cc +lsp)         ; C > C++ == 1
-       ;; clojure           ; java with a lisp
+       ;;clojure           ; java with a lisp
        ;;common-lisp       ; if you've seen one lisp, you've seen them all
        ;;coq               ; proofs-as-programs
        ;;crystal           ; ruby at the speed of c
@@ -165,8 +163,8 @@
        rest              ; Emacs as a REST client
        ;;rst               ; ReST in peace
        ;;(ruby +rails)     ; 1.step {|i| p "Ruby is #{i.even? ? 'love' : 'life'}"}
-       ;; (rust +lsp)       ; Fe2O3.unwrap().unwrap().unwrap().unwrap()
-       ;; (scala +lsp)      ; java, but good
+       ;;(rust +lsp)       ; Fe2O3.unwrap().unwrap().unwrap().unwrap()
+       ;;scala             ; java, but good
        ;;(scheme +guile)   ; a fully conniving family of lisps
        ;;(sh +fish)           ; she sells {ba,z,fi}sh shells on the C xor
        ;;sml
@@ -179,7 +177,7 @@
 
        :email
        ;;(mu4e +org +gmail)
-       ;; notmuch
+       ;;notmuch
        ;;(wanderlust +gmail)
 
        :app
@@ -188,7 +186,6 @@
        ;;everywhere        ; *leave* Emacs!? You must be joking
        ;;irc               ; how neckbeards socialize
        ;;(rss +org)        ; emacs as an RSS reader
-       ;;twitter           ; twitter client https://twitter.com/vnought
 
        :config
        literate
