@@ -562,10 +562,7 @@
 #+end_src
 *** Cabal
 #+begin_src emacs-lisp :tangle yes
-(after! (:and haskell-cabal format-all)
-  (set-formatter! 'cabal-fmt "cabal-fmt" :modes 'haskell-cabal-mode)
-  ;; NOTE TEMP: https://github.com/doomemacs/doomemacs/issues/6936
-  (puthash 'cabal-fmt "cabal-fmt" format-all--executable-table))
+(after! haskell-cabal (set-formatter! 'cabal-fmt '("cabal-fmt" filepath) :modes '(haskell-cabal-mode)))
 #+end_src
 
 *** Consult Hoogle
@@ -667,11 +664,7 @@
 #+end_src
 ** Sql
 #+begin_src emacs-lisp :tangle yes
-(after! sql
-  (set-formatter! 'pg_format "pg_format" :modes 'sql-mode)
-  ;; NOTE TEMP: https://github.com/doomemacs/doomemacs/issues/6936
-  (puthash 'pg_format "pg_format" format-all--executable-table)
-  (puthash 'sqlformat nil format-all--executable-table))
+(after! sql (set-formatter! 'pg_format "pg_format" :modes 'sql-mode))
 #+end_src
 
 ** Tailwind
@@ -810,22 +803,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+begin_src emacs-lisp :tangle yes
 (global-so-long-mode -1)
 #+end_src
-* Auto Format Modes
-#+begin_src emacs-lisp :tangle yes
-;; (setq! +format-on-save-enabled-modes '(haskell-mode nix-mode haskell-cabal-mode sql-mode ))
-(setq! +format-on-save-enabled-modes
-       '(not emacs-lisp-mode  ; elisp's mechanisms are good enough
-            tex-mode         ; latexindent is broken
-            latex-mode
-            org-msg-edit-mode))  ; doesn't need a formatter
-;; NOTE: https://github.com/doomemacs/doomemacs/issues/6936#issuecomment-1366030502
-(after! format-all (advice-remove 'format-all-buffer--from-hook '+format--all-buffer-from-hook-a))
-(after! (:and format-all envrc)
-  ;; TEMP FIXME https://github.com/doomemacs/doomemacs/issues/3900
-  (advice-add 'format-all-buffer :around #'envrc-propagate-environment)
-  (advice-add 'format-all-buffer--from-hook :around #'envrc-propagate-environment))
-#+end_src
-
 * fanshi/ediff-init-and-example
 - ref ::  https://github.com/doomemacs/doomemacs/issues/581#issuecomment-645448095
 #+begin_src emacs-lisp :tangle yes
