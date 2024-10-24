@@ -810,14 +810,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+begin_src emacs-lisp :tangle yes
 (global-so-long-mode -1)
 #+end_src
-* Use Dired Narrow
-#+begin_src emacs-lisp :tangle yes
-(use-package! dired-narrow
-  :commands (dired-narrow-fuzzy)
-  :init
-  (map! :map dired-mode-map :n "/" #'dired-narrow-fuzzy))
-#+end_src
-
 * Auto Format Modes
 #+begin_src emacs-lisp :tangle yes
 ;; (setq! +format-on-save-enabled-modes '(haskell-mode nix-mode haskell-cabal-mode sql-mode ))
