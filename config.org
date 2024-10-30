@@ -545,6 +545,7 @@
 *** Template
 #+begin_src emacs-lisp :tangle yes
 (after! haskell-mode
+  (set-formatter! 'ormolu '("ormolu" filepath) :modes '(haskell-mode))
   (setq! haskell-auto-insert-module-format-string
          (concat haskell-auto-insert-module-format-string
                  "main :: IO ()\n"
