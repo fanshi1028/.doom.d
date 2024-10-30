@@ -904,6 +904,13 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   (envrc--with-required-current-env env-dir (envrc--update-env env-dir)))
 #+end_src
 
+* spell fu dicts
+#+begin_src emacs-lisp :tangle no
+(after! spell-fu
+  (setq! ispell-dictionary "en")
+  (spell-fu-dictionary-add (spell-fu-get-ispell-dictionary "en")))
+#+end_src
+
 * jinx
 - copied from :: https://github.com/doomemacs/doomemacs/issues/7617#issuecomment-1952479210
 #+begin_src emacs-lisp :tangle yes
