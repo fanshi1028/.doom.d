@@ -889,6 +889,14 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
             (set-repl-handler! 'scala-mode #'run-ammonite :persist t)))
 #+end_src
 
+* envrc
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/envrc-update ()
+  "just update the current env with the cache."
+  (interactive)
+  (envrc--with-required-current-env env-dir (envrc--update-env env-dir)))
+#+end_src
+
 * jinx
 - copied from :: https://github.com/doomemacs/doomemacs/issues/7617#issuecomment-1952479210
 #+begin_src emacs-lisp :tangle yes
