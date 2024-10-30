@@ -96,10 +96,10 @@
        ;;ein               ; tame Jupyter notebooks with emacs
        (eval +overlay)                ; run code, run (also, repls)
        (lookup +dictionary +offline)  ; navigate your code and its documentation
-       (lsp)                    ; M-x vscode
-       (magit)      ; a git porcelain for Emacs
        ;;make              ; run make tasks from Emacs
-       (pass)              ; password manager for nerds
+       lsp                    ; M-x vscode
+       magit      ; a git porcelain for Emacs
+       pass              ; password manager for nerds
        pdf        ; pdf enhancements
        ;; prodigy    ; FIXME managing external services & code builders
        ;;terraform         ; infrastructure as code
