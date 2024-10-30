@@ -81,7 +81,7 @@
        vterm                            ; the best terminal emulation in Emacs
 
        :checkers
-       syntax              ; tasing you for every semicolon you forget
+       ;; syntax              ; tasing you for every semicolon you forget
        ;; spell ; tasing you for misspelling mispelling
        ;;grammar           ; tasing grammar mistake every you make
 
@@ -95,10 +95,10 @@
        ;;editorconfig      ; let someone else argue about tabs vs spaces
        ;;ein               ; tame Jupyter notebooks with emacs
        (eval +overlay)                ; run code, run (also, repls)
-       (lookup +dictionary +offline)  ; navigate your code and its documentation
-       ;;make              ; run make tasks from Emacs
+       lookup  ; navigate your code and its documentation
        lsp                    ; M-x vscode
        magit      ; a git porcelain for Emacs
+       make              ; run make tasks from Emacs
        pass              ; password manager for nerds
        pdf        ; pdf enhancements
        ;; prodigy    ; FIXME managing external services & code builders
@@ -154,7 +154,7 @@
        ;;ocaml             ; an objective camel
        (org +journal +dragdrop +noter +pandoc +gnuplot) ; organize your plain life in plain text
        ;;php               ; perl's insecure younger brother
-       plantuml                 ; diagrams for confusing people more
+       ;;plantuml          ; diagrams for confusing people more
        ;;graphviz          ; diagrams for confusing yourself even more
        ;;purescript        ; javascript, but functional
        (python +lsp +pyright)           ; beautiful is better than ugly
