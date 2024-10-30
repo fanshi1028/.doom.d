@@ -75,3 +75,4 @@
 
 
 (package! typescript-mode :disable t)
+(package! jinx :pin "5197a125354a5f06a5f9a038ed539130e6c977ec")
