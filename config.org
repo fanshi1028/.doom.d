@@ -570,7 +570,7 @@
 (advice-add 'consult-hoogle :around 'inheritenv-apply)
 #+end_src
 *** Flycheck
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! flycheck
   (if (and flycheck-disabled-checkers (listp flycheck-disabled-checkers))
       (pushnew! flycheck-disabled-checkers 'haskell-ghc)
