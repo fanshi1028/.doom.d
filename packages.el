@@ -76,3 +76,14 @@
 
 (package! typescript-mode :disable t)
 (package! jinx :pin "5197a125354a5f06a5f9a038ed539130e6c977ec")
+(package! osx-dictionary :disable t)
+
+;; NOTE:  .emacs.d/modules/tools/lookup/packages.el not using osx-dictionary
+(package! define-word :pin "31a8c67405afa99d0e25e7c86a4ee7ef84a808fe")
+(package! powerthesaurus
+  :recipe (:host github
+           :repo "doomelpa/powerthesaurus")
+  :pin "d9ebb866f6fce469102665f187266f0a041cfc4b")
+(when (modulep! +offline)
+  (package! wordnut :pin "feac531404041855312c1a046bde7ea18c674915")
+  (package! synosaurus :pin "14d34fc92a77c3a916b4d58400424c44ae99cd81"))
