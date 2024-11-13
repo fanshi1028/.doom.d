@@ -869,7 +869,9 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 
 * Use Nov Mode
 #+begin_src emacs-lisp :tangle yes
-(use-package! nov :mode ("\\.\\(epub\\|mobi\\)\\'" . nov-mode))
+(use-package! nov
+  :mode ((rx ".epub" eos) . nov-mode)
+  :config (setq nov-save-place-file (concat doom-cache-dir "nov-places")))
 #+end_src
 
 * Use Keycast
