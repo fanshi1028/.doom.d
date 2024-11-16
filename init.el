@@ -104,7 +104,7 @@
        ;; prodigy    ; FIXME managing external services & code builders
        ;;terraform         ; infrastructure as code
        ;;tmux              ; an API for interacting with tmux
-       ;;tree-sitter       ; syntax and parsing, sitting in a tree...
+       tree-sitter       ; syntax and parsing, sitting in a tree...
        ;;upload            ; map local to remote projects via ssh/ftp
 
        :os
@@ -136,18 +136,18 @@
        ;;gdscript          ; the language you waited for
        (go +lsp)         ; the hipster dialect
        ;;(graphql +lsp)    ; Give queries a REST
-       (haskell +lsp)    ; a language that's lazier than I am
+       (haskell +lsp +tree-sitter)    ; a language that's lazier than I am
        ;;hy                ; readability of scheme w/ speed of python
        ;;idris             ; a language you can depend on
        json                 ; At least it ain't XML
        ;;(java +lsp)    ; the poster child for carpal tunnel syndrome NOTE: jdtls is the prefered ls, but not yet packaged in nixpkgs: https://github.com/NixOS/nixpkgs/pull/99330
-       (javascript +lsp)    ; all(hope(abandon(ye(who(enter(here))))))
+       (javascript +lsp +tree-sitter)    ; all(hope(abandon(ye(who(enter(here))))))
        ;; julia                ; a better, faster MATLAB
        ;;kotlin            ; a better, slicker Java(Script)
        ;; (latex +cdlatex +fold +latexmk)    ; writing papers in Emacs has never been so fun
        ;;lean            ; for folks with too much to prove
        ledger         ; be audit you can be
-       (lua +fennel +lsp)               ; one-based indices? one-based indices
+       (lua +fennel +lsp +tree-sitter)               ; one-based indices? one-based indices
        markdown          ; writing docs for people to ignore
        ;;nim               ; python + lisp at the speed of c
        nix               ; I hereby declare "nix geht mehr!"
@@ -157,7 +157,7 @@
        ;;plantuml          ; diagrams for confusing people more
        ;;graphviz          ; diagrams for confusing yourself even more
        ;;purescript        ; javascript, but functional
-       (python +lsp +pyright)           ; beautiful is better than ugly
+       (python +lsp +pyright +tree-sitter)           ; beautiful is better than ugly
        ;;qt                ; the 'cutest' gui framework ever
        ;;racket            ; a DSL for DSLs
        ;;raku              ; the artist formerly known as perl6
