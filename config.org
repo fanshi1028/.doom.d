@@ -68,7 +68,7 @@
 (setq history-delete-duplicates t)
 
 ;; fullscreen on startup
-(add-to-list 'initial-frame-alist '(fullscreen . maximized))
+;; (add-to-list 'initial-frame-alist '(fullscreen . maximized))
 
 ;; tranparency NOTE It makes the text transparent too
 ;; (set-frame-parameter (selected-frame) 'alpha '(100 85))
