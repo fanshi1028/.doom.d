@@ -127,7 +127,7 @@
 #+begin_src emacs-lisp :tangle yes
 (after! org
   (setq! org-todo-keywords
-         '((sequence "TODO(t)" "PROJ(p)" "WAIT(w@)" "HOLD(h@)" "IDEA(i)" "|" "DONE(d)" "KILL(k@)")
+         '((sequence "TODO(t)" "NEXT(n)" "PROJ(p)" "WAIT(w@)" "HOLD(h@)" "IDEA(i)" "|" "DONE(d)" "KILL(k@)")
            (sequence "[ ](T)" "[?](W@)" "|" "[X](D)")
            (sequence "INBOX" "|" ))))
 #+end_src
@@ -179,7 +179,7 @@
 #+end_src
 ** Templates
 *** Remove Unwanted
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! org-capture
   (setq! org-capture-templates
          (seq-filter
@@ -193,7 +193,7 @@
 
 *** Add Mine
 **** Sudden clocked Tasks
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! org-capture
   (pushnew! org-capture-templates
             `("cr" "sudden link to read with clock" entry (file+olp "read.org" "Link")
@@ -214,7 +214,7 @@
 #+end_src
 
 **** Link Instant Capture
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! org-capture
   (pushnew! org-capture-templates
             `("l" "link" entry (file "inbox.org")
@@ -228,7 +228,7 @@
               :immediate-finish t)))
 #+end_src
 **** Inbox
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! org-capture
   (pushnew! org-capture-templates
             `("i" "inbox" entry (file "inbox.org")
@@ -447,6 +447,33 @@
 *** Zen
 #+begin_src emacs-lisp :tangle yes
 (after! org-journal (pushnew! org-journal-mode-hook #'writeroom-mode))
+#+end_src
+** GTD
+#+begin_src emacs-lisp :tangle yes
+(progn
+  (setq! fanshi/org-private-agenda-file-regexp "\\`[^.].*\\.org\\\(\\.gpg\\\)?\\'")
+  (setq! org-agenda-file-regexp fanshi/org-private-agenda-file-regexp))
+#+end_src
+#+begin_src emacs-lisp :tangle yes
+(use-package!
+    org-gtd
+  :after org
+  :init
+  (setq! org-gtd-update-ack "3.0.0")
+  :demand t
+  :config
+  (setq! org-gtd-directory (f-join org-directory "gtd")
+         org-edna-use-inheritance t org-gtd-organize-hooks '(org-gtd-set-area-of-focus)
+         org-gtd-archive-file-format "gtd_archive_%s.gpg"
+         org-gtd-canceled "KILL"
+         org-gtd-canceled-suffix "(k@)")
+  (org-edna-mode)
+  (setf (alist-get "l" org-gtd-capture-templates nil nil #'string=)
+        `("link" entry (file "inbox.org") ,(string-join '("* INBOX %(org-web-tools--org-link-for-url)" ":PROPERTIES:" ":CREATED: %U" ":END:" " %a") "\n") :immediate-finish t))
+  (map! :map doom-leader-map :desc "Org GTD Capture" "X" #'org-gtd-capture)
+  (defun fanshi/gpg-gtd-path-advice (return-gtd-path) (concat return-gtd-path ".gpg"))
+  (advice-add 'org-gtd--path :filter-return #'fanshi/gpg-gtd-path-advice)
+  )
 #+end_src
 
 * Projectile
