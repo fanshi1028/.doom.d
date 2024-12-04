@@ -365,6 +365,7 @@
            ;; (:name "Peek Into Future 🔮🔮🔮" :scheduled future :order 5)
            ;; (:name "Quick Picks 🚀🚀🚀" :and (:effort< "0:15" :todo ("TODO" "[ ]")) :order 4)
            (:name "Next in line 🚀🚀🚀" :and (:todo "NEXT") :order 4)
+           (:discard (:and (:file-path ,org-gtd-default-file-name) ))
            ;; NOTE: tried to follow logic in org-habit-insert-consistency-graphs to find dying habit but seems not easy
            ;; (:name "Dying Habit" :and (:habit t
            ;;                      :todo ("TODO" "[ ]")
@@ -374,8 +375,8 @@
            ;;                               :scheduled t
            ;;                               :not (:scheduled future))
            ;;                :order 6)
-           (:name "Super B 👶👶👶" :and (:priority "B" :not (:file-path "projects")) :order 6)
-           (:name "Optional 🧧🧧🧧" :and (:file-path "tasks" :todo ("TODO" "[ ]") :priority "C") :order 8)
+           ;; (:name "Super B 👶👶👶" :and (:priority "B" :not (:file-path "projects")) :order 6)
+           ;; (:name "Optional 🧧🧧🧧" :and (:file-path "tasks" :todo ("TODO" "[ ]") :priority "C") :order 8)
            ;; (:name "Others 🏝🏝🏝" :and (:priority "C" :not (:file-path "projects")) :order 21)
            ;; (:name "Optional 🧧🧧🧧" :and (:priority "C" :not (:file-path "projects")) :order 90)
            ;; NOTE: check
@@ -471,7 +472,7 @@
          org-gtd-canceled-suffix "(k@)")
   (org-edna-mode)
   (setf (alist-get "l" org-gtd-capture-templates nil nil #'string=)
-        `("link" entry (file "inbox.org") ,(string-join '("* INBOX %(org-web-tools--org-link-for-url)" ":PROPERTIES:" ":CREATED: %U" ":END:" " %a") "\n") :immediate-finish t))
+        `("link" entry (file ,(org-gtd-inbox-path)) ,(string-join '("* %(org-web-tools--org-link-for-url)" ":PROPERTIES:" ":CREATED: %U" ":END:" " %a") "\n") :immediate-finish t))
   (map! :map doom-leader-map :desc "Org GTD Capture" "X" #'org-gtd-capture)
   (defun fanshi/gpg-gtd-path-advice (return-gtd-path) (concat return-gtd-path ".gpg"))
   (advice-add 'org-gtd--path :filter-return #'fanshi/gpg-gtd-path-advice)
