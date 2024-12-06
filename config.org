@@ -444,8 +444,7 @@
 ** Journal
 *** Encrypt
 #+begin_src emacs-lisp :tangle yes
-(after! org-journal (unless (string-suffix-p ".gpg" org-journal-file-format)
-                      (setq! org-journal-file-format (concat org-journal-file-format ".gpg"))))
+(after! org-journal (setq! org-journal-encrypt-journal t))
 #+end_src
 *** Zen
 #+begin_src emacs-lisp :tangle yes
