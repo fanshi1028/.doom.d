@@ -354,7 +354,7 @@
 #+end_src
 ***** fanshi/alltodo
 #+begin_src emacs-lisp :tangle yes
-(after! org
+(after! (:and org org-gtd)
   (setq! fanshi/alltodo
          `((:discard (:scheduled t :deadline t :regexp ,org-scheduled-time-hour-regexp :file-path ("work")))
            ;; (:name "Ideas are worthless 🤯🤯🤯" :and (:file-path "ideas" :todo "IDEA") :order 9)
