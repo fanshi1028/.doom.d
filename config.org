@@ -470,11 +470,11 @@
          org-gtd-canceled "KILL"
          org-gtd-canceled-suffix "(k@)")
   (org-edna-mode)
-  (setf (alist-get "l" org-gtd-capture-templates nil nil #'string=)
-        `("link" entry (file ,(org-gtd-inbox-path)) ,(string-join '("* %(org-web-tools--org-link-for-url)" ":PROPERTIES:" ":CREATED: %U" ":END:" " %a") "\n") :immediate-finish t))
-  (map! :map doom-leader-map :desc "Org GTD Capture" "X" #'org-gtd-capture)
   (defun fanshi/gpg-gtd-path-advice (return-gtd-path) (concat return-gtd-path ".gpg"))
   (advice-add 'org-gtd--path :filter-return #'fanshi/gpg-gtd-path-advice)
+  (setf (alist-get "l" org-gtd-capture-templates nil nil #'string=)
+        `("link" entry (file ,(org-gtd-inbox-path)) ,(string-join '("* %(org-web-tools--org-link-for-url)" "%U") "\n") :immediate-finish t))
+  (map! :map doom-leader-map :desc "Org GTD Capture" "X" #'org-gtd-capture)
   (org-gtd-mode)
   )
 #+end_src
