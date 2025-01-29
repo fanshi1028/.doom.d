@@ -74,8 +74,11 @@
   :recipe (:host codeberg :repo "rahguzar/consult-hoogle") :pin "c4d4df5f5e863970b6ec907c5650fe673c9cf32a")
 
 
-(package! typescript-mode :disable t)
+;; (package! typescript-mode :disable t)
 (package! jinx :pin "5197a125354a5f06a5f9a038ed539130e6c977ec")
+
+(package! tide :disable t)
+
 (package! osx-dictionary :disable t)
 
 ;; NOTE:  .emacs.d/modules/tools/lookup/packages.el not using osx-dictionary
