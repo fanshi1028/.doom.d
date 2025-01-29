@@ -451,11 +451,23 @@
 (after! org-journal (pushnew! org-journal-mode-hook #'writeroom-mode))
 #+end_src
 ** GTD
+*** Encryption Setup
 #+begin_src emacs-lisp :tangle yes
 (progn
   (setq! fanshi/org-private-agenda-file-regexp "\\`[^.].*\\.org\\\(\\.gpg\\\)?\\'")
   (setq! org-agenda-file-regexp fanshi/org-private-agenda-file-regexp))
 #+end_src
+*** fanshi/org-web-tools--org-link-for-url
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/org-web-tools--org-link-for-url ()
+    (let* ((html (org-web-tools--get-url (current-kill 0)))
+           (title (org-web-tools--html-title html)))
+      (if title
+          (org-make-link-string url title)
+        (message "HTML page at URL has no title")
+        url)))
+#+end_src
+*** Setup
 #+begin_src emacs-lisp :tangle yes
 (use-package!
     org-gtd
@@ -473,16 +485,26 @@
   (defun fanshi/gpg-gtd-path-advice (return-gtd-path) (concat return-gtd-path ".gpg"))
   (advice-add 'org-gtd--path :filter-return #'fanshi/gpg-gtd-path-advice)
   (setf (alist-get "l" org-gtd-capture-templates nil nil #'string=)
-        `("link" entry (file ,(org-gtd-inbox-path)) ,(string-join '("* %(org-web-tools--org-link-for-url)" "%U") "\n") :immediate-finish t))
+        `("link" entry (file ,(org-gtd-inbox-path)) ,(string-join '("* %(fanshi/org-web-tools--org-link-for-url)" "%U") "\n") :immediate-finish t))
   (map! :map doom-leader-map :desc "Org GTD Capture" "X" #'org-gtd-capture)
-  (org-gtd-mode)
-  )
+  (org-gtd-mode))
 #+end_src
 ** Encrypt Org Ids location file
 #+begin_src emacs-lisp :tangle yes
 (setq! org-id-locations-file "/Users/fanshi/org/.orgids.gpg")
 #+end_src
 
+** fanshi/org-web-tools--org-link-for-url
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/org-web-tools--org-link-for-url ()
+    (let* ((url (current-kill 0))
+           (html (org-web-tools--get-url url))
+           (title (org-web-tools--html-title html)))
+      (if title
+          (org-make-link-string url title)
+        (message "HTML page at URL has no title")
+        url)))
+#+end_src
 * Projectile
 #+begin_src emacs-lisp :tangle yes
 (after! projectile
