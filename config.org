@@ -620,7 +620,8 @@
   (let* ((tmp-ts-file (org-babel-temp-file "scripts" ".ts"))
          (tmp-js-file (concat (substring tmp-ts-file 0 -2) "js"))
          (strict (if (assq :strict params) "--strict " ""))
-         (cmd (concat "tsc " strict (shell-quote-argument tmp-ts-file))))
+         (target (if (assq :target params) (format " -t %s " (cdr (assq :target params))) ""))
+         (cmd (concat "tsc " strict target (shell-quote-argument tmp-ts-file))))
     (with-temp-file tmp-ts-file (insert body))
     (with-temp-buffer
       (if (eq (call-process-shell-command cmd nil t) 0)
@@ -646,15 +647,20 @@
 (defmacro fanshi/org-babel-edit-lsp-prep (lang ext)
   `(defun ,(intern (concat "org-babel-edit-prep:" lang))  (babel-info)
      "prep for `org-edit-special' using lsp for some lang"
-     (let* ((tmp-src-file (org-babel-temp-file ,(concat lang "-src-edit-") ,(concat "." ext))))
-       (with-temp-file tmp-src-file (insert (cadr babel-info)))
-       (setq-local buffer-file-name tmp-src-file)
-       (lsp)
-       ;; NOTE: when lookup doc using lsp, it use pop-up.
-       ;; NOTE: when we kill the popped up look-up, whole edit session gone because it was a pop-up
-       ;; NOTE: so change the window to non-pop up, and window it more convenient than pop than code editing too.
-       ;; FIXME: use set-popup-rule! ?
-       (+popup/raise (selected-window)))
+     (progn
+       (setq-local buffer-file-name (org-babel-temp-file ,(concat lang "-src-edit-") ,(concat "." ext)))
+       (lsp-deferred)
+       (+popup/raise (selected-window))
+       (apheleia-mode -1))
+     ;; (let* ((tmp-src-file (org-babel-temp-file ,(concat lang "-src-edit-") ,(concat "." ext))))
+     ;;   (with-temp-file tmp-src-file (insert (cadr babel-info)))
+     ;;   (setq-local buffer-file-name tmp-src-file)
+     ;;   (envrc-propagate-environment lsp-deferred)
+     ;;   ;; NOTE: when lookup doc using lsp, it use pop-up.
+     ;;   ;; NOTE: when we kill the popped up look-up, whole edit session gone because it was a pop-up
+     ;;   ;; NOTE: so change the window to non-pop up, and window it more convenient than pop than code editing too.
+     ;;   ;; FIXME: use set-popup-rule! ?
+     ;;   (+popup/raise (selected-window)))
      ))
 
 (defvar fanshi/org-babel-edit-lsp-langs '(("haskell" . "hs") ("typescript" . "ts") ("js" . "js") ("python" . "py") ("rust" . "rs"))
