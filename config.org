@@ -478,6 +478,10 @@
   (org-gtd-mode)
   )
 #+end_src
+** Encrypt Org Ids location file
+#+begin_src emacs-lisp :tangle yes
+(setq! org-id-locations-file "/Users/fanshi/org/.orgids.gpg")
+#+end_src
 
 * Projectile
 #+begin_src emacs-lisp :tangle yes
