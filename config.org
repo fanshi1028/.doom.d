@@ -148,7 +148,7 @@
 #+end_src
 *** fanshi/org-babel-edit-lsp-prep
 - ref :: https://github.com/emacs-lsp/lsp-mode/issues/2842#issuecomment-870807018
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (defmacro fanshi/org-babel-edit-lsp-prep (lang ext)
   `(defun ,(intern (concat "org-babel-edit-prep:" lang))  (babel-info)
      "prep for `org-edit-special' using lsp for some lang"
@@ -164,7 +164,7 @@
      ))
 #+end_src
 *** provide the support
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 ;; NOTE: defun org-babel-edit-prep:lang for each lang in `fanshi/org-babel-edit-lsp-langs'
 (mapc (lambda (x) (eval `(fanshi/org-babel-edit-lsp-prep ,(car x) ,(cdr x)))) fanshi/org-babel-edit-lsp-langs)
 
