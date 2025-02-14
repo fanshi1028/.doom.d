@@ -1020,10 +1020,11 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 * Aider
 ** use aider.el
 #+begin_src emacs-lisp :tangle yes
-(use-package! aidermacs :config
-              (setq aidermacs-args '("--model" "anthropic/claude-3.5-sonnet-20241022"))
-              (setenv "ANTHROPIC_API_KEY" anthropic-api-key)
-              (global-set-key (kbd "C-c a") 'aidermacs-transient-menu))
+(use-package! aidermacs
+  :config
+  (setq aidermacs-args '("--model" "anthropic/claude-3.5-sonnet-20241022"))
+  (setenv "ANTHROPIC_API_KEY" anthropic-api-key)
+  (global-set-key (kbd "C-c a") 'aidermacs-transient-menu))
 #+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
