@@ -97,4 +97,4 @@
 
 (package! aidermacs
   :recipe (:host github :repo "MatthewZMD/aidermacs" :files ("*.el"))
-  :pin "65219b3909c7c9a45263a53442918488c5494050")
+  :pin "571f9ad495799c901b074bba300d81b92bd9d736")
