@@ -1018,13 +1018,13 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
          (cons '("Doom issues"  "https://github.com/doomemacs/doomemacs/issues?q=is%%3Aissue%%20state%%3Aopen%%20%s%%20")))))
 #+end_src
 * Aider
-** use aider.el
 #+begin_src emacs-lisp :tangle yes
 (use-package! aidermacs
   :init
   ;; Use vterm backend (default is comint)
+  :config
   (setq aidermacs-backend 'vterm)
-  ;; :config
+  (setq aidermacs-args '())
   ;; (global-set-key (kbd "C-c a") 'aidermacs-transient-menu)
   )
 #+end_src
