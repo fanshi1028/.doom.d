@@ -95,4 +95,6 @@
 
 (package! aider :recipe (:host github :repo "tninja/aider.el" :files ("aider.el" "aider-doom.el")) :pin "b412d331e54ec13c66ef221e7865d29db91ec41c")
 
-(package! aidermacs :recipe (:host github :repo "MatthewZMD/aidermacs" :files ("*.el")))
+(package! aidermacs
+  :recipe (:host github :repo "MatthewZMD/aidermacs" :files ("*.el"))
+  :pin "65219b3909c7c9a45263a53442918488c5494050")
