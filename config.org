@@ -168,7 +168,7 @@
 ;; NOTE: defun org-babel-edit-prep:lang for each lang in `fanshi/org-babel-edit-lsp-langs'
 (mapc (lambda (x) (eval `(fanshi/org-babel-edit-lsp-prep ,(car x) ,(cdr x)))) fanshi/org-babel-edit-lsp-langs)
 
-;; NOTE: in `fanshi/org-babel-edit-lsp-prep', the `org-edit-special' pop-up it promoted, and after `org-edit-src-exit', we got one duplicate pop-up shaped window.
+;; NOTE: in `fanshi/org-babel-edit-prep', the `org-edit-special' pop-up it promoted, and after `org-edit-src-exit', we got one duplicate pop-up shaped window.
 ;; NOTE: this advice automatically delete that window for better ux
 (advice-add 'org-edit-src-exit :around (lambda (f &rest args)
                                          (if-let* ((babel-info org-src--babel-info)
@@ -691,7 +691,7 @@
 ;; NOTE: defun org-babel-edit-prep:lang for each lang in `fanshi/org-babel-edit-lsp-langs'
 (mapc (lambda (x) (eval `(fanshi/org-babel-edit-lsp-prep ,(car x) ,(cdr x)))) fanshi/org-babel-edit-lsp-langs)
 
-;; NOTE: in `fanshi/org-babel-edit-lsp-prep', the `org-edit-special' pop-up it promoted, and after `org-edit-src-exit', we got one duplicate pop-up shaped window.
+;; NOTE: in `fanshi/org-babel-edit-prep', the `org-edit-special' pop-up it promoted, and after `org-edit-src-exit', we got one duplicate pop-up shaped window.
 ;; NOTE: this advice automatically delete that window for better ux
 (advice-add 'org-edit-src-exit :around (lambda (f &rest args)
                                          (if-let* ((babel-info org-src--babel-info)
@@ -1020,10 +1020,10 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 * Aider
 ** use aider.el
 #+begin_src emacs-lisp :tangle yes
-(use-package! aider :config
-              (setq! aider-args '())
-              ;; (aider-doom-setup-keys)
-              )
+(use-package! aidermacs :config
+              (setq aidermacs-args '("--model" "anthropic/claude-3.5-sonnet-20241022"))
+              (setenv "ANTHROPIC_API_KEY" anthropic-api-key)
+              (global-set-key (kbd "C-c a") 'aidermacs-transient-menu))
 #+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
