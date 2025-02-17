@@ -93,12 +93,12 @@
 
 (package! org-gtd :recipe (:host github :repo "Trevoke/org-gtd.el") :pin "578e83b0f67cb57dd1b10e9eea4f40d2e925b9b9")
 
-(package! aider :recipe (:host github :repo "tninja/aider.el" :files ("aider.el" "aider-doom.el")) :pin "b412d331e54ec13c66ef221e7865d29db91ec41c")
+;; (package! aider :recipe (:host github :repo "tninja/aider.el" :files ("aider.el" "aider-doom.el")) :pin "b412d331e54ec13c66ef221e7865d29db91ec41c")
 
 (package! aidermacs
   :recipe (:host github :repo "MatthewZMD/aidermacs" :files ("*.el"))
   :pin "571f9ad495799c901b074bba300d81b92bd9d736")
 
-(package! org-ai
-  :recipe (:host github :repo "rksm/org-ai")
-  :pin "5a906fd4ecc4ff4d8ad561da14346a9d8b1d17db")
+;; (package! org-ai
+;;   :recipe (:host github :repo "rksm/org-ai")
+;;   :pin "5a906fd4ecc4ff4d8ad561da14346a9d8b1d17db")
