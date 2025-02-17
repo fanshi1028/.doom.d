@@ -1017,16 +1017,23 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
          (assoc-delete-all "Wolfram alpha")
          (cons '("Doom issues"  "https://github.com/doomemacs/doomemacs/issues?q=is%%3Aissue%%20state%%3Aopen%%20%s%%20")))))
 #+end_src
-* Aider
+* AI
+** Aider
 #+begin_src emacs-lisp :tangle yes
 (use-package! aidermacs
   :init
   ;; Use vterm backend (default is comint)
   :config
   (setq aidermacs-backend 'vterm)
-  (setq aidermacs-args '())
-  ;; (global-set-key (kbd "C-c a") 'aidermacs-transient-menu)
-  )
+  (setq aidermacs-args `("--GEMINI_API_KEY" ,(password-store-get "Google/jackychany321@gmail.com/gemini_key") )))
+#+end_src
+** Org AI
+- gemini is not supported yet without tweak :; [[https://github.com/rksm/org-ai/issues/26][Abstract over LM · Issue #26 · rksm/org-ai · GitHub]]
+#+begin_src emacs-lisp :tangle no
+(use-package! org-ai
+  :config
+  ;; (setq org-ai-default-backend 'gemini)
+  (setq org-ai-gemini-api-key (password-store-get "Google/jackychany321@gmail.com/gemini_key")))
 #+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes

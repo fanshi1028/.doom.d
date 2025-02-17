@@ -98,3 +98,7 @@
 (package! aidermacs
   :recipe (:host github :repo "MatthewZMD/aidermacs" :files ("*.el"))
   :pin "571f9ad495799c901b074bba300d81b92bd9d736")
+
+(package! org-ai
+  :recipe (:host github :repo "rksm/org-ai")
+  :pin "5a906fd4ecc4ff4d8ad561da14346a9d8b1d17db")
