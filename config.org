@@ -1023,7 +1023,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 (use-package! aidermacs
   :config
   (setq aidermacs-backend 'vterm)
-  (setq aidermacs-args `("--api-key" ,(concat "gemini=" (password-store-get "Google/jackychany321@gmail.com/gemini_key")) )))
+  (setq aidermacs-args `("--api-key" ,(concat "gemini=" (password-store-get "Google/jackychany321@gmail.com/gemini_key")))))
 #+end_src
 ** Org AI
 - gemini is not supported yet without tweak :: [[https://github.com/rksm/org-ai/issues/26][Abstract over LM · Issue #26 · rksm/org-ai · GitHub]]
