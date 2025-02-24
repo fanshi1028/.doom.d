@@ -96,8 +96,8 @@
 ;; (package! aider :recipe (:host github :repo "tninja/aider.el" :files ("aider.el" "aider-doom.el")) :pin "b412d331e54ec13c66ef221e7865d29db91ec41c")
 
 (package! aidermacs
-  :recipe (:host github :repo "MatthewZMD/aidermacs" :files ("*.el"))
-  :pin "571f9ad495799c901b074bba300d81b92bd9d736")
+  :recipe (:host github :repo "MatthewZMD/aidermacs")
+  :pin "04209e9e35d5551ef5407117be31c9ba3aed6f3d")
 
 ;; (package! org-ai
 ;;   :recipe (:host github :repo "rksm/org-ai")
