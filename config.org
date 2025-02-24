@@ -1033,25 +1033,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   ;; (setq org-ai-default-backend 'gemini)
   (setq org-ai-gemini-api-key (password-store-get "Google/jackychany321@gmail.com/gemini_key")))
 #+end_src
-* WG
-- ref :: [[https://emacs.stackexchange.com/a/29588][How to run sudo commands using shell-command? - Emacs Stack Exchange]]
-- ref ::  [[https://emacs.stackexchange.com/a/78309][Separate auth-sources for Tramp and Gnus, or disable auth-sources for Tramp? - Emacs Stack Exchange]]
-#+begin_src emacs-lisp :tangle yes
-(connection-local-set-profile-variables 'tramp-without-auth-sources-profile '((auth-sources . nil)))
-(connection-local-set-profiles  `(:application tramp :machine ,tramp-default-host) 'tramp-without-auth-sources-profile)
-(defun fanshi/wg-quick (arg)
-  "When called interactively without a prefix argument, run `wg-quick-auto up`.
-When called with a prefix argument (e.g., `C-u`), run `my-wg-auto down`."
-  (interactive "P")
-  (let ((wg (executable-find "wg-quick-auto"))
-        (default-directory "/sudo::/"))
-    (if arg
-        (tramp-handle-shell-command (concat wg " down") "*wg-quick-auto*")
-      (progn
-        (tramp-handle-shell-command (concat wg " up") "*wg-quick-auto*")
-        (kill-buffer "*wg-quick-auto*")
-        (delete-window)))))
-#+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
 ;; Here are some additional functions/macros that could help you configure Doom:
