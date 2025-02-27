@@ -437,6 +437,7 @@
 #+begin_src emacs-lisp :tangle yes
 (use-package! org-web-tools
   ;; :after-call org-capture
+  :defer t
   :commands (org-web-tools--org-link-for-url))
 #+end_src
 ** Journal
@@ -740,7 +741,7 @@
              (string-match "/tailwind\\.config\\.\\(js\\|ts\\)\\'"  buffer-file-name))
     (rainbow-mode)))
 (add-hook 'rjsx-mode-hook 'fanshi/tailwind-rainbow-config)
-(use-package! lsp-tailwindcss :init (setq lsp-tailwindcss-add-on-mode t))
+(use-package! lsp-tailwindcss :defer t :init (setq lsp-tailwindcss-add-on-mode t))
 (after! lsp-tailwindcss
   (if-let (client (gethash 'tailwindcss lsp-clients))
       (setf (lsp--client-new-connection client) (lsp-stdio-connection '("tailwindcss-language-server" "--stdio")))
@@ -891,6 +892,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 * Use Gif Screencast
 #+begin_src emacs-lisp :tangle no
 (use-package! gif-screencast
+  :defer t
   :commands (gif-screencast-start-or-stop)
   :init (setq gif-screencast-args '("-x")
               gif-screencast-capture-format "ppm"
@@ -902,6 +904,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 * Use Nov Mode
 #+begin_src emacs-lisp :tangle yes
 (use-package! nov
+  :defer t
   :mode ((rx ".epub" eos) . nov-mode)
   :config (setq nov-save-place-file (concat doom-cache-dir "nov-places")))
 #+end_src
@@ -962,6 +965,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 ** Aider
 #+begin_src emacs-lisp :tangle yes
 (use-package! aidermacs
+  :defer t
   :config
   (setq aidermacs-backend 'vterm)
   (setq aidermacs-args `("--api-key" ,(concat "gemini=" (password-store-get "Google/jackychany321@gmail.com/gemini_key")))))
@@ -978,6 +982,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 - gemini is not supported yet without tweak :: [[https://github.com/rksm/org-ai/issues/26][Abstract over LM · Issue #26 · rksm/org-ai · GitHub]]
 #+begin_src emacs-lisp :tangle no
 (use-package! org-ai
+  :defer t
   :config
   ;; (setq org-ai-default-backend 'gemini)
   (setq org-ai-gemini-api-key (password-store-get "Google/jackychany321@gmail.com/gemini_key")))
