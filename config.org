@@ -127,7 +127,7 @@
 #+begin_src emacs-lisp :tangle yes
 (after! org
   (setq! org-todo-keywords
-         '((sequence "TODO(t)" "NEXT(n)" "PROJ(p)" "WAIT(w@)" "HOLD(h@)" "IDEA(i)" "|" "DONE(d)" "KILL(k@)")
+         '((sequence "TODO(t)" "NEXT(n)" "PROJ(p)" "WAIT(w@)" "HOLD(h@)" "|" "DONE(d)" "KILL(k@)")
            (sequence "[ ](T)" "[?](W@)" "|" "[X](D)")
            (sequence "INBOX" "|" ))))
 #+end_src
@@ -357,8 +357,6 @@
 (after! (:and org org-gtd)
   (setq! fanshi/alltodo
          `((:discard (:scheduled t :deadline t :regexp ,org-scheduled-time-hour-regexp :file-path ("work")))
-           ;; (:name "Ideas are worthless 🤯🤯🤯" :and (:file-path "ideas" :todo "IDEA") :order 9)
-           (:discard (:file-path "ideas"))
            (:name "Important 💎💎💎" :tag "Payment" :priority "A" :order 2) ;;🚔🚔🚔
            ;; (:name "Do I really look like a guy with a plan??? 🃏🃏🃏" :and (:todo "TOPLAN" :priority> "D") :order 3)
            (:name "Camping 🏕🏕🏕" :todo "WAIT" :order 11) ; Set order of this section 💎💎💎
@@ -383,7 +381,7 @@
            ;; (:name "Should Be Nothing"
            ;;  :not (:file-path "projects"
            ;;        :file-path "read"
-           ;;        :file-path "idea")
+           ;;        )
            ;;  :order 99)
            ;; (:discard (:habit t))
            ;; NOTE Project
