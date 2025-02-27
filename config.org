@@ -468,8 +468,7 @@
 #+end_src
 *** Setup
 #+begin_src emacs-lisp :tangle yes
-(use-package!
-    org-gtd
+(use-package! org-gtd
   :after org
   :init
   (setq! org-gtd-update-ack "3.0.0")
