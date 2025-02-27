@@ -895,6 +895,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 
 * Use Gif Screencast
 #+begin_src emacs-lisp :tangle no
+;; FIXME maybe reenable it, and set better keys?
 (use-package! gif-screencast
   :defer t
   :commands (gif-screencast-start-or-stop)
@@ -923,6 +924,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 
 * spell fu dicts
 #+begin_src emacs-lisp :tangle no
+;; FIXME
 (after! spell-fu
   (setq! ispell-dictionary "en")
   (spell-fu-dictionary-add (spell-fu-get-ispell-dictionary "en")))
@@ -942,7 +944,8 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
                            '(jinx (vertico-grid-annotate . 25))))))
 #+end_src
 * Lookup
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
+;; FIXME
 (progn
   (setq! +lookup-dictionary-prefer-offline t)
   (setf +lookup-provider-url-alist
