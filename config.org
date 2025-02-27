@@ -832,6 +832,12 @@
       orig-result)))
 (advice-add 'lsp-resolve-final-command :around #'fanshi/lsp-booster--advice-final-command)
 #+end_src
+** I don't want your suggestion
+#+begin_src emacs-lisp :tangle yes
+(after! lsp-mode
+  (setq! lsp-enable-suggest-server-download nil))
+#+end_src
+
 * PDF View
 #+begin_src emacs-lisp :tangle yes
 (after! pdf-view
