@@ -71,7 +71,7 @@
 (package! lsp-tailwindcss)
 
 (package! consult-hoogle
-  :recipe (:host codeberg :repo "rahguzar/consult-hoogle") :pin "c4d4df5f5e863970b6ec907c5650fe673c9cf32a")
+  :recipe (:host codeberg :repo "rahguzar/consult-hoogle") :pin "384959016022d071464dc6e611e4fcded562834e")
 
 
 ;; (package! typescript-mode :disable t)

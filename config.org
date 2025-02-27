@@ -622,7 +622,9 @@
 
 *** Consult Hoogle
 #+begin_src emacs-lisp :tangle yes
-(advice-add 'consult-hoogle :around 'inheritenv-apply)
+(use-package! consult-hoogle
+  :defer t
+  :config (advice-add 'consult-hoogle :around 'inheritenv-apply))
 #+end_src
 *** Flycheck
 #+begin_src emacs-lisp :tangle no
