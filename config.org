@@ -406,7 +406,7 @@
 #+begin_src emacs-lisp :tangle yes
 (use-package! org-super-agenda
   :after org-agenda
-  :init
+  :config
   (setq org-agenda-show-log t
         ;; NOTE: https://github.com/alphapapa/org-super-agenda/issues/50
         org-super-agenda-header-map (make-sparse-keymap)
@@ -898,7 +898,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 (use-package! gif-screencast
   :defer t
   :commands (gif-screencast-start-or-stop)
-  :init (setq gif-screencast-args '("-x")
+  :config (setq gif-screencast-args '("-x")
               gif-screencast-capture-format "ppm"
               gif-screencast-cropping-program "" ;; NOTE diable cropping, seems its only crop part of the emacs screen fro some reason
               )
