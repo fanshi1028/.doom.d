@@ -831,36 +831,20 @@
 ** Emacs lsp booster
 - ref :: https://github.com/blahgeek/emacs-lsp-booster/tree/fd4301350c41fe954d25ed663078af520902d87c
 #+begin_src emacs-lisp :tangle yes
-(defun lsp-booster--advice-json-parse (old-fn &rest args)
-  "Try to parse bytecode instead of json."
-  (or
-   (when (equal (following-char) ?#)
-     (let ((bytecode (read (current-buffer))))
-       (when (byte-code-function-p bytecode)
-         (funcall bytecode))))
-   (apply old-fn args)))
-(advice-add (if (progn (require 'json)
-                       (fboundp 'json-parse-buffer))
-                'json-parse-buffer
-              'json-read)
-            :around
-            #'lsp-booster--advice-json-parse)
-
-(defun lsp-booster--advice-final-command (old-fn cmd &optional test?)
+(defun fanshi/lsp-booster--advice-final-command (old-fn cmd &optional test?)
   "Prepend emacs-lsp-booster command to lsp CMD."
   (let ((orig-result (funcall old-fn cmd test?)))
-    (if (and (not test?)                             ;; for check lsp-server-present?
-             (not (file-remote-p default-directory)) ;; see lsp-resolve-final-command, it would add extra shell wrapper
-             lsp-use-plists
-             (not (functionp 'json-rpc-connection))  ;; native json-rpc
-             (executable-find "emacs-lsp-booster"))
+    (if-let* ((booster (and (not test?) ;; for check lsp-server-present?
+                            (not (file-remote-p default-directory)) ;; see lsp-resolve-final-command, it would add extra shell wrapper
+                            ;; lsp-use-plists
+                            (not (functionp 'json-rpc-connection)) ;; native json-rpc
+                            (seq-some (lambda (path) (and (string-match ".*emacs-lsp-booster.*" path) (concat path "/emacs-lsp-booster"))) (default-value 'exec-path)))))
         (progn
           (message "Using emacs-lsp-booster for %s!" orig-result)
-          (cons "emacs-lsp-booster" orig-result))
+          (append (list booster "-n" "--") orig-result))
       orig-result)))
-(advice-add 'lsp-resolve-final-command :around #'lsp-booster--advice-final-command)
+(advice-add 'lsp-resolve-final-command :around #'fanshi/lsp-booster--advice-final-command)
 #+end_src
-
 * PDF View
 #+begin_src emacs-lisp :tangle yes
 (after! pdf-view
