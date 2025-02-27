@@ -615,10 +615,6 @@
   (setq! lsp-haskell-brittany-on nil)
   (setq! lsp-haskell-stylish-haskell-on nil))
 #+end_src
-*** Cabal
-#+begin_src emacs-lisp :tangle yes
-(after! haskell-cabal (set-formatter! 'cabal-fmt '("cabal-fmt" filepath) :modes '(haskell-cabal-mode)))
-#+end_src
 
 *** Consult Hoogle
 #+begin_src emacs-lisp :tangle yes
@@ -756,12 +752,6 @@
     (setq! lsp-tailwindcss-experimental-class-regex ["class_ \"([^\"]*)"])))
 #+end_src
 
-** Lispy For Cider
-#+begin_src emacs-lisp :tangle no
-(use-package! lispy
-  :init (setq lispy-compat '(edebug cider)))
-#+end_src
-
 ** Astro
 #+begin_src emacs-lisp :tangle no
 (after! format-all
@@ -778,10 +768,6 @@
   (puthash 'prettier-astro "prettier" format-all--executable-table))
 #+end_src
 
-** Wasp Mode
-#+begin_src emacs-lisp :tangle no
-(use-package! wasp-mode :mode "\\.wasp\\'")
-#+end_src
 ** Lua
 *** lsp
 #+begin_src emacs-lisp :tangle yes
@@ -918,35 +904,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 (use-package! nov
   :mode ((rx ".epub" eos) . nov-mode)
   :config (setq nov-save-place-file (concat doom-cache-dir "nov-places")))
-#+end_src
-
-* Use Keycast
-#+begin_src emacs-lisp :tangle no
-(use-package! keycast
-  :defer
-  :config (define-minor-mode keycast-mode
-            "Show current command and its key binding in the mode line."
-            :global t
-            (if keycast-mode
-                (add-hook 'pre-command-hook 'keycast-mode-line-update t) (remove-hook 'pre-command-hook 'keycast-mode-line-update)))
-  (add-to-list 'global-mode-string '("" mode-line-keycast)))
-#+end_src
-
-* Use Scala
-#+begin_src emacs-lisp :tangle yes
-(push '("\\.sc\\'" . scala-mode) auto-mode-alist)
-(use-package! sbt-mode :disabled)
-#+end_src
-
-** Use Ammonite Term Repl
-#+begin_src emacs-lisp :tangle no
-(use-package! ammonite-term-repl
-  :after scala-mode
-  :config (progn
-            (setq ammonite-term-repl-auto-config-mill-project nil)
-            (setq ammonite-term-repl-auto-detect-predef-file nil)
-            ;; (setq ammonite-term-repl-program-args '("-s" "--no-default-predef"))
-            (set-repl-handler! 'scala-mode #'run-ammonite :persist t)))
 #+end_src
 
 * envrc

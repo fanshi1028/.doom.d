@@ -55,9 +55,7 @@
 ;; (package! gif-screencast :pin "adec408e6adab2e8e057fe0ad828749f473bfb83")
 (package! nov
   :recipe (:host nil :repo "https://depp.brause.cc/nov.el.git"))
-;; (package! keycast)
 
-;; (package! wasp-mode :pin "76198cdd5f0ece3770c3a586115caea3ea613169")
 (package! emacsql :pin "2e6056df110e76da4eabb413f8781c4f1edddf20")
 
 ;; No org-babel-execute function for ledger!
