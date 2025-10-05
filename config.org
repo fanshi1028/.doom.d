@@ -830,7 +830,7 @@
 * Vterm Use Fish
 #+begin_src emacs-lisp :tangle yes
 ;; use 'vterm' with 'fish'
-(after! vterm (setq! vterm-shell "~/.nix-profile/bin/fish"))
+(after! vterm (setq! vterm-shell "fish"))
 #+end_src
 * Hledger
 #+begin_src emacs-lisp :tangle no
