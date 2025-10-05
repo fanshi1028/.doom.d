@@ -732,27 +732,6 @@
 (after! sql (set-formatter! 'pg_format "pg_format" :modes 'sql-mode))
 #+end_src
 
-** Tailwind
-#+begin_src emacs-lisp :tangle yes
-(defun fanshi/tailwind-rainbow-config ()
-  (when (and (stringp buffer-file-name)
-             (string-match "/tailwind\\.config\\.\\(js\\|ts\\)\\'"  buffer-file-name))
-    (rainbow-mode)))
-(add-hook 'rjsx-mode-hook 'fanshi/tailwind-rainbow-config)
-;; FIXME
-(use-package! lsp-tailwindcss
-  :defer t
-  :config
-  (setq lsp-tailwindcss-add-on-mode t)
-  (if-let (client (gethash 'tailwindcss lsp-clients))
-      (setf (lsp--client-new-connection client) (lsp-stdio-connection '("tailwindcss-language-server" "--stdio")))
-    (lsp-register-client client))
-  (lsp-dependency 'tailwindcss-language-server '((:system "tailwindcss-language-server")))
-  ;; Lucid
-  (after! haskell-mode (push 'haskell-mode lsp-tailwindcss-major-modes)
-    (setq! lsp-tailwindcss-experimental-class-regex ["class_ \"([^\"]*)"])))
-#+end_src
-
 ** Astro
 #+begin_src emacs-lisp :tangle no
 (after! format-all

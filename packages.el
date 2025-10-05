@@ -66,8 +66,6 @@
 ;;            :repo "emacsmirror/org-contrib")
 ;;   :pin "17f3c514356430448627104e015f155008b45575")
 
-(package! lsp-tailwindcss)
-
 (package! consult-hoogle
   :recipe (:host codeberg :repo "rahguzar/consult-hoogle") :pin "384959016022d071464dc6e611e4fcded562834e")
 
