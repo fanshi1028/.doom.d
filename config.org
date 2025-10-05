@@ -32,7 +32,7 @@
 #+end_src
 ** Nerd
 #+begin_src emacs-lisp :tangle yes
-(after! nerd-icons (setq! nerd-icons-font-names '("SymbolsNerdFontMono-Regular.ttf")))
+(after! nerd-icons (setq! nerd-icons-font-names '("SymbolsNerdFont-Regular.ttf")))
 #+end_src
 
 ** Theme
