@@ -355,7 +355,7 @@
 #+begin_src emacs-lisp :tangle yes
 (after! (:and org org-gtd)
   (setq! fanshi/alltodo
-         `((:discard (:scheduled t :deadline t :regexp ,org-scheduled-time-hour-regexp :file-path ("work")))
+         `((:discard (:scheduled t :deadline t :regexp ,org-scheduled-time-hour-regexp))
            (:name "Important 💎💎💎" :tag "Payment" :priority "A" :order 2) ;;🚔🚔🚔
            ;; (:name "Do I really look like a guy with a plan??? 🃏🃏🃏" :and (:todo "TOPLAN" :priority> "D") :order 3)
            (:name "Camping 🏕🏕🏕" :todo "WAIT" :order 11) ; Set order of this section 💎💎💎
