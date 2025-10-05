@@ -590,29 +590,14 @@
 
 * Langs
 ** Haskell
-*** Config
-#+begin_src emacs-lisp :tangle yes
-(after! haskell-mode
-  (pushnew! haskell-font-lock-keywords "cases"))
-#+end_src
 *** Template
 #+begin_src emacs-lisp :tangle yes
-(after! haskell-mode
-  (set-formatter! 'ormolu '("ormolu" filepath) :modes '(haskell-mode))
-  (setq! haskell-auto-insert-module-format-string
-         (concat haskell-auto-insert-module-format-string
-                 "main :: IO ()\n"
-                 "main = do\n"
-                 "  putStrLn \"Surprise Motherfucker!\"")))
+(after! haskell-ts-mode (set-formatter! 'ormolu '("ormolu" filepath) :modes '(haskell-ts-mode)))
 #+end_src
 
 *** LSP
 #+begin_src emacs-lisp :tangle yes
-(after! lsp-haskell
-  (setq! lsp-haskell-floskell-on nil)
-  (setq! lsp-haskell-fourmolu-on nil)
-  (setq! lsp-haskell-brittany-on nil)
-  (setq! lsp-haskell-stylish-haskell-on nil))
+(after! lsp-haskell (setq! lsp-haskell-session-loading "multipleComponents"))
 #+end_src
 
 *** Consult Hoogle
@@ -621,14 +606,6 @@
   :defer t
   :config (advice-add 'consult-hoogle :around 'inheritenv-apply))
 #+end_src
-*** Flycheck
-#+begin_src emacs-lisp :tangle no
-(after! flycheck
-  (if (and flycheck-disabled-checkers (listp flycheck-disabled-checkers))
-      (pushnew! flycheck-disabled-checkers 'haskell-ghc)
-    (setq! flycheck-disabled-checkers '(haskell-ghc))))
-#+end_src
-
 ** Typescript
 - ref :: https://www.reddit.com/r/emacs/comments/b7rsxu/behold_orgbabelexecutetypescript/
 #+begin_src emacs-lisp :tangle yes
