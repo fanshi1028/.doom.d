@@ -750,26 +750,23 @@
 #+end_src
 * LSP
 ** Don't watch gitignore
-- https://github.com/emacs-lsp/lsp-mode/issues/713#issuecomment-985653873
-- edit :: bad for performance, emacs stuck to wait for the command to run, may be make it async? disable for now.
-#+begin_src emacs-lisp :tangle no
+- REF :: https://github.com/emacs-lsp/lsp-mode/issues/713#issuecomment-2646367215
+#+begin_src emacs-lisp :tangle yes
 (after! lsp-mode
-  (defun ++git-ignore-p (path)
-    (let* (           ; trailing / breaks git check-ignore if path is a symlink:
-           (path (directory-file-name path))
-           (default-directory (file-name-directory path))
-           (relpath (file-name-nondirectory path))
-           (cmd (format "git check-ignore '%s'" relpath))
-           (status (call-process-shell-command cmd)))
-      (eq status 0)))
-
-  (defun ++lsp--path-is-watchable-directory-a
-      (fn path dir ignored-directories)
-    (and (not (++git-ignore-p (f-join dir path)))
-         (funcall fn path dir ignored-directories)))
-
-  (advice-add 'lsp--path-is-watchable-directory
-              :around #'++lsp--path-is-watchable-directory-a))
+  (advice-add 'lsp--get-ignored-regexes-for-workspace-root
+              :around (lambda (fn workspace-root)
+                        (let* ((ignored-things (funcall fn workspace-root))
+                               (ignored-files-regex-list (car ignored-things))
+                               (ignored-directories-regex-list (cadr ignored-things))
+                               (cmd (format
+                                     "git clean --dry-run -X '%s' | cut -d' ' -f3"
+                                     workspace-root))
+                               (gitignored-things (split-string (shell-command-to-string cmd) "\n" t))
+                               (gitignored-files (seq-remove (lambda (line) (string-match "[/\\\\]\\'" line)) gitignored-things))
+                               (gitignored-directories (seq-filter (lambda (line) (string-match "[/\\\\]\\'" line)) gitignored-things))
+                               (gitignored-files-regex-list (mapcar (lambda (file) (concat "[/\\\\]" (regexp-quote file) "\\'")) gitignored-files))
+                               (gitignored-directories-regex-list (mapcar (lambda (directory) (concat "[/\\\\]" (regexp-quote (replace-regexp-in-string "[/\\\\]\\'" "" directory)) "\\'")) gitignored-directories)))
+                          (list (append ignored-files-regex-list gitignored-files-regex-list) (append ignored-directories-regex-list gitignored-directories-regex-list))))))
 #+end_src
 ** Emacs lsp booster
 - ref :: https://github.com/blahgeek/emacs-lsp-booster/tree/fd4301350c41fe954d25ed663078af520902d87c
