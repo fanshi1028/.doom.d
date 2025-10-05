@@ -948,22 +948,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
          (cons '("Doom issues"  "https://github.com/doomemacs/doomemacs/issues?q=is%%3Aissue%%20state%%3Aopen%%20%s%%20")))))
 #+end_src
 * AI
-** Aider
-#+begin_src emacs-lisp :tangle yes
-(use-package! aidermacs
-  :defer t
-  :config
-  (setq aidermacs-backend 'vterm)
-  (setq aidermacs-args `("--api-key" ,(concat "gemini=" (password-store-get "Google/jackychany321@gmail.com/gemini_key")))))
-#+end_src
-
-*** fanshi/fix-gemini-key-for-aidermacs
-#+begin_src emacs-lisp :tangle yes
-(defun fanshi/fix-gemini-key-for-aidermacs ()
-  "to fix api key for gemini, the key is not initailised right when we start emacs (`password-store-get` didn't ask for my pass and gave me some wrong binary)"
-  (interactive)
-  (setq aidermacs-args `("--api-key" ,(concat "gemini=" (password-store-get "Google/jackychany321@gmail.com/gemini_key")))))
-#+end_src
 ** Org AI
 - gemini is not supported yet without tweak :: [[https://github.com/rksm/org-ai/issues/26][Abstract over LM · Issue #26 · rksm/org-ai · GitHub]]
 #+begin_src emacs-lisp :tangle no
