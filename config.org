@@ -536,6 +536,12 @@
 (after! lsp-haskell (setq! lsp-haskell-session-loading "multipleComponents"))
 #+end_src
 
+*** Cabal
+- ref :: https://github.com/doomemacs/doomemacs/issues/7762
+#+begin_src emacs-lisp :tangle yes
+(after! haskell-cabal (set-formatter! 'cabal-gild '("cabal-gild") :modes '(haskell-cabal-mode)))
+#+end_src
+
 *** Consult Hoogle
 #+begin_src emacs-lisp :tangle yes
 (use-package! consult-hoogle
