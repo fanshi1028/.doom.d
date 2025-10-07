@@ -532,6 +532,7 @@
 
 *** LSP
 #+begin_src emacs-lisp :tangle yes
+(add-hook 'haskell-ts-mode-local-vars-hook #'lsp! 'append)
 (after! lsp-haskell (setq! lsp-haskell-session-loading "multipleComponents"))
 #+end_src
 
