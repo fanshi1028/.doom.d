@@ -27,8 +27,8 @@
 ;; (setq doom-font (font-spec :family "monospace" :size 12 :weight 'semi-light)
 ;;       doom-variable-pitch-font (font-spec :family "sans" :size 13))
 (setq
- doom-font (font-spec :family "Sarasa Mono HC" :size 12 :weight 'medium)
- doom-variable-pitch-font (font-spec :family "Sarasa UI HC" :size 12 :weight 'medium))
+ doom-font (font-spec :family "Sarasa Mono HC" :size 12)
+ doom-variable-pitch-font (font-spec :family "Sarasa UI HC" :size 12))
 #+end_src
 ** Nerd
 #+begin_src emacs-lisp :tangle yes
