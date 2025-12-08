@@ -790,7 +790,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   "ediff the current `init.el' with the example in doom-emacs-dir"
   (interactive)
   (ediff-files (concat doom-private-dir "init.el")
-               (concat doom-emacs-dir "templates/init.example.el")))
+               (concat doom-emacs-dir "static/init.example.el")))
 (define-key! help-map
   "di"   #'fanshi/ediff-init-and-example
   )
