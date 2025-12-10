@@ -88,3 +88,8 @@
 (package! synosaurus :pin "14d34fc92a77c3a916b4d58400424c44ae99cd81")
 
 (package! org-gtd :recipe (:host github :repo "Trevoke/org-gtd.el") :pin "578e83b0f67cb57dd1b10e9eea4f40d2e925b9b9")
+
+
+(package! gptel :recipe (:host github :repo "karthink/gptel") :pin "18ccf6a7526f2115519f613675a12bca0e721417")
+
+(package! gptel-agent :recipe (:host github :repo "karthink/gptel-agent") :pin "99a8b940271fbe68cdfb7c2329d090dc4ef04b99")
