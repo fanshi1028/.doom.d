@@ -921,6 +921,20 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+begin_src emacs-lisp :tangle yes
 (after! gptel (use-package! gptel-agent :config (gptel-agent-update)))
 #+end_src
+* Latex setup for Altacv
+#+begin_src emacs-lisp :tangle yes
+(after! org
+  (use-package! ox-extra
+    :config
+    (ox-extras-activate '(latex-header-blocks ignore-headlines))
+    (setq org-latex-hyperref-template nil) ;; stop org adding hypersetup{author..} to latex export
+    (add-to-list 'org-latex-classes
+                 '("altacv"
+                   "\\documentclass[10pt,a4paper,ragged2e,withhyper]{altacv}"
+                   ("\\cvsection{%s}" . "\\cvsection*{%s}")
+                   ("\\cvevent{%s}" . "\\cvevent*{%s}")))
+    ))
+#+end_src
 #+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
