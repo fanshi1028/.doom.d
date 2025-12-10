@@ -883,6 +883,11 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
          writeroom-major-modes '(text-mode org-mode prog-mode))
   (global-writeroom-mode))
 #+end_src
+
+* No Which Key
+#+begin_src emacs-lisp :tangle yes
+(which-key-mode 0)
+#+end_src
 #+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
