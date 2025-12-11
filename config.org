@@ -893,11 +893,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (gptel-make-gemini "Gemini" :key (lambda () (+pass-get-secret "Google/1/gemini_key")) :stream t)
-  (gptel-make-preset 'websearch
-  :description  "Gemini with basic web search capability."
-  :backend      "Gemini"
-  :model        'gemini-flash-lite-latest
-  :tools        '("search_web" "read_url" "get_youtube_meta"))
   (setq!
    gptel-model 'gemini-flash-lite-latest
    gptel-display-buffer-action t
@@ -911,7 +906,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
        (assq-delete-all 'gemini-2.5-pro-preview-06-05)
        (assq-delete-all 'gemini-2.5-flash)
        (assq-delete-all 'gemini-2.5-flash-preview-09-2025)
-       (assq-delete-all 'gemini-2.5-flash-lite)
        (assq-delete-all 'gemini-2.5-flash-lite-preview-09-2025)
        (assq-delete-all 'gemini-2.0-flash)
        (assq-delete-all 'gemini-2.0-flash-exp)
@@ -921,6 +915,33 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 ** Agent
 #+begin_src emacs-lisp :tangle yes
 (after! gptel (use-package! gptel-agent :config (gptel-agent-update)))
+#+end_src
+** Preset for Gemini Builtin Tools
+#+begin_src emacs-lisp :tangle yes
+;; NOTE: https://github.com/google/adk-docs/tree/82e9fa553fc42d0ddc8ebca9b0b0ed17b1621fa3/docs/tools/built-in-tools.md#limitations
+(after! gptel
+  (gptel-make-preset 'google_search
+    :description  "Agent who do google search"
+    :backend      "Gemini"
+    :model        'gemini-flash-lite-latest
+    :request-params '(:tools [(:google_search ())]))
+  (gptel-make-preset 'google_maps
+    :description  "Agent who can access google map"
+    :backend      "Gemini"
+    :model        'gemini-2.5-flash-lite
+    :request-params '(:tools [(:googleMaps ())]
+                      ;; :toolConfig (:retrievalConfig (:latLng (:latitude 34.050481 :longitude -118.2))
+                      ))
+  (gptel-make-preset 'code_execution
+    :description  "Gemini with basic web search capability."
+    :backend      "Gemini"
+    :model        'gemini-flash-lite-latest
+    :request-params '(:tools [(:code_execution ())]))
+  (gptel-make-preset 'url_context
+    :description  "Gemini with basic web search capability."
+    :backend      "Gemini"
+    :model        'gemini-flash-lite-latest
+    :request-params '(:tools [(:url_context ())])))
 #+end_src
 * Latex setup for Altacv
 #+begin_src emacs-lisp :tangle yes
