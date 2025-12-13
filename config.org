@@ -897,7 +897,11 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
    gptel-model 'gemini-flash-lite-latest
    gptel-display-buffer-action t
    gptel-default-mode 'org-mode
-   gptel-backend (gptel-get-backend "Gemini"))
+   gptel-backend (gptel-get-backend "Gemini")
+   gptel-highlight-methods '(margin face)
+   gptel-highlight-mode t
+   gptel-log-level :info
+   gptel-org-branching-context t)
   ;; remove unfree/old/duplicated models
   (->> gptel--gemini-models
        (assq-delete-all 'gemini-pro-latest)
