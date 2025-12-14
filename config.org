@@ -916,6 +916,10 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
        (assq-delete-all 'gemini-2.0-flash-thinking-exp))
   (gptel-make-gh-copilot "Copilot"))
 #+end_src
+** Agent
+#+begin_src emacs-lisp :tangle yes
+(after! gptel (use-package! gptel-agent :config (gptel-agent-update)))
+#+end_src
 ** Preset for Gemini Builtin Tools
 #+begin_src emacs-lisp :tangle yes
 ;; NOTE: https://github.com/google/adk-docs/tree/82e9fa553fc42d0ddc8ebca9b0b0ed17b1621fa3/docs/tools/built-in-tools.md#limitations
