@@ -135,48 +135,6 @@
 #+begin_src emacs-lisp :tangle yes
 (after! org (pushnew! org-todo-keyword-faces '("INBOX" org-todo)))
 #+end_src
-** Org Babel Edit's LSP Support
-*** fanshi/org-babel-edit-lsp-langs
-#+begin_src emacs-lisp :tangle no
-(defvar fanshi/org-babel-edit-lsp-langs
-  '(("haskell" . "hs")
-    ("typescript" . "ts")
-    ("js" . "js")
-    ("python" . "py")
-    ("rust" . "rs"))
-  "alist for langs that will use lsp when `org-edit-special', key is the lang, and value is lang's file extension")
-#+end_src
-*** fanshi/org-babel-edit-lsp-prep
-- ref :: https://github.com/emacs-lsp/lsp-mode/issues/2842#issuecomment-870807018
-#+begin_src emacs-lisp :tangle no
-(defmacro fanshi/org-babel-edit-lsp-prep (lang ext)
-  `(defun ,(intern (concat "org-babel-edit-prep:" lang))  (babel-info)
-     "prep for `org-edit-special' using lsp for some lang"
-     (let* ((tmp-src-file (org-babel-temp-file ,(concat lang "-src-edit-") ,(concat "." ext))))
-       (with-temp-file tmp-src-file (insert (cadr babel-info)))
-       (setq-local buffer-file-name tmp-src-file)
-       (lsp)
-       ;; NOTE: when lookup doc using lsp, it use pop-up.
-       ;; NOTE: when we kill the popped up look-up, whole edit session gone because it was a pop-up
-       ;; NOTE: so change the window to non-pop up, and window it more convenient than pop than code editing too.
-       ;; FIXME: use set-popup-rule! ?
-       (+popup/raise (selected-window)))
-     ))
-#+end_src
-*** provide the support
-#+begin_src emacs-lisp :tangle no
-;; NOTE: defun org-babel-edit-prep:lang for each lang in `fanshi/org-babel-edit-lsp-langs'
-(mapc (lambda (x) (eval `(fanshi/org-babel-edit-lsp-prep ,(car x) ,(cdr x)))) fanshi/org-babel-edit-lsp-langs)
-
-;; NOTE: in `fanshi/org-babel-edit-prep', the `org-edit-special' pop-up it promoted, and after `org-edit-src-exit', we got one duplicate pop-up shaped window.
-;; NOTE: this advice automatically delete that window for better ux
-(advice-add 'org-edit-src-exit :around (lambda (f &rest args)
-                                         (if-let* ((babel-info org-src--babel-info)
-                                                   (lang (car babel-info))
-                                                   (babel-lsp-lang (assoc lang fanshi/org-babel-edit-lsp-langs)))
-                                             (progn (apply f args) (evil-window-delete))
-                                           (apply f args))))
-#+end_src
 ** Autorefile from inbox at todo keywords change
 *** fanshi/org-inbox-todo-trigger
 #+begin_src emacs-lisp :tangle yes
@@ -702,48 +660,6 @@
 *** formatter
 #+begin_src emacs-lisp :tangle yes
 (after! fennel-mode (set-formatter! 'fnlfmt '("fnlfmt" filepath) :modes '(fennel-mode)))
-#+end_src
-* LSP
-** Don't watch gitignore
-- REF :: https://github.com/emacs-lsp/lsp-mode/issues/713#issuecomment-2646367215
-#+begin_src emacs-lisp :tangle no
-(after! lsp-mode
-  (advice-add 'lsp--get-ignored-regexes-for-workspace-root
-              :around (lambda (fn workspace-root)
-                        (let* ((ignored-things (funcall fn workspace-root))
-                               (ignored-files-regex-list (car ignored-things))
-                               (ignored-directories-regex-list (cadr ignored-things))
-                               (cmd (format
-                                     "git clean --dry-run -X '%s' | cut -d' ' -f3"
-                                     workspace-root))
-                               (gitignored-things (split-string (shell-command-to-string cmd) "\n" t))
-                               (gitignored-files (seq-remove (lambda (line) (string-match "[/\\\\]\\'" line)) gitignored-things))
-                               (gitignored-directories (seq-filter (lambda (line) (string-match "[/\\\\]\\'" line)) gitignored-things))
-                               (gitignored-files-regex-list (mapcar (lambda (file) (concat "[/\\\\]" (regexp-quote file) "\\'")) gitignored-files))
-                               (gitignored-directories-regex-list (mapcar (lambda (directory) (concat "[/\\\\]" (regexp-quote (replace-regexp-in-string "[/\\\\]\\'" "" directory)) "\\'")) gitignored-directories)))
-                          (list (append ignored-files-regex-list gitignored-files-regex-list) (append ignored-directories-regex-list gitignored-directories-regex-list))))))
-#+end_src
-** Emacs lsp booster
-- ref :: https://github.com/blahgeek/emacs-lsp-booster/tree/fd4301350c41fe954d25ed663078af520902d87c
-#+begin_src emacs-lisp :tangle no
-(defun fanshi/lsp-booster--advice-final-command (old-fn cmd &optional test?)
-  "Prepend emacs-lsp-booster command to lsp CMD."
-  (let ((orig-result (funcall old-fn cmd test?)))
-    (if-let* ((booster (and (not test?) ;; for check lsp-server-present?
-                            (not (file-remote-p default-directory)) ;; see lsp-resolve-final-command, it would add extra shell wrapper
-                            ;; lsp-use-plists
-                            (not (functionp 'json-rpc-connection)) ;; native json-rpc
-                            (seq-some (lambda (path) (and (string-match ".*emacs-lsp-booster.*" path) (concat path "/emacs-lsp-booster"))) (default-value 'exec-path)))))
-        (progn
-          (message "Using emacs-lsp-booster for %s!" orig-result)
-          (append (list booster "-n" "--") orig-result))
-      orig-result)))
-(advice-add 'lsp-resolve-final-command :around #'fanshi/lsp-booster--advice-final-command)
-#+end_src
-** I don't want your suggestion
-#+begin_src emacs-lisp :tangle yes
-(after! lsp-mode
-  (setq! lsp-enable-suggest-server-download nil))
 #+end_src
 * PDF View
 #+begin_src emacs-lisp :tangle yes
