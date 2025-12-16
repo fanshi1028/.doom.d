@@ -928,7 +928,6 @@ You can only able to execute code in Python, but you can still generate code in 
                    ("\\cvevent{%s}" . "\\cvevent*{%s}")))
     ))
 #+end_src
-#+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
 ;; Here are some additional functions/macros that could help you configure Doom:
