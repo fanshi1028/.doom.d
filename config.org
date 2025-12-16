@@ -80,6 +80,10 @@
 
 (setq! scroll-lock-mode t)
 #+end_src
+* Input
+#+begin_src emacs-lisp :tangle yes
+(setq! default-input-method "chinese-cns-tsangchi")
+#+end_src
 * Org Directory
 #+begin_src emacs-lisp :tangle yes
 ;; If you use `org' and don't want your org files in the default location below,
