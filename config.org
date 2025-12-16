@@ -140,38 +140,6 @@
 #+begin_src emacs-lisp :tangle yes
 (after! org (pushnew! org-todo-keyword-faces '("INBOX" org-todo)))
 #+end_src
-** Autorefile from inbox at todo keywords change
-*** fanshi/org-inbox-todo-trigger
-#+begin_src emacs-lisp :tangle yes
-(after! org
-  (defun fanshi/org-inbox-todo-trigger (change-plist) ""
-         (when (equal (plist-get change-plist :type) 'todo-state-change)
-           (let ((org-refile-targets
-                  (pcase (plist-get change-plist :from)
-                    ("INBOX" (pcase (plist-get change-plist :to)
-                               ("PROJ" `((,(concat org-directory "/projects.org.gpg")
-                                          . (:level . 0))))
-                               ("TODO"  `((,(concat org-directory "/tasks.org.gpg")
-                                           . (:level . 0))))
-                               ("[ ]"  `((, (concat org-directory "/projects.org.gpg")
-                                          . (:todo . "PROJ"))))
-                               ("IDEA"  `((,(concat org-directory "/ideas.org.gpg")
-                                           . (:level . 0))))
-                               (_ org-refile-targets)))
-                    ("IDEA" (pcase (plist-get change-plist :to)
-                               ("PROJ" `((,(concat org-directory "/projects.org.gpg")
-                                          . (:level . 0))))
-                               (_ nil)))
-                    (_ nil))))
-             (when org-refile-targets (org-refile))))))
-#+end_src
-
-*** hook
-#+begin_src emacs-lisp :tangle yes
-(after! org (setq! org-trigger-hook 'fanshi/org-inbox-todo-trigger))
-;; org-refile-allow-creating-parent-nodes "confirm"
-#+end_src
-
 ** Noter
 #+begin_src emacs-lisp :tangle yes
 (after! org-noter
