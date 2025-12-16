@@ -302,10 +302,6 @@
 #+begin_src emacs-lisp :tangle yes
 (after! org-journal (setq! org-journal-encrypt-journal t))
 #+end_src
-*** Zen
-#+begin_src emacs-lisp :tangle yes
-(after! org-journal (pushnew! org-journal-mode-hook #'writeroom-mode))
-#+end_src
 ** GTD
 *** Encryption Setup
 #+begin_src emacs-lisp :tangle yes
