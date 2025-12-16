@@ -671,19 +671,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 (after! plantuml-mode (setq! plantuml-default-exec-mode 'executable))
 #+end_src
 
-* Use Gif Screencast
-#+begin_src emacs-lisp :tangle no
-;; FIXME maybe reenable it, and set better keys?
-(use-package! gif-screencast
-  :defer t
-  :commands (gif-screencast-start-or-stop)
-  :config (setq gif-screencast-args '("-x")
-              gif-screencast-capture-format "ppm"
-              gif-screencast-cropping-program "" ;; NOTE diable cropping, seems its only crop part of the emacs screen fro some reason
-              )
-  :bind ("<f12>" . gif-screencast-start-or-stop))
-#+end_src
-
 * Use Nov Mode
 #+begin_src emacs-lisp :tangle yes
 (use-package! nov
