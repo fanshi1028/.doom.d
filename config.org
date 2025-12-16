@@ -140,20 +140,6 @@
 #+begin_src emacs-lisp :tangle yes
 (after! org (pushnew! org-todo-keyword-faces '("INBOX" org-todo)))
 #+end_src
-** Noter
-#+begin_src emacs-lisp :tangle yes
-(after! org-noter
-  ;; (defun fanshi/noter-capture-note ()
-  ;;   (interactive)
-  ;;   (call-interactively #'org-noter-insert-precise-note)
-  ;;   (insert "#+ATTR_ORG: :width 500 ")
-  ;;   (call-interactively #'org-download-screenshot)
-  ;;   )
-  (setq! org-noter-notes-search-path (list (concat org-directory "/noter/"))
-         org-noter-find-additional-notes-functions '((lambda (filename) (concat (md5 filename) ".org.gpg")))
-         org-noter-doc-split-fraction '(0.57 0.43)))
-#+end_src
-
 ** Agenda
 *** fanshi/make-line
 #+begin_src emacs-lisp :tangle yes
