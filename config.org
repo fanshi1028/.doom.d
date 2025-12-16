@@ -91,7 +91,6 @@
 ;; change `org-directory'. It must be set before org loads!
 (setq! org-directory "~/Documents/org")
 #+end_src
-
 * Scratch Buffer Use Org Mode
 #+begin_src emacs-lisp :tangle yes
 ;; scratch buffer default `org-mode'
