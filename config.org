@@ -643,14 +643,14 @@
 #+end_src
 
 * Not so long
-*** Problem
+** Problem
 The so-long.el is for text files with long lines (think of e.g. minified JavaScript or CSS libs).
 No point to enable it globally and moreover it broke some ux for me like the following:
 #+begin_src emacs-lisp :tangle no
 (helpful-callable #'org-toggle-link-display)
 #+end_src
 Because so-long-mode triggered on the source elisp file, the "coding: utf-8" local variable doesn't work and hence asking me for the coding system.
-*** So...
+** So...
 #+begin_src emacs-lisp :tangle yes
 (global-so-long-mode -1)
 #+end_src
