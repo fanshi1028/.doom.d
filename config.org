@@ -13,6 +13,7 @@
 
 * UI/Look
 ** Fonts
+*** Default
 #+begin_src emacs-lisp :tangle yes
 ;; Doom exposes five (optional) variables for controlling fonts in Doom. Here
 ;; are the three important ones:
@@ -30,7 +31,7 @@
  doom-font (font-spec :family "Sarasa Mono HC" :size 12)
  doom-variable-pitch-font (font-spec :family "Sarasa UI HC" :size 12))
 #+end_src
-** Nerd
+*** Nerd
 #+begin_src emacs-lisp :tangle yes
 (after! nerd-icons (setq! nerd-icons-font-names '("SymbolsNerdFont-Regular.ttf")))
 #+end_src
