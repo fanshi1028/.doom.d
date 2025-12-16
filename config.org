@@ -288,6 +288,12 @@
 #+begin_src emacs-lisp :tangle yes
 (use-package! org-web-tools
   ;; :after-call org-capture
+  :init (defun fanshi/org-web-tools--org-link-for-url ()
+          (let* ((url (current-kill 0))
+                 (html (org-web-tools--get-url url))
+                 (title (org-web-tools--html-title html)))
+            (if title (org-make-link-string url title)
+              (message "HTML page at URL has no title") url)))
   :defer t
   :commands (org-web-tools--org-link-for-url))
 #+end_src
@@ -337,17 +343,6 @@
         `("link" entry (file ,(org-gtd-inbox-path)) ,(string-join '("* %(fanshi/org-web-tools--org-link-for-url)" "%U") "\n") :immediate-finish t))
   (map! :map doom-leader-map :desc "Org GTD Capture" "X" #'org-gtd-capture)
   (org-gtd-mode))
-#+end_src
-** fanshi/org-web-tools--org-link-for-url
-#+begin_src emacs-lisp :tangle yes
-(defun fanshi/org-web-tools--org-link-for-url ()
-    (let* ((url (current-kill 0))
-           (html (org-web-tools--get-url url))
-           (title (org-web-tools--html-title html)))
-      (if title
-          (org-make-link-string url title)
-        (message "HTML page at URL has no title")
-        url)))
 #+end_src
 * Projectile
 #+begin_src emacs-lisp :tangle yes
