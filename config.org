@@ -806,6 +806,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 (which-key-mode 0)
 #+end_src
 * Gptel
+** Default
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (gptel-make-gemini "Gemini" :key (lambda () (+pass-get-secret "Google/1/gemini_key")) :stream t)
@@ -817,8 +818,23 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
    gptel-highlight-methods '(margin face)
    gptel-highlight-mode t
    gptel-log-level :info
-   gptel-org-branching-context t)
-  ;; remove unfree/old/duplicated models
+   gptel-org-branching-context t
+   gptel-directives (cons '(full . "Please think harder to give your highest quality answer.
+    We pursue depth, not superficial breadth;
+    we pursue essential insight, not a list of appearances;
+    we pursue innovation in thinking, not habitual reiteration.
+    Think critically! Think creatively!
+    Please show us your cognitive limits.") gptel-directives))
+  (gptel-make-preset 'full
+    :model 'gemini-flash-latest
+    :backend "Gemini"
+    :system 'full))
+
+#+end_src
+**  Remove unfree/old/duplicated models
+***  Gemini
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
   (->> gptel--gemini-models
        (assq-delete-all 'gemini-pro-latest)
        (assq-delete-all 'gemini-3-pro-preview)
@@ -829,39 +845,70 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
        (assq-delete-all 'gemini-2.5-flash-lite-preview-09-2025)
        (assq-delete-all 'gemini-2.0-flash)
        (assq-delete-all 'gemini-2.0-flash-exp)
-       (assq-delete-all 'gemini-2.0-flash-thinking-exp))
-  (gptel-make-gh-copilot "Copilot"))
+       (assq-delete-all 'gemini-2.0-flash-thinking-exp)))
+#+end_src
+** TEMP fix for gptel-send with active regoin under org-mode
+gptel--insert-response use org-cycle to hide some block in response which in turn trigger +org-yas-expand-maybe-h unexpectedly
+#+begin_src emacs-lisp :tangle yes
+(advice-add #'gptel-send :after (lambda (&rest r) (if (use-region-p) (keyboard-quit))))
 #+end_src
 ** Agent
-#+begin_src emacs-lisp :tangle yes
-(after! gptel (use-package! gptel-agent :config (gptel-agent-update)))
+#+begin_src emacs-lisp :tangle no
+(after! gptel (use-package! gptel-agent))
 #+end_src
 ** Preset for Gemini Builtin Tools
-#+begin_src emacs-lisp :tangle yes
-;; NOTE: https://github.com/google/adk-docs/tree/82e9fa553fc42d0ddc8ebca9b0b0ed17b1621fa3/docs/tools/built-in-tools.md#limitations
+- [[https://github.com/google/adk-docs/tree/82e9fa553fc42d0ddc8ebca9b0b0ed17b1621fa3/docs/tools/built-in-tools.md#limitations][gemini tool limitations]]
+- [[file:~/.emacs.d/.local/straight/repos/gptel-agent/gptel-agent-tools.el::(gptel-make-tool][adapted from tool Agent]]
+#+begin_src emacs-lisp :tangle no
 (after! gptel
-  (gptel-make-preset 'google_search
-    :description  "Agent who do google search"
-    :backend      "Gemini"
-    :model        'gemini-flash-lite-latest
-    :request-params '(:tools [(:google_search ())]))
-  (gptel-make-preset 'google_maps
-    :description  "Agent who can access google map"
-    :backend      "Gemini"
-    :model        'gemini-2.5-flash-lite
-    :request-params '(:tools [(:googleMaps ())]
-                      ;; :toolConfig (:retrievalConfig (:latLng (:latitude 34.050481 :longitude -118.2))
-                      ))
-  (gptel-make-preset 'code_execution
-    :description  "Gemini with basic web search capability."
-    :backend      "Gemini"
-    :model        'gemini-flash-lite-latest
-    :request-params '(:tools [(:code_execution ())]))
-  (gptel-make-preset 'url_context
-    :description  "Gemini with basic web search capability."
-    :backend      "Gemini"
-    :model        'gemini-flash-lite-latest
-    :request-params '(:tools [(:url_context ())])))
+  (defun fanshi/make-gemini-preset-tool (name &rest keys)
+    "Define a gptel agent and make a tool out of it.
+NAME and KEYS will be passed to `gptel-make-preset` to make a preset (as agent) first.
+Then we make a tool (with tool name: NAME) out of it,
+which could be called by other gptel agents when listed in its :tools, for example:
+
+  (gptel-make-preset \\='call_agent
+    :tools  \\='(\"NAME\"))
+"
+    (apply #'gptel-make-preset name (plist-put keys :backend "Gemini"))
+    (if-let* ((agent-name (symbol-name name))
+              (preset (cdr (assq name gptel--known-presets)))
+              (system (plist-get :system preset)))
+        (gptel-make-tool
+         :name agent-name
+         :description (concat "Use this to delegate a task to a agent,\
+who tackle the task independently with their speciality and return results in one message.\
+Here is the description of the job duty of the agent:\
+\
+" system)
+         :function (-cut gptel-agent--task <> agent <> <>)
+         :args '((:name "description"
+                  :type "string"
+                  :description "A short (3-5 word) description of the task")
+                 (:name "prompt"
+                  :type "string"
+                  :description "The detailed task for the agent to perform autonomously.\
+Should include exactly what information the agent should return."))
+         :category "gemini-builtin-tools"
+         :async t
+         :confirm t
+         :include t)
+      (message (format "fanshi/make-gemini-preset-tool failed, agent-name:(%s) , preset:(%s), system:(%s)" agent-name preset system))))
+  (fanshi/make-gemini-preset-tool 'google-search
+                                  :system "Your job is to complete tasks given by gathering up-to-date information from the web via google search"
+                                  :model        'gemini-flash-lite-latest
+                                  :request-params '(:tools [(:google_search ()) (:url_context ())]))
+  (fanshi/make-gemini-preset-tool 'google-map
+                                  :system "Your job is to complete tasks given by leveraging Google Maps to provide factually accurate and fresh information that are relevant to specified locations or general area."
+                                  :model        'gemini-2.5-flash-lite
+                                  :request-params '(:tools [(:googleMaps ())]
+                                                    ;; :toolConfig (:retrievalConfig (:latLng (:latitude 34.050481 :longitude -118.2))
+                                                    ))
+  (fanshi/make-gemini-preset-tool 'python-specialist
+                                  :system  "Your job is to complete tasks given by writing and execute Python code iteratively until it arrives at a final output. \
+You can only able to execute code in Python, but you can still generate code in another language without running them."
+                                  :model        'gemini-flash-latest
+                                  :request-params '(:tools [(:code_execution ())])))
 #+end_src
 * Latex setup for Altacv
 #+begin_src emacs-lisp :tangle yes
