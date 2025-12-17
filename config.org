@@ -694,12 +694,17 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 ** Default
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (gptel-make-gemini "Gemini" :key (lambda () (+pass-get-secret "Google/1/gemini_key")) :stream t)
   (setq!
    gptel-model 'gemini-flash-lite-latest
    gptel-display-buffer-action t
    gptel-default-mode 'org-mode
-   gptel-backend (gptel-get-backend "Gemini")
+   gptel-backend (gptel-make-gemini "Gemini"
+                   :key (lambda () (+pass-get-secret "Google/1/gemini_key"))
+                   :models (cl-map 'list (lambda (model) (assq model gptel--gemini-models))
+                                   '(gemini-flash-lite-latest
+                                     gemini-flash-latest
+                                     gemini-2.5-flash-lite))
+                   :stream t)
    gptel-highlight-methods '(margin face)
    gptel-log-level :info
    gptel-org-branching-context t
@@ -709,27 +714,8 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
     we pursue innovation in thinking, not habitual reiteration.
     Think critically! Think creatively!
     Please show us your cognitive limits.") gptel-directives))
-  (gptel-make-preset 'full
-    :model 'gemini-flash-latest
-    :backend "Gemini"
-    :system 'full)
+  (gptel-make-preset 'full :model 'gemini-flash-latest :backend "Gemini" :system 'full)
   (gptel-highlight-mode))
-#+end_src
-** Remove unfree/old/duplicated models
-*** Gemini
-#+begin_src emacs-lisp :tangle yes
-(after! gptel-genimi
-  (->> gptel--gemini-models
-       (assq-delete-all 'gemini-pro-latest)
-       (assq-delete-all 'gemini-3-pro-preview)
-       (assq-delete-all 'gemini-2.5-pro)
-       (assq-delete-all 'gemini-2.5-pro-preview-06-05)
-       (assq-delete-all 'gemini-2.5-flash)
-       (assq-delete-all 'gemini-2.5-flash-preview-09-2025)
-       (assq-delete-all 'gemini-2.5-flash-lite-preview-09-2025)
-       (assq-delete-all 'gemini-2.0-flash)
-       (assq-delete-all 'gemini-2.0-flash-exp)
-       (assq-delete-all 'gemini-2.0-flash-thinking-exp)))
 #+end_src
 ** TEMP fix for gptel-send with active regoin under org-mode
 gptel--insert-response use org-cycle to hide some block in response which in turn trigger +org-yas-expand-maybe-h unexpectedly
