@@ -59,6 +59,10 @@
 #+begin_src elisp :tangle yes
 (after! pass (setq! pass-show-keybindings nil))
 #+end_src
+** No Which Key
+#+begin_src emacs-lisp :tangle yes
+(which-key-mode -1)
+#+end_src
 ** Others
 #+begin_src emacs-lisp :tangle yes
 ;; This determines the style of line numbers in effect. If set to `nil', line
@@ -686,10 +690,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 (global-writeroom-mode)
 #+end_src
 
-* No Which Key
-#+begin_src emacs-lisp :tangle yes
-(which-key-mode -1)
-#+end_src
 * Gptel
 ** Default
 #+begin_src emacs-lisp :tangle yes
