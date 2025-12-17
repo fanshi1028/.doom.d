@@ -753,7 +753,28 @@ You can only able to execute code in Python, but you can still generate code in 
                                   :model        'gemini-flash-latest
                                   :request-params '(:tools [(:code_execution ())])))
 #+end_src
-** fanshi/extract-youtube-links
+** Youtube links
+*** fanshi/youtube-link-regexp
+#+begin_src emacs-lisp :tangle yes
+;; The whole match (group 0) will be the full URL
+(setq! fanshi/youtube-link-regexp
+       (rx (group
+            (optional "http" (optional "s") "://")
+            (or
+             ;; Short youtu.be/
+             (seq (optional "www.")
+                  "youtube.com/" (or
+                                  ;; Standard youtube.com/watch
+                                  "watch?v="
+                                  ;; youtube.com/shorts/ or /embed/
+                                  "shorts/"
+                                  "embed/"))
+             "youtu.be/")
+            (1+ (or alnum "-_" "%")) ;; Video ID: 11 characters (alphanumeric, hyphen, underscore)
+            (*? (not space))))) ;; 6. Remaining URL part: captures query parameters like &list=
+#+end_src
+
+*** fanshi/extract-youtube-links
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/extract-youtube-links (string)
   "Extract all YouTube URLs from STRING.
@@ -761,57 +782,13 @@ You can only able to execute code in Python, but you can still generate code in 
 Returns a list of all matched YouTube links. Handles standard
 watch links and short youtu.be links. The links are returned
 in the order they appear in the string.
-
-written by `Gemini`
 "
-  (let ((results '())
-        (start 0)
-        ;; A robust regex for common YouTube URL formats:
-        ;; 1. Optional protocol (http/https)
-        ;; 2. Optional www.
-        ;; 3. Core domains: youtube.com or youtu.be
-        ;; 4. Paths: /watch?v=, /shorts/, /embed/, or just / (for youtu.be)
-        ;; 5. Video ID: 11 characters (alphanumeric, hyphen, underscore)
-        ;; 6. Remaining URL part: captures query parameters like &list=
-        (youtube-regexp
-         (rx (or
-              ;; Standard youtube.com/watch
-              (group
-               (optional "http" (optional "s") "://")
-               (optional "www.")
-               "youtube.com/watch?v="
-               (1+ (or alnum "-_" "%"))
-               (*? (not space)))
-              ;; Short youtu.be/
-              (group
-               (optional "http" (optional "s") "://")
-               "youtu.be/"
-               (1+ (or alnum "-_" "%"))
-               (*? (not space)))
-              ;; youtube.com/shorts/ or /embed/
-              (group
-               (optional "http" (optional "s") "://")
-               (optional "www.")
-               "youtube.com/"
-               (or "shorts/" "embed/")
-               (1+ (or alnum "-_" "%"))
-               (*? (not space))))
-             ;; The whole match (group 0) will be the full URL
-             )))
-
-    (while (string-match youtube-regexp string start)
-      ;; Match data is set by string-match.
-      ;; (match-string 0) returns the entire matched string (the full URL).
-      (push (match-string 0 string) results)
-
-      ;; Advance the search position to continue search after the current match.
-      ;; This prevents an infinite loop if the regex can match an empty string,
-      ;; and ensures we find non-overlapping matches.
-      (setq start (match-end 0)))
-
-    ;; The links are pushed in reverse order, so we reverse the list for correct order.
-    (nreverse results)))
-    #+end_src
+  (cl-loop with start = 0
+           while (string-match fanshi/youtube-link-regexp string start)
+           do
+           (setq start (match-end 0))
+           collect (match-string 0 string)))
+#+end_src
 
 *** Test case
 #+begin_src elisp :tangle no :results code replace
