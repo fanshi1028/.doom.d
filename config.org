@@ -467,7 +467,7 @@
 #+begin_src emacs-lisp :tangle yes
 (use-package! consult-hoogle
   :defer t
-  :config (advice-add 'consult-hoogle :around 'inheritenv-apply))
+  :config (advice-add #'consult-hoogle :around #'inheritenv-apply))
 #+end_src
 ** Typescript
 - ref :: https://www.reddit.com/r/emacs/comments/b7rsxu/behold_orgbabelexecutetypescript/
