@@ -695,7 +695,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 ** TEMP fix for gptel-send with active regoin under org-mode
 gptel--insert-response use org-cycle to hide some block in response which in turn trigger +org-yas-expand-maybe-h unexpectedly
 #+begin_src emacs-lisp :tangle yes
-(advice-add #'gptel-send :after (lambda (&rest r) "call `keyboard-quit' after, to temp fix an unexpected trigger of snippet by org-cycle calls in reponse" (if (use-region-p) (keyboard-quit))))
+(advice-add #'gptel-send :after (lambda (&rest r) "call `deactivate-mark' after, to temp fix an unexpected trigger of snippet by org-cycle calls in reponse" (if (use-region-p) (deactivate-mark))))
 #+end_src
 ** Agent
 #+begin_src emacs-lisp :tangle no
