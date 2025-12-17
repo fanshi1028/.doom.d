@@ -655,32 +655,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
               (add-to-list 'vertico-multiform-categories
                            '(jinx (vertico-grid-annotate . 25))))))
 #+end_src
-* Lookup
-#+begin_src emacs-lisp :tangle no
-;; FIXME
-(progn
-  (setq! +lookup-dictionary-prefer-offline t)
-  (setf +lookup-provider-url-alist
-        (->>
-         +lookup-provider-url-alist
-         (assoc-delete-all "Doom discourse")
-         (assoc-delete-all "Google")
-         (assoc-delete-all "Google images")
-         (assoc-delete-all "Google maps")
-         (assoc-delete-all "StackOverflow")
-         (assoc-delete-all "Youtube")
-         (assoc-delete-all "Wikipedia")
-         (assoc-delete-all "Sourcegraph")
-         (assoc-delete-all "Kagi")
-         (assoc-delete-all "MDN")
-         (assoc-delete-all "Wolfram")
-         (assoc-delete-all "Github")
-         (assoc-delete-all "Internet archive")
-         (assoc-delete-all "Project Gutenberg")
-         (assoc-delete-all "Wolfram alpha")
-         (cons '("Doom issues"  "https://github.com/doomemacs/doomemacs/issues?q=is%%3Aissue%%20state%%3Aopen%%20%s%%20")))))
-#+end_src
-
 * I like to abuse writeroom
 #+begin_src emacs-lisp :tangle yes
 (after! writeroom-mode
