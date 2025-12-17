@@ -689,6 +689,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
     Think critically! Think creatively!
     Please show us your cognitive limits.") gptel-directives))
   (gptel-make-preset 'full :model 'gemini-flash-latest :backend "Gemini" :system 'full)
+  (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* ")
   (gptel-highlight-mode))
 #+end_src
 ** TEMP fix for gptel-send with active regoin under org-mode
