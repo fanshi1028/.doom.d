@@ -678,6 +678,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
                                    '(gemini-flash-lite-latest
                                      gemini-flash-latest
                                      gemini-2.5-flash-lite))
+                   :request-params '(:tools [(:google_search ()) (:url_context ())])
                    :stream t)
    gptel-highlight-methods '(margin face)
    gptel-log-level :info
@@ -739,9 +740,7 @@ Should include exactly what information the agent should return."))
          :include t)
       (message (format "fanshi/make-gemini-preset-tool failed, agent-name:(%s) , preset:(%s), system:(%s)" agent-name preset system))))
   (fanshi/make-gemini-preset-tool 'google-search
-                                  :system "Your job is to complete tasks given by gathering up-to-date information from the web via google search"
-                                  :model        'gemini-flash-lite-latest
-                                  :request-params '(:tools [(:google_search ()) (:url_context ())]))
+                                  :system "Your job is to complete tasks given by gathering up-to-date information from the web via google search")
   (fanshi/make-gemini-preset-tool 'google-map
                                   :system "Your job is to complete tasks given by leveraging Google Maps to provide factually accurate and fresh information that are relevant to specified locations or general area."
                                   :model        'gemini-2.5-flash-lite
