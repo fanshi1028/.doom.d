@@ -748,7 +748,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
    gptel-default-mode 'org-mode
    gptel-backend (gptel-get-backend "Gemini")
    gptel-highlight-methods '(margin face)
-   gptel-highlight-mode t
    gptel-log-level :info
    gptel-org-branching-context t
    gptel-directives (cons '(full . "Please think harder to give your highest quality answer.
@@ -760,13 +759,13 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   (gptel-make-preset 'full
     :model 'gemini-flash-latest
     :backend "Gemini"
-    :system 'full))
-
+    :system 'full)
+  (gptel-highlight-mode))
 #+end_src
-**  Remove unfree/old/duplicated models
-***  Gemini
+** Remove unfree/old/duplicated models
+*** Gemini
 #+begin_src emacs-lisp :tangle yes
-(after! gptel
+(after! gptel-genimi
   (->> gptel--gemini-models
        (assq-delete-all 'gemini-pro-latest)
        (assq-delete-all 'gemini-3-pro-preview)
