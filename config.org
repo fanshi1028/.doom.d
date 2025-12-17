@@ -682,7 +682,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
                    :stream t)
    gptel-highlight-methods '(margin face)
    gptel-log-level :info
-   gptel-org-branching-context t
    gptel-directives (cons '(full . "Please think harder to give your highest quality answer.
     We pursue depth, not superficial breadth;
     we pursue essential insight, not a list of appearances;
