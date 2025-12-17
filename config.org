@@ -497,53 +497,6 @@
 ;; TEMP FIXME
 (setq ob-async-no-async-languages-alist '("typescript"))
 #+end_src
-
-*** Org special edit's lsp support
-#+begin_src emacs-lisp :tangle no
-;; NOTE: https://github.com/emacs-lsp/lsp-mode/issues/2842#issuecomment-870807018
-(defmacro fanshi/org-babel-edit-lsp-prep (lang ext)
-  `(defun ,(intern (concat "org-babel-edit-prep:" lang))  (babel-info)
-     "prep for `org-edit-special' using lsp for some lang"
-     (progn
-       (setq-local buffer-file-name (org-babel-temp-file ,(concat lang "-src-edit-") ,(concat "." ext)))
-       (lsp-deferred)
-       (+popup/raise (selected-window))
-       (apheleia-mode -1))
-     ;; (let* ((tmp-src-file (org-babel-temp-file ,(concat lang "-src-edit-") ,(concat "." ext))))
-     ;;   (with-temp-file tmp-src-file (insert (cadr babel-info)))
-     ;;   (setq-local buffer-file-name tmp-src-file)
-     ;;   (envrc-propagate-environment lsp-deferred)
-     ;;   ;; NOTE: when lookup doc using lsp, it use pop-up.
-     ;;   ;; NOTE: when we kill the popped up look-up, whole edit session gone because it was a pop-up
-     ;;   ;; NOTE: so change the window to non-pop up, and window it more convenient than pop than code editing too.
-     ;;   ;; FIXME: use set-popup-rule! ?
-     ;;   (+popup/raise (selected-window)))
-     ))
-
-(defvar fanshi/org-babel-edit-lsp-langs '(("haskell" . "hs") ("typescript" . "ts") ("js" . "js") ("python" . "py") ("rust" . "rs"))
-  "alist for langs that will use lsp when `org-edit-special', key is the lang, and value is lang's file extension")
-
-;; NOTE: defun org-babel-edit-prep:lang for each lang in `fanshi/org-babel-edit-lsp-langs'
-(mapc (lambda (x) (eval `(fanshi/org-babel-edit-lsp-prep ,(car x) ,(cdr x)))) fanshi/org-babel-edit-lsp-langs)
-
-;; NOTE: in `fanshi/org-babel-edit-prep', the `org-edit-special' pop-up it promoted, and after `org-edit-src-exit', we got one duplicate pop-up shaped window.
-;; NOTE: this advice automatically delete that window for better ux
-(advice-add 'org-edit-src-exit :around (lambda (f &rest args)
-                                         (if-let* ((babel-info org-src--babel-info)
-                                                   (lang (car babel-info))
-                                                   (babel-lsp-lang (assoc lang fanshi/org-babel-edit-lsp-langs)))
-                                             (progn (apply f args) (evil-window-delete))
-                                           (apply f args))))
-#+end_src
-*** treesit
-#+begin_src emacs-lisp :tangle no
-(use-package typescript-ts-mode
-  :mode (("\\.ts\\'" . typescript-ts-mode)
-         ("\\.tsx\\'" . tsx-ts-mode))
-  :config
-  (add-hook! '(typescript-ts-mode-hook tsx-ts-mode-hook) #'lsp!))
-#+end_src
-
 ** Python
 #+begin_src emacs-lisp :tangle yes
 ;; NOTE: https://github.com/abo-abo/lispy/issues/509
