@@ -708,11 +708,11 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
 (after! gptel
   (defun fanshi/make-gemini-preset-tool (name &rest keys)
     "Define a gptel agent and make a tool out of it.
-NAME and KEYS will be passed to `gptel-make-preset` to make a preset (as agent) first.
+NAME and KEYS will be passed to `gptel-make-preset' to make a preset (as agent) first.
 Then we make a tool (with tool name: NAME) out of it,
 which could be called by other gptel agents when listed in its :tools, for example:
 
-  (gptel-make-preset \\='call_agent
+  (`gptel-make-preset' \\='call_agent
     :tools  \\='(\"NAME\"))
 "
     (apply #'gptel-make-preset name (plist-put keys :backend "Gemini"))
