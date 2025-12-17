@@ -333,8 +333,7 @@
          org-gtd-canceled "KILL"
          org-gtd-canceled-suffix "(k@)")
   (org-edna-mode)
-  (defun fanshi/gpg-gtd-path-advice (return-gtd-path) (concat return-gtd-path ".gpg"))
-  (advice-add 'org-gtd--path :filter-return #'fanshi/gpg-gtd-path-advice)
+  (advice-add #'org-gtd--path :filter-return (lambda (return-gtd-path) "gtd file path .gpg appended" (concat return-gtd-path ".gpg")))
   (setf (alist-get "l" org-gtd-capture-templates nil nil #'string=)
         `("link" entry (file ,(org-gtd-inbox-path)) ,(string-join '("* %(fanshi/org-web-tools--org-link-for-url)" "%U") "\n") :immediate-finish t))
   (map! :map doom-leader-map :desc "Org GTD Capture" "X" #'org-gtd-capture)
