@@ -821,7 +821,14 @@ This is text in between."))
 
 #+RESULTS:
 | https://www.youtube.com/watch?v=dQw4w9WgXcQ | https://youtu.be/kU9ZcO4w38o | http://youtube.com/watch?v=zT6 |
-
+** TEMP FIXME for straight warnings
+#+begin_example
+⛔ Warning (straight): package.el was loaded when straight.el was already loaded. You may wish to delete ~/.emacs.d/elpa or add (setq package-enable-at-startup nil) to ~/.emacs.d/early-init.el to avoid multiple versions of the same packages being loaded.
+#+end_example
+- REF :: https://github.com/antonalekseev/dotfiles/commit/741c60eccd1d23cff6e38c14ba254b2bb927d7e1
+#+begin_src emacs-lisp :tangle yes
+(setq straight-package--warning-displayed t)
+#+end_src
 * Latex setup for Altacv
 #+begin_src emacs-lisp :tangle yes
 (after! org
