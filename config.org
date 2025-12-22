@@ -673,7 +673,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
    gptel-display-buffer-action t
    gptel-default-mode 'org-mode
    gptel-backend (gptel-make-gemini "Gemini"
-                   :key (lambda () (+pass-get-secret "Google/1/gemini_key"))
+                   :key #'gptel-api-key-from-auth-source
                    :models (cl-map 'list (lambda (model) (assq model gptel--gemini-models))
                                    '(gemini-flash-lite-latest
                                      gemini-flash-latest
