@@ -674,12 +674,12 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
    gptel-highlight-methods '(margin face)
    gptel-backend (gptel-make-gh-copilot)
    gptel-log-level :info)
-  (pushnew! gptel-directives '(full1 . "Please think harder to give your highest quality answer.
+  (add-to-list 'gptel-directives '(full . "Please think harder to give your highest quality answer.
     We pursue depth, not superficial breadth;
     we pursue essential insight, not a list of appearances;
     we pursue innovation in thinking, not habitual reiteration.
     Think critically! Think creatively!
-    Please show us your cognitive limits."))
+    Please show us your cognitive limits.") nil (-on #'eq #'car))
   (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* ")
   (gptel-highlight-mode t))
 #+end_src
