@@ -669,9 +669,25 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (setq!
-   gptel-model 'gemini-flash-lite-latest
    gptel-display-buffer-action t
    gptel-default-mode 'org-mode
+   gptel-highlight-methods '(margin face)
+   gptel-backend (gptel-make-gh-copilot)
+   gptel-log-level :info)
+  (pushnew! gptel-directives '(full1 . "Please think harder to give your highest quality answer.
+    We pursue depth, not superficial breadth;
+    we pursue essential insight, not a list of appearances;
+    we pursue innovation in thinking, not habitual reiteration.
+    Think critically! Think creatively!
+    Please show us your cognitive limits."))
+  (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* ")
+  (gptel-highlight-mode t))
+#+end_src
+** Gemini
+#+begin_src emacs-lisp :tangle no
+(after! gptel
+  (setq!
+   gptel-model 'gemini-flash-lit
    gptel-backend (gptel-make-gemini "Gemini"
                    :key #'gptel-api-key-from-auth-source
                    :models (cl-map 'list (lambda (model) (assq model gptel--gemini-models))
@@ -679,15 +695,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
                                      gemini-flash-latest
                                      gemini-2.5-flash-lite))
                    ;; :request-params '(:tools [(:google_search ()) (:url_context ())])
-                   :stream t)
-   gptel-highlight-methods '(margin face)
-   gptel-log-level :info
-   gptel-directives (cons '(full . "Please think harder to give your highest quality answer.
-    We pursue depth, not superficial breadth;
-    we pursue essential insight, not a list of appearances;
-    we pursue innovation in thinking, not habitual reiteration.
-    Think critically! Think creatively!
-    Please show us your cognitive limits.") gptel-directives))
+                   :stream t))
   (gptel-make-preset 'default :model 'gemini-flash-latest :backend "Gemini" :request-params
                      '(:tools [(:google_search ()) (:url_context ())]))
   (gptel-make-preset 'full :parents 'default :system 'full)
@@ -697,10 +705,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
     :request-params '(:tools [(:googleMaps ())]
                       ;; :toolConfig (:retrievalConfig (:latLng (:latitude 34.050481 :longitude
                       ;; -118.2))
-                      ))
-  ;; (gptel--apply-preset (gptel-get-preset 'default))
-  (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* ")
-  (gptel-highlight-mode t))
+                      )))
 #+end_src
 ** TEMP fix for gptel-send with active regoin under org-mode
 gptel--insert-response use org-cycle to hide some block in response which in turn trigger +org-yas-expand-maybe-h unexpectedly
