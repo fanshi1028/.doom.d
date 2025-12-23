@@ -720,8 +720,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
     (require 'url)
     (let ((url-automatic-caching t))
       (with-current-buffer (url-retrieve-synchronously "https://openrouter.ai/api/frontend/models/find?max_price=0" nil nil 3)
-        (goto-char (point-min))
-        (re-search-forward "\n\n")
+        (goto-char url-http-end-of-headers)
         (defconst fanshi/gptel--openrouter-free-models
           (cl-loop for model across (-> (json-parse-buffer
                                          :object-type 'plist)
@@ -807,31 +806,31 @@ sources:
           (url-request-extra-headers '(("Content-Type" . "application/json")))
           (url-request-data (encode-coding-string "{}" 'utf-8)))
       (with-current-buffer (url-retrieve-synchronously "https://platform.iflow.cn/api/platform/models/list" nil nil 3)
-        (goto-char (point-min))
-        (re-search-forward "\n\n")
-        (defconst fanshi/gptel--iflow-models (cl-loop for models in (->> (json-parse-buffer :object-type 'alist) (alist-get 'data) (cl-map 'list #'cdr))
-                                                      append (cl-loop for model across models
-                                                                      collect
-                                                                      `(,(intern (alist-get 'modelName model))
-                                                                        :description ,(->
-                                                                                       (alist-get 'description model)
-                                                                                       (json-parse-string :object-type 'plist)
-                                                                                       (plist-get :Chinese))
-                                                                        :context-window ,(let ((modelSeqLength (-> (alist-get 'modelTags model)
-                                                                                                                   (json-parse-string :object-type 'plist)
-                                                                                                                   (aref 0)
-                                                                                                                   (plist-get :modelSeqLength))))
-                                                                                           (cond ((s-suffix? "K" modelSeqLength) (->> modelSeqLength
-                                                                                                                                      (s-chop-suffix "K")
-                                                                                                                                      string-to-number))
-                                                                                                 ((s-suffix? "M" modelSeqLength) (->> modelSeqLength
-                                                                                                                                      (s-chop-suffix "M")
-                                                                                                                                      string-to-number
-                                                                                                                                      (* 1000)))
-                                                                                                 ((t (error "fanshi/fetch-iflow-models: FIXME  unexpected modelSeqLength format")))))
-                                                                        :input-cost 0
-                                                                        :output-cost 0
-                                                                        :capabilities (tools-use json url))))
+        (goto-char url-http-end-of-headers)
+        (defconst fanshi/gptel--iflow-models
+          (cl-loop for (_ . models) in (->> (json-parse-buffer :object-type 'alist) (alist-get 'data))
+                   append (cl-loop for model across models
+                                   collect
+                                   `(,(intern (alist-get 'modelName model))
+                                     :description ,(->
+                                                    (alist-get 'description model)
+                                                    (json-parse-string :object-type 'plist)
+                                                    (plist-get :Chinese))
+                                     :context-window ,(let ((modelSeqLength (-> (alist-get 'modelTags model)
+                                                                                (json-parse-string :object-type 'plist)
+                                                                                (aref 0)
+                                                                                (plist-get :modelSeqLength))))
+                                                        (cond ((s-suffix? "K" modelSeqLength) (->> modelSeqLength
+                                                                                                   (s-chop-suffix "K")
+                                                                                                   string-to-number))
+                                                              ((s-suffix? "M" modelSeqLength) (->> modelSeqLength
+                                                                                                   (s-chop-suffix "M")
+                                                                                                   string-to-number
+                                                                                                   (* 1000)))
+                                                              ((t (error "fanshi/fetch-iflow-models: FIXME  unexpected modelSeqLength format")))))
+                                     :input-cost 0
+                                     :output-cost 0
+                                     :capabilities (tools-use json url))))
           "List of available IFlow models and associated properties.
         Keys:
 
