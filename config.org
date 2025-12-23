@@ -795,6 +795,81 @@ sources:
                  fanshi/gptel--openrouter-free-models)
      :stream t)))
 #+end_src
+*** IFlow
+**** fanshi/fetch-iflow-models
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/fetch-iflow-models ()
+    "Fetch iflow models from api"
+    (require 'url)
+    (let ((url-automatic-caching t)
+          (url-request-method "POST")
+          (url-request-extra-headers '(("Content-Type" . "application/json")))
+          (url-request-data (encode-coding-string "{}" 'utf-8)))
+      (with-current-buffer (url-retrieve-synchronously "https://platform.iflow.cn/api/platform/models/list" nil nil 3)
+        (goto-char (point-min))
+        (re-search-forward "\n\n")
+        (defconst fanshi/gptel--iflow-models (cl-loop for models in (->> (json-parse-buffer :object-type 'alist) (alist-get 'data) (cl-map 'list #'cdr))
+                                                      append (cl-loop for model across models
+                                                                      collect
+                                                                      `(,(intern (alist-get 'modelName model))
+                                                                        :description ,(->
+                                                                                       (alist-get 'description model)
+                                                                                       (json-parse-string :object-type 'plist)
+                                                                                       (plist-get :Chinese))
+                                                                        :context-window ,(let ((modelSeqLength (-> (alist-get 'modelTags model)
+                                                                                                                   (json-parse-string :object-type 'plist)
+                                                                                                                   (aref 0)
+                                                                                                                   (plist-get :modelSeqLength))))
+                                                                                           (cond ((s-suffix? "K" modelSeqLength) (->> modelSeqLength
+                                                                                                                                      (s-chop-suffix "K")
+                                                                                                                                      string-to-number))
+                                                                                                 ((s-suffix? "M" modelSeqLength) (->> modelSeqLength
+                                                                                                                                      (s-chop-suffix "M")
+                                                                                                                                      string-to-number
+                                                                                                                                      (* 1000)))
+                                                                                                 ((t (error "fanshi/fetch-iflow-models: FIXME  unexpected modelSeqLength format")))))
+                                                                        :input-cost 0
+                                                                        :output-cost 0
+                                                                        :capabilities (tools-use json url))))
+          "List of available IFlow models and associated properties.
+        Keys:
+
+        - `:description': a brief description of the model.
+
+        - `:capabilities': a list of capabilities supported by the model.
+
+        - `:mime-types': a list of supported MIME types for media files.
+
+        - `:context-window': the context window size, in thousands of tokens.
+
+        - `:input-cost': the input cost, in US dollars per million tokens.
+
+        - `:output-cost': the output cost, in US dollars per million tokens.
+
+        - `:cutoff-date': the knowledge cutoff date.
+
+        - `:request-params': a plist of additional request parameters to
+          include when using this model.
+
+        Information about the IFlow models was obtained from the following
+        sources:
+
+        - <https://platform.iflow.cn/en/models>")))))
+#+end_src
+**** default
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (setq! gptel-model 'qwen3-max
+         gptel-backend
+         (gptel-make-openai "IFlow"
+           :host "apis.iflow.cn"
+           :endpoint "/v1/chat/completions"
+           :key #'gptel-api-key
+           :models (prog2
+                       (or (boundp 'fanshi/gptel--iflow-models) (fanshi/fetch-iflow-models))
+                       fanshi/gptel--iflow-models)
+           :stream t)))
 #+end_src
 ** TEMP fix for gptel-send with active regoin under org-mode
 gptel--insert-response use org-cycle to hide some block in response which in turn trigger +org-yas-expand-maybe-h unexpectedly
