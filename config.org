@@ -688,6 +688,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 (after! gptel (setq! gptel-backend (gptel-make-gh-copilot "Copilot")))
 #+end_src
 *** Gemini
+**** default
 #+begin_src emacs-lisp :tangle no
 (after! gptel
   (setq!
@@ -710,6 +711,58 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
                       ;; :toolConfig (:retrievalConfig (:latLng (:latitude 34.050481 :longitude
                       ;; -118.2))
                       )))
+#+end_src
+**** preset for Gemini Builtin Tools
+- [[https://github.com/google/adk-docs/tree/82e9fa553fc42d0ddc8ebca9b0b0ed17b1621fa3/docs/tools/built-in-tools.md#limitations][gemini tool limitations]]
+- [[file:~/.emacs.d/.local/straight/repos/gptel-agent/gptel-agent-tools.el::(gptel-make-tool][adapted from tool Agent]]
+#+begin_src emacs-lisp :tangle no
+(after! gptel
+  (defun fanshi/make-gemini-preset-tool (name &rest keys)
+    "Define a gptel agent and make a tool out of it.
+NAME and KEYS will be passed to `gptel-make-preset' to make a preset (as agent) first.
+Then we make a tool (with tool name: NAME) out of it,
+which could be called by other gptel agents when listed in its :tools, for example:
+
+  (`gptel-make-preset' \\='call_agent
+    :tools  \\='(\"NAME\"))
+"
+    (apply #'gptel-make-preset name (plist-put keys :backend "Gemini"))
+    (if-let* ((agent-name (symbol-name name))
+              (preset (cdr (assq name gptel--known-presets)))
+              (system (plist-get :system preset)))
+        (gptel-make-tool
+         :name agent-name
+         :description (concat "Use this to delegate a task to a agent,\
+who tackle the task independently with their speciality and return results in one message.\
+Here is the description of the job duty of the agent:\
+\
+" system)
+         :function (-cut gptel-agent--task <> agent <> <>)
+         :args '((:name "description"
+                  :type "string"
+                  :description "A short (3-5 word) description of the task")
+                 (:name "prompt"
+                  :type "string"
+                  :description "The detailed task for the agent to perform autonomously.\
+Should include exactly what information the agent should return."))
+         :category "gemini-builtin-tools"
+         :async t
+         :confirm t
+         :include t)
+      (message (format "fanshi/make-gemini-preset-tool failed, agent-name:(%s) , preset:(%s), system:(%s)" agent-name preset system))))
+  (fanshi/make-gemini-preset-tool 'google-search
+                                  :system "Your job is to complete tasks given by gathering up-to-date information from the web via google search")
+  (fanshi/make-gemini-preset-tool 'google-map
+                                  :system "Your job is to complete tasks given by leveraging Google Maps to provide factually accurate and fresh information that are relevant to specified locations or general area."
+                                  :model        'gemini-2.5-flash-lite
+                                  :request-params '(:tools [(:googleMaps ())]
+                                                    ;; :toolConfig (:retrievalConfig (:latLng (:latitude 34.050481 :longitude -118.2))
+                                                    ))
+  (fanshi/make-gemini-preset-tool 'python-specialist
+                                  :system  "Your job is to complete tasks given by writing and execute Python code iteratively until it arrives at a final output. \
+You can only able to execute code in Python, but you can still generate code in another language without running them."
+                                  :model        'gemini-flash-latest
+                                  :request-params '(:tools [(:code_execution ())])))
 #+end_src
 *** Open Router
 **** fanshi/fetch-openrouter-free-models
@@ -884,59 +937,7 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
            (concat (car gptel-agent-dirs))
            gptel-agent-read-file
            cdr
-           (apply #'gptel-make-preset 'introspector)))
-#+end_src
-** Preset for Gemini Builtin Tools
-- [[https://github.com/google/adk-docs/tree/82e9fa553fc42d0ddc8ebca9b0b0ed17b1621fa3/docs/tools/built-in-tools.md#limitations][gemini tool limitations]]
-- [[file:~/.emacs.d/.local/straight/repos/gptel-agent/gptel-agent-tools.el::(gptel-make-tool][adapted from tool Agent]]
-#+begin_src emacs-lisp :tangle no
-(after! gptel
-  (defun fanshi/make-gemini-preset-tool (name &rest keys)
-    "Define a gptel agent and make a tool out of it.
-NAME and KEYS will be passed to `gptel-make-preset' to make a preset (as agent) first.
-Then we make a tool (with tool name: NAME) out of it,
-which could be called by other gptel agents when listed in its :tools, for example:
-
-  (`gptel-make-preset' \\='call_agent
-    :tools  \\='(\"NAME\"))
-"
-    (apply #'gptel-make-preset name (plist-put keys :backend "Gemini"))
-    (if-let* ((agent-name (symbol-name name))
-              (preset (cdr (assq name gptel--known-presets)))
-              (system (plist-get :system preset)))
-        (gptel-make-tool
-         :name agent-name
-         :description (concat "Use this to delegate a task to a agent,\
-who tackle the task independently with their speciality and return results in one message.\
-Here is the description of the job duty of the agent:\
-\
-" system)
-         :function (-cut gptel-agent--task <> agent <> <>)
-         :args '((:name "description"
-                  :type "string"
-                  :description "A short (3-5 word) description of the task")
-                 (:name "prompt"
-                  :type "string"
-                  :description "The detailed task for the agent to perform autonomously.\
-Should include exactly what information the agent should return."))
-         :category "gemini-builtin-tools"
-         :async t
-         :confirm t
-         :include t)
-      (message (format "fanshi/make-gemini-preset-tool failed, agent-name:(%s) , preset:(%s), system:(%s)" agent-name preset system))))
-  (fanshi/make-gemini-preset-tool 'google-search
-                                  :system "Your job is to complete tasks given by gathering up-to-date information from the web via google search")
-  (fanshi/make-gemini-preset-tool 'google-map
-                                  :system "Your job is to complete tasks given by leveraging Google Maps to provide factually accurate and fresh information that are relevant to specified locations or general area."
-                                  :model        'gemini-2.5-flash-lite
-                                  :request-params '(:tools [(:googleMaps ())]
-                                                    ;; :toolConfig (:retrievalConfig (:latLng (:latitude 34.050481 :longitude -118.2))
-                                                    ))
-  (fanshi/make-gemini-preset-tool 'python-specialist
-                                  :system  "Your job is to complete tasks given by writing and execute Python code iteratively until it arrives at a final output. \
-You can only able to execute code in Python, but you can still generate code in another language without running them."
-                                  :model        'gemini-flash-latest
-                                  :request-params '(:tools [(:code_execution ())])))
+           (apply #'gptel-make-preset 'introspector))
 #+end_src
 ** Youtube links
 *** fanshi/youtube-link-regexp
