@@ -711,6 +711,92 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
                       ;; -118.2))
                       )))
 #+end_src
+*** Open Router
+**** fanshi/fetch-openrouter-free-models
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/fetch-openrouter-free-models ()
+    "Fetch openrouter's free models from api"
+    (require 'url)
+    (let ((url-automatic-caching t))
+      (with-current-buffer (url-retrieve-synchronously "https://openrouter.ai/api/frontend/models/find?max_price=0" nil nil 3)
+        (goto-char (point-min))
+        (re-search-forward "\n\n")
+        (defconst fanshi/gptel--openrouter-free-models
+          (cl-loop for model across (-> (json-parse-buffer
+                                         :object-type 'plist)
+                                        (plist-get :data)
+                                        (plist-get :models))
+                   unless (eq (plist-get model :has_text_output) :false)
+                   collect `(,(intern (-> model (plist-get :endpoint) (plist-get :model_variant_slug)))
+                             :description ,(plist-get model :description)
+                             :context-window ,(/ (plist-get model :context_length) 512)
+                             :input-cost 0
+                             :output-cost 0
+                             ;; https://openrouter.ai/docs/guides/overview/models#supported-parameters
+                             :capabilities
+                             ,(cl-loop for input_modality across (plist-get model :input_modalities)
+                                       if (string= input_modality "image") collect 'media
+                                       append (cl-loop for supported_parameter across (plist-get model :supported_parameters)
+                                                       if (string= supported_parameter "tools") collect 'tool-use into result
+                                                       else if (string= supported_parameter "structured_outputs") collect 'json into result
+                                                       finally return (cons 'url result)))
+                             :mime-types
+                             ;; FIXME: should advice `gptel-add-file' when mimetypes mismatch
+                             ;; locally set mailcap-mime-extensions to support those files
+                             ,(cl-loop for input_modality across (plist-get model :input_modalities)
+                                       ;; https://openrouter.ai/docs/guides/overview/multimodal/images#using-base64-encoded-images
+                                       if (string= input_modality "image")
+                                       ;; https://openrouter.ai/docs/guides/overview/multimodal/audio
+                                       append '("image/png" "image/jpeg" "image/webp" "image/gif")
+                                       if (string= input_modality "audio")
+                                       append '("audio/wav" "audio/mp3" "audio/aiff" "audio/acc" "audio/ogg" "audio/flac" "audio/m4a" "audio/pcm16" "audio/pcm24")
+                                       ;; https://openrouter.ai/docs/guides/overview/multimodal/videos
+                                       if (string= input_modality "video")
+                                       append '("video/mp4" "video/mpeg" "video/mov" "video/webm"))))
+          "List of available free OpenRouter models and associated properties.
+Keys:
+
+- `:description': a brief description of the model.
+
+- `:capabilities': a list of capabilities supported by the model.
+
+- `:mime-types': a list of supported MIME types for media files.
+
+- `:context-window': the context window size, in thousands of tokens.
+
+- `:input-cost': the input cost, in US dollars per million tokens.
+
+- `:output-cost': the output cost, in US dollars per million tokens.
+
+- `:cutoff-date': the knowledge cutoff date.
+
+- `:request-params': a plist of additional request parameters to
+  include when using this model.
+
+Information about the OpenAI models was obtained from the following
+sources:
+
+- <https://openrouter.ai/models>")))))
+#+end_src
+
+**** default
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  ;; OpenRouter offers an OpenAI compatible API
+  (setq!
+   gptel-model 'xiaomi/mimo-v2-flash:free
+   gptel-backend
+   (gptel-make-openai "OpenRouter"
+     :host "openrouter.ai"
+     :endpoint "/api/v1/chat/completions"
+     :key #'gptel-api-key
+     :models (prog2
+                 (or (boundp 'fanshi/gptel--openrouter-free-models) (fanshi/fetch-openrouter-free-models))
+                 fanshi/gptel--openrouter-free-models)
+     :stream t)))
+#+end_src
+#+end_src
 ** TEMP fix for gptel-send with active regoin under org-mode
 gptel--insert-response use org-cycle to hide some block in response which in turn trigger +org-yas-expand-maybe-h unexpectedly
 #+begin_src emacs-lisp :tangle yes
