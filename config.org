@@ -684,8 +684,8 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+end_src
 ** Backend
 *** Copilot
-#+begin_src emacs-lisp :tangle yes
-(after! gptel (gptel-make-gh-copilot "Copilot"))
+#+begin_src emacs-lisp :tangle no
+(after! gptel (setq! gptel-backend (gptel-make-gh-copilot "Copilot")))
 #+end_src
 *** Gemini
 #+begin_src emacs-lisp :tangle no
