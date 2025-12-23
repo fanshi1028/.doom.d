@@ -713,7 +713,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+end_src
 *** Open Router
 **** fanshi/fetch-openrouter-free-models
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! gptel
   (defun fanshi/fetch-openrouter-free-models ()
     "Fetch openrouter's free models from api"
@@ -779,9 +779,8 @@ sources:
 
 - <https://openrouter.ai/models>")))))
 #+end_src
-
 **** default
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! gptel
   ;; OpenRouter offers an OpenAI compatible API
   (setq!
