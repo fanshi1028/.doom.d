@@ -932,12 +932,7 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
 #+begin_src emacs-lisp :tangle yes
 (use-package! gptel-agent
   :after gptel
-  :config (->>
-           "/introspector.md"
-           (concat (car gptel-agent-dirs))
-           gptel-agent-read-file
-           cdr
-           (apply #'gptel-make-preset 'introspector))
+  :config (gptel-agent-update))
 #+end_src
 ** Youtube links
 *** fanshi/youtube-link-regexp
