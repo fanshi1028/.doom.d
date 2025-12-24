@@ -934,57 +934,6 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
   :after gptel
   :config (gptel-agent-update))
 #+end_src
-** Youtube links
-*** fanshi/youtube-link-regexp
-#+begin_src emacs-lisp :tangle yes
-;; The whole match (group 0) will be the full URL
-(setq! fanshi/youtube-link-regexp
-       (rx (group
-            (optional "http" (optional "s") "://")
-            (or
-             ;; Short youtu.be/
-             (seq (optional "www.")
-                  "youtube.com/" (or
-                                  ;; Standard youtube.com/watch
-                                  "watch?v="
-                                  ;; youtube.com/shorts/ or /embed/
-                                  "shorts/"
-                                  "embed/"))
-             "youtu.be/")
-            (1+ (or alnum "-_" "%")) ;; Video ID: 11 characters (alphanumeric, hyphen, underscore)
-            (*? (not space))))) ;; 6. Remaining URL part: captures query parameters like &list=
-#+end_src
-
-*** fanshi/extract-youtube-links
-#+begin_src emacs-lisp :tangle yes
-(defun fanshi/extract-youtube-links (string)
-  "Extract all YouTube URLs from STRING.
-
-Returns a list of all matched YouTube links. Handles standard
-watch links and short youtu.be links. The links are returned
-in the order they appear in the string.
-"
-  (cl-loop with start = 0
-           while (string-match fanshi/youtube-link-regexp string start)
-           do
-           (setq start (match-end 0))
-           collect (match-string 0 string)))
-#+end_src
-
-*** Test case
-#+begin_src elisp :tangle no :results value replace
-;; Define a test string with multiple YouTube URLs
-(let ((test-string
-       "Check out this video: https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDB_4T0-7fG50
-Also the short link: https://youtu.be/kU9ZcO4w38o and a standard one http://youtube.com/watch?v=zT6_V_G_O3c.
-This is text in between."))
-
-  ;; Call the function
-  (fanshi/extract-youtube-links test-string))
-#+end_src
-
-#+RESULTS:
-| https://www.youtube.com/watch?v=dQw4w9WgXcQ | https://youtu.be/kU9ZcO4w38o | http://youtube.com/watch?v=zT6 |
 ** TEMP FIXME for straight warnings
 #+begin_example
 ⛔ Warning (straight): package.el was loaded when straight.el was already loaded. You may wish to delete ~/.emacs.d/elpa or add (setq package-enable-at-startup nil) to ~/.emacs.d/early-init.el to avoid multiple versions of the same packages being loaded.
