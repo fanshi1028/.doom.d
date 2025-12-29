@@ -930,9 +930,20 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
 #+end_src
 ** Agent
 #+begin_src emacs-lisp :tangle yes
-(use-package! gptel-agent
-  :after gptel
-  :config (gptel-agent-update))
+(use-package! gptel-agent :after gptel)
+
+(after! gptel-agent
+  (setq! fanshi/gptel-agent-dir (concat doom-user-dir "agents"))
+  (add-to-list 'gptel-agent-dirs fanshi/gptel-agent-dir)
+  (defvar fanshi/agent-load-name-list '("problem-solve" "prompt-engineer" "introspector"))
+  (defun fanshi/load-my-agents-as-preset ()
+    (dolist (agent-name fanshi/agent-load-name-list)
+      (if-let ((agent-plist (assoc-default agent-name gptel-agent--agents
+                                           nil nil)))
+          (apply #'gptel-make-preset (intern agent-name) agent-plist)
+        (error "agent not found %s" agent-name))))
+  (advice-add #'gptel-agent-update :after #'fanshi/load-my-agents-as-preset)
+  (gptel-agent-update))
 #+end_src
 ** TEMP FIXME for straight warnings
 #+begin_example
