@@ -732,10 +732,10 @@ which could be called by other gptel agents when listed in its :tools, for examp
               (system (plist-get :system preset)))
         (gptel-make-tool
          :name agent-name
-         :description (concat "Use this to delegate a task to a agent,\
-who tackle the task independently with their speciality and return results in one message.\
-Here is the description of the job duty of the agent:\
-\
+         :description (concat "Use this to delegate a task to a agent,
+who tackle the task independently with their speciality and return results in one message.
+Here is the description of the job duty of the agent:
+
 " system)
          :function (-cut gptel-agent--task <> agent <> <>)
          :args '((:name "description"
@@ -743,7 +743,7 @@ Here is the description of the job duty of the agent:\
                   :description "A short (3-5 word) description of the task")
                  (:name "prompt"
                   :type "string"
-                  :description "The detailed task for the agent to perform autonomously.\
+                  :description "The detailed task for the agent to perform autonomously.
 Should include exactly what information the agent should return."))
          :category "gemini-builtin-tools"
          :async t
@@ -759,7 +759,7 @@ Should include exactly what information the agent should return."))
                                                     ;; :toolConfig (:retrievalConfig (:latLng (:latitude 34.050481 :longitude -118.2))
                                                     ))
   (fanshi/make-gemini-preset-tool 'python-specialist
-                                  :system  "Your job is to complete tasks given by writing and execute Python code iteratively until it arrives at a final output. \
+                                  :system  "Your job is to complete tasks given by writing and execute Python code iteratively until it arrives at a final output.
 You can only able to execute code in Python, but you can still generate code in another language without running them."
                                   :model        'gemini-flash-latest
                                   :request-params '(:tools [(:code_execution ())])))
