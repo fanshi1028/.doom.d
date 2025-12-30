@@ -928,22 +928,20 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
 #+begin_src emacs-lisp :tangle yes
 (advice-add #'gptel-send :after (lambda (&rest r) "call `deactivate-mark' after, to temp fix an unexpected trigger of snippet by org-cycle calls in reponse" (if (use-region-p) (deactivate-mark))))
 #+end_src
-** Agent
+** Agents
 #+begin_src emacs-lisp :tangle yes
 (use-package! gptel-agent :after gptel)
 
 (after! gptel-agent
-  (setq! fanshi/gptel-agent-dir (concat doom-user-dir "agents"))
-  (add-to-list 'gptel-agent-dirs fanshi/gptel-agent-dir)
-  (defvar fanshi/agent-load-name-list '("problem-solve" "prompt-engineer" "introspector"))
-  (defun fanshi/load-my-agents-as-preset ()
-    (dolist (agent-name fanshi/agent-load-name-list)
-      (if-let ((agent-plist (assoc-default agent-name gptel-agent--agents
-                                           nil nil)))
-          (apply #'gptel-make-preset (intern agent-name) agent-plist)
-        (error "agent not found %s" agent-name))))
-  (advice-add #'gptel-agent-update :after #'fanshi/load-my-agents-as-preset)
-  (gptel-agent-update))
+  (defvar fanshi/gptel-agent-dir "~/.gptel-agents")
+  (defun fanshi/my-gptel-agent-update ()
+    (interactive)
+    (dolist (path (f-entries fanshi/gptel-agent-dir #'file-regular-p))
+      (pcase (gptel-agent-read-file path '(()))
+        (`(,agent-name . ,agent-plist)
+         (apply #'gptel-make-preset (intern agent-name) agent-plist)))))
+  (gptel-agent-update)
+  (fanshi/my-gptel-agent-update))
 #+end_src
 ** TEMP FIXME for straight warnings
 #+begin_example
