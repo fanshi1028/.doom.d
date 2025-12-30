@@ -916,12 +916,13 @@ sources:
          gptel-backend
          (gptel-make-openai "IFlow"
            :host "apis.iflow.cn"
-           :endpoint "/v1/chat/completions"
-           :key #'gptel-api-key
-           :models (prog2
-                       (or (boundp 'fanshi/gptel--iflow-models) (fanshi/fetch-iflow-models))
-                       fanshi/gptel--iflow-models)
-           :stream t)))
+     :endpoint "/v1/chat/completions"
+     :key #'gptel-api-key
+     :models (prog2
+                 (or (boundp 'fanshi/gptel--iflow-models) (fanshi/fetch-iflow-models))
+                 fanshi/gptel--iflow-models)
+     ;; :stream t
+     )))
 #+end_src
 ** TEMP fix for gptel-send with active regoin under org-mode
 gptel--insert-response use org-cycle to hide some block in response which in turn trigger +org-yas-expand-maybe-h unexpectedly
