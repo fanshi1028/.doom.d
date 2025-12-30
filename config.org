@@ -951,6 +951,14 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
 #+begin_src emacs-lisp :tangle yes
 (setq straight-package--warning-displayed t)
 #+end_src
+* Literate recompilation only for config.org
+#+begin_src elisp
+(defun fanshi/only-config-file-save-trigger-literate-recompile ()
+  "literate recompilation only for config.org."
+  (string= (buffer-file-name (buffer-base-buffer)) (expand-file-name "config.org" doom-user-dir)))
+
+(advice-add #'+literate-recompile-maybe-h :before-while #'fanshi/only-config-file-save-trigger-literate-recompile)
+#+end_src
 * Latex setup for Altacv
 #+begin_src emacs-lisp :tangle yes
 (after! org
