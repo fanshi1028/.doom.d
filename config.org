@@ -936,7 +936,9 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
   (defvar fanshi/gptel-agent-dir "~/.gptel-agents")
   (defun fanshi/my-gptel-agent-update ()
     (interactive)
-    (dolist (path (f-entries fanshi/gptel-agent-dir #'file-regular-p))
+    (dolist (path (f-entries fanshi/gptel-agent-dir
+                             (lambda (f) (and (file-regular-p f)
+                                              (string= "md" (f-ext f))))))
       (pcase (gptel-agent-read-file path '(()))
         (`(,agent-name . ,agent-plist)
          (apply #'gptel-make-preset (intern agent-name) agent-plist)))))
