@@ -658,8 +658,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 * I like to abuse writeroom
 #+begin_src emacs-lisp :tangle yes
 (after! writeroom-mode
-  (setq! writeroom-maximize-window t
-         writeroom-major-modes '(text-mode org-mode prog-mode))
+  (setq! writeroom-major-modes '(text-mode org-mode prog-mode))
   (pushnew! +zen-mixed-pitch-modes 'prog-mode))
 (global-writeroom-mode)
 #+end_src
