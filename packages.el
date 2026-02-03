@@ -50,7 +50,8 @@
 
 (package! lpy :pin "fa95b11e1023704510cc7dd2897bf8bcc3027cbb")
 ;; (package! worf)
-(package! org-super-agenda :pin "51c9da5ce7b791150758984bab469d2222516844")
+(package! org-super-agenda :pin "fb20ad9c8a9705aa05d40751682beae2d094e0fe")
+
 (package! org-web-tools :pin "b5b7fee01eaac845ca80240f3a2d22d426179ce3")
 (package! nov
   :recipe (:host nil :repo "https://depp.brause.cc/nov.el.git"))
