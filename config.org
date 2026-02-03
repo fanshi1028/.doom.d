@@ -449,7 +449,7 @@
 #+end_src
 **** fix freeze 
 - ref :: https://github.com/joaotavora/eglot/discussions/1151#discussioncomment-4689697
-#+begin_src emacs-lisp :tangle no
+#+begin_src emacs-lisp :tangle yes
 (after! eglot
   (advice-add #'eglot--format-markup :around #'limit-argument-length)
   (defun limit-argument-length (orig input)
