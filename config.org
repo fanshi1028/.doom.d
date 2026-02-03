@@ -975,6 +975,17 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
                    ("\\cvevent{%s}" . "\\cvevent*{%s}")))
     ))
 #+end_src
+* TEMP FIX
+#+begin_example
+Error (doom-first-file-hook): Error running hook "global-git-commit-mode" because: (void-function transient--set-layout)
+#+end_example
+- issue :: https://github.com/doomemacs/doomemacs/issues/8541
+- TEMP FIX from :: https://github.com/doomemacs/doomemacs/issues/8541#issuecomment-3421113668
+#+begin_src
+(let ((lfile (concat doom-local-dir "straight/repos/transient/lisp/transient.el")))
+  (if (file-exists-p lfile)
+      (load lfile)))
+#+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
 ;; Here are some additional functions/macros that could help you configure Doom:
