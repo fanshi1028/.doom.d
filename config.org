@@ -986,6 +986,15 @@ Error (doom-first-file-hook): Error running hook "global-git-commit-mode" becaus
   (if (file-exists-p lfile)
       (load lfile)))
 #+end_src
+* Use spatial-window
+#+begin_src emacs-lisp :tangle yes
+(use-package! spatial-window
+  :defer t
+  :init
+  (global-set-key [remap other-window] #'spatial-window-select)
+  :config
+  (setq! spatial-window-expert-mode t))
+#+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
 ;; Here are some additional functions/macros that could help you configure Doom:

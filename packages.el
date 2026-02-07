@@ -95,3 +95,6 @@
 (package! gptel-agent :recipe (:host github :repo "karthink/gptel-agent") :pin "99a8b940271fbe68cdfb7c2329d090dc4ef04b99")
 
 (package! flymake-popon :disable t)
+
+;; version 0.9.2 <2026-02-07 Sat>
+(package! spatial-window :recipe (:host github :repo "lewang/spatial-window") :pin "b51c4c92abfa4c700a4ffec1240ee96dc4130974")
