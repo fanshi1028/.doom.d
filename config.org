@@ -114,9 +114,10 @@
          ;; org-indent-indentation-per-level 1
          org-complete-tags-always-offer-all-agenda-tags t
          org-log-into-drawer t
-         org-log-reschedule "note"
-         org-log-redeadline "note"
-         org-id-locations-file (concat org-directory "/.orgids.gpg")))
+         org-log-reschedule 'note
+         org-log-redeadline 'note
+         org-id-locations-file (concat org-directory "/.orgids.gpg")
+         ))
 #+end_src
 ** Priority
 #+begin_src emacs-lisp :tangle yes
@@ -157,7 +158,7 @@
   (setq! org-agenda-files '("~/Personal/org/gtd/")
    org-clock-report-include-clocking-task t
    org-agenda-clockreport-parameter-plist (quote (:link t :maxlevel 4 :fileskip0 t :compact t :narrow 80))
-   org-agenda-start-with-log-mode t))
+   org-agenda-start-with-log-mode '(state closed clock)))
 #+end_src
 
 **** Agenda Tweak
@@ -679,10 +680,10 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (setq!
-   gptel-display-buffer-action t
+   gptel-display-buffer-action '(nil (body-function . select-window))
    gptel-default-mode 'org-mode
    gptel-highlight-methods '(margin face)
-   gptel-log-level :info)
+   gptel-log-level 'info)
   (add-to-list 'gptel-directives '(full . "Please think harder to give your highest quality answer.
     We pursue depth, not superficial breadth;
     we pursue essential insight, not a list of appearances;
