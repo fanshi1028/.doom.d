@@ -569,6 +569,11 @@
 #+begin_src emacs-lisp :tangle yes
 (after! fennel-mode (set-formatter! 'fnlfmt '("fnlfmt" filepath) :modes '(fennel-mode)))
 #+end_src
+** KBD
+#+begin_src emacs-lisp :tangle yes
+(use-package! kbd-mode)
+#+end_src
+
 * PDF View
 #+begin_src emacs-lisp :tangle yes
 (after! pdf-view
