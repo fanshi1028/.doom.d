@@ -2,3 +2,4 @@
 /flycheck_config.el
 config.el
 .aider*
+/.agent-shell/
