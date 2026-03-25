@@ -935,13 +935,45 @@ sources:
            ;; :stream t
            )))
 #+end_src
+*** Local llama-server
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel--fetch-llama-server-models ()
+    "Fetch model list from local llama-server."
+    (require 'url)
+    (let ((url-automatic-caching nil)
+          (url-request-method "GET")
+          (url-request-extra-headers '(("Content-Type" . "application/json"))))
+      (with-current-buffer (url-retrieve-synchronously "http://localhost:8080/v1/models"
+                                                       nil nil 5)
+        (goto-char url-http-end-of-headers)
+        (let ((data (json-parse-buffer :object-type 'plist)))
+          (mapcar (lambda (model)
+                    (let ((id (plist-get model :id)))
+                      ;; Keep both path and suffix parts of the model name
+                      (intern id)))
+                  (plist-get data :data))))))
+
+  (unless (bound-and-true-p fanshi/gptel--llama-models)
+    (setq fanshi/gptel--llama-models (fanshi/gptel--fetch-llama-server-models)))
+
+  (setq!
+   gptel-model 'Qwen3-Coder-Next-GGUF:Q8_0
+   gptel-backend
+   (gptel-make-openai "Local Llama"
+     :host "127.0.0.1:8080"
+     :protocol "http"
+     :stream t
+     :models fanshi/gptel--llama-models
+     :request-params '(:temperature 0.7))))
+#+end_src
 ** TEMP fix for gptel-send with active regoin under org-mode
 gptel--insert-response use org-cycle to hide some block in response which in turn trigger +org-yas-expand-maybe-h unexpectedly
 #+begin_src emacs-lisp :tangle yes
 (advice-add #'gptel-send :after (lambda (&rest r) "call `deactivate-mark' after, to temp fix an unexpected trigger of snippet by org-cycle calls in reponse" (if (use-region-p) (deactivate-mark))))
 #+end_src
 ** Agents
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (use-package! gptel-agent :after gptel)
 
 (after! gptel-agent
