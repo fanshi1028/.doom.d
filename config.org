@@ -93,7 +93,7 @@
 #+begin_src emacs-lisp :tangle yes
 ;; If you use `org' and don't want your org files in the default location below,
 ;; change `org-directory'. It must be set before org loads!
-(setq! org-directory "~/Documents/org")
+(setq! org-directory "~/Personal/org")
 #+end_src
 * Scratch Buffer Use Org Mode
 #+begin_src emacs-lisp :tangle yes
@@ -154,7 +154,7 @@
 **** Clock
 #+begin_src emacs-lisp :tangle yes
 (after! org-agenda
-  (setq! org-agenda-files '("~/Documents/org/gtd/")
+  (setq! org-agenda-files '("~/Personal/org/gtd/")
    org-clock-report-include-clocking-task t
    org-agenda-clockreport-parameter-plist (quote (:link t :maxlevel 4 :fileskip0 t :compact t :narrow 80))
    org-agenda-start-with-log-mode t))
