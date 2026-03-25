@@ -859,7 +859,7 @@ sources:
 #+end_src
 *** IFlow
 **** fanshi/fetch-iflow-models
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! gptel
   (defun fanshi/fetch-iflow-models ()
     "Fetch iflow models from api"
@@ -920,7 +920,7 @@ sources:
         - <https://platform.iflow.cn/en/models>")))))
 #+end_src
 **** default
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! gptel
   (setq! gptel-model 'qwen3-max
          gptel-backend
