@@ -997,6 +997,12 @@ Error (doom-first-file-hook): Error running hook "global-git-commit-mode" becaus
   (if (file-exists-p lfile)
       (load lfile)))
 #+end_src
+* agent-shell
+#+begin_src emacs-lisp :tangle yes
+(use-package! agent-shell
+  :config
+  (setq! agent-shell-opencode-acp-command (append '("nono" "run" "--profile" "opencode" "--allow-cwd" "--") agent-shell-opencode-acp-command)))
+#+end_src
 * Use spatial-window
 #+begin_src emacs-lisp :tangle yes
 (use-package! spatial-window
