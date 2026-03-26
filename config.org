@@ -949,14 +949,9 @@ sources:
                                                        nil nil 5)
         (goto-char url-http-end-of-headers)
         (let ((data (json-parse-buffer :object-type 'plist)))
-          (mapcar (lambda (model)
-                    (let ((id (plist-get model :id)))
-                      ;; Keep both path and suffix parts of the model name
-                      (intern id)))
-                  (plist-get data :data))))))
-
-  (unless (bound-and-true-p fanshi/gptel--llama-models)
-    (setq fanshi/gptel--llama-models (fanshi/gptel--fetch-llama-server-models)))
+          (defconst fanshi/gptel--llama-models
+            (mapcar (lambda (model) (intern (plist-get model :id)))
+                    (plist-get data :data)))))))
 
   (setq!
    gptel-model 'Qwen3-Coder-Next-GGUF:Q8_0
@@ -965,8 +960,10 @@ sources:
      :host "127.0.0.1:8080"
      :protocol "http"
      :stream t
-     :models fanshi/gptel--llama-models
-     :request-params '(:temperature 0.7))))
+     :models (prog2 (or (boundp 'fanshi/gptel--llama-models)
+                        (fanshi/gptel--fetch-llama-server-models))
+                 fanshi/gptel--llama-models)
+   :request-params '(:temperature 0.7))))
 #+end_src
 ** TEMP fix for gptel-send with active regoin under org-mode
 gptel--insert-response use org-cycle to hide some block in response which in turn trigger +org-yas-expand-maybe-h unexpectedly
