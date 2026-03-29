@@ -52,7 +52,7 @@
 ** hl-todo
 #+begin_src emacs-lisp :tangle yes
 ;; TEMP keywords
-(after! hl-todo (pushnew! hl-todo-keyword-faces '("TEMP" 'warning 'bold)))
+(after! hl-todo (cl-pushnew '("TEMP" 'warning 'bold) hl-todo-keyword-faces))
 #+end_src
 
 ** Pass
@@ -143,7 +143,7 @@
 #+end_src
 *** Faces
 #+begin_src emacs-lisp :tangle yes
-(after! org (pushnew! org-todo-keyword-faces '("INBOX" org-todo)))
+(after! org (cl-pushnew '("INBOX" org-todo) org-todo-keyword-faces))
 #+end_src
 ** Agenda
 *** fanshi/make-line
@@ -671,7 +671,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+begin_src emacs-lisp :tangle yes
 (after! writeroom-mode
   (setopt writeroom-major-modes '(text-mode org-mode prog-mode))
-  (pushnew! +zen-mixed-pitch-modes 'prog-mode))
+  (cl-pushnew 'prog-mode +zen-mixed-pitch-modes))
 (global-writeroom-mode)
 #+end_src
 
