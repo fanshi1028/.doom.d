@@ -92,7 +92,7 @@
 
 (package! gptel :recipe (:host github :repo "karthink/gptel") :pin "0239c93d478f5faef47d59a0d53175551791a64d")
 
-(package! gptel-agent :recipe (:host github :repo "karthink/gptel-agent") :pin "99a8b940271fbe68cdfb7c2329d090dc4ef04b99")
+(package! gptel-agent :recipe (:host github :repo "karthink/gptel-agent") :pin "8447523f9ac681268c8e83a026b3cfe6e24f682b")
 
 (package! flymake-popon :disable t)
 
