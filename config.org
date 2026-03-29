@@ -987,7 +987,7 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
   (gptel-agent-update)
   (fanshi/my-gptel-agent-update))
 #+end_src
-** TEMP FIXME for straight warnings
+* TEMP FIXME for straight warnings
 #+begin_example
 ⛔ Warning (straight): package.el was loaded when straight.el was already loaded. You may wish to delete ~/.emacs.d/elpa or add (setq package-enable-at-startup nil) to ~/.emacs.d/early-init.el to avoid multiple versions of the same packages being loaded.
 #+end_example
