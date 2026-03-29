@@ -1031,7 +1031,8 @@ Error (doom-first-file-hook): Error running hook "global-git-commit-mode" becaus
 #+begin_src emacs-lisp :tangle yes
 (use-package! agent-shell
   :config
-  (setq! agent-shell-opencode-acp-command (append '("nono" "run" "--profile" "opencode" "--allow-cwd" "--") agent-shell-opencode-acp-command)))
+  (setq! agent-shell-opencode-acp-command `(,(executable-find "nono") "run" "--profile" "opencode" "--allow-cwd" "--" ,(executable-find "opencode") "acp"))
+  (setq! agent-shell-pi-acp-command `(,(executable-find "nono") "run" "--profile" "pi-coding-agent" "--allow-cwd" "--" ,(executable-find "pi-acp"))))
 #+end_src
 * Use spatial-window
 #+begin_src emacs-lisp :tangle yes
