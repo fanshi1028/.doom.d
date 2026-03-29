@@ -954,7 +954,7 @@ sources:
                     (plist-get data :data)))))))
 
   (setopt
-   gptel-model 'gpt-oss-120b-GGUF
+   gptel-model 'gpt-oss-120b
    gptel-backend
    (gptel-make-openai "Local Llama"
      :host "127.0.0.1:8080"
