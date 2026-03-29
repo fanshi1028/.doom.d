@@ -33,7 +33,7 @@
 #+end_src
 *** Nerd
 #+begin_src emacs-lisp :tangle yes
-(after! nerd-icons (setq! nerd-icons-font-names '("SymbolsNerdFont-Regular.ttf")))
+(after! nerd-icons (setopt nerd-icons-font-names '("SymbolsNerdFont-Regular.ttf")))
 #+end_src
 
 ** Theme
@@ -46,8 +46,8 @@
 
 ** No Dashboard Banner
 #+begin_src elisp :tangle yes
-(setq! +doom-dashboard-ascii-banner-fn #'(lambda ()))
-(setq! +doom-dashboard-menu-sections '())
+(setopt +doom-dashboard-ascii-banner-fn #'(lambda ()))
+(setopt +doom-dashboard-menu-sections '())
 #+end_src
 ** hl-todo
 #+begin_src emacs-lisp :tangle yes
@@ -57,7 +57,7 @@
 
 ** Pass
 #+begin_src elisp :tangle yes
-(after! pass (setq! pass-show-keybindings nil))
+(after! pass (setopt pass-show-keybindings nil))
 #+end_src
 ** No Which Key
 #+begin_src emacs-lisp :tangle yes
@@ -81,35 +81,35 @@
 
 (setq tab-width 4)
 
-(setq! enable-local-variables t)
+(setopt enable-local-variables t)
 
-(setq! scroll-lock-mode t)
+(setopt scroll-lock-mode t)
 #+end_src
 * Input
 #+begin_src emacs-lisp :tangle yes
-(setq! default-input-method "chinese-cns-tsangchi")
+(setopt default-input-method "chinese-cns-tsangchi")
 #+end_src
 * Org Directory
 #+begin_src emacs-lisp :tangle yes
 ;; If you use `org' and don't want your org files in the default location below,
 ;; change `org-directory'. It must be set before org loads!
-(setq! org-directory "~/Personal/org")
+(setopt org-directory "~/Personal/org")
 #+end_src
 * Scratch Buffer Use Org Mode
 #+begin_src emacs-lisp :tangle yes
 ;; scratch buffer default `org-mode'
-(setq! doom-scratch-initial-major-mode 'org-mode)
+(setopt doom-scratch-initial-major-mode 'org-mode)
 #+end_src
 * Org
 ** Archive Location
 #+begin_src emacs-lisp :tangle yes
-(after! org (setq! org-archive-location "archive/%s_archive::"))
+(after! org (setopt org-archive-location "archive/%s_archive::"))
 #+end_src
 ** Simple Org Configs
 - ref :: https://explog.in/notes/writingsetup.html
 #+begin_src emacs-lisp :tangle yes
 (after! org
-  (setq! org-hide-emphasis-markers t
+  (setopt org-hide-emphasis-markers t
          ;; org-adapt-indentation nil
          ;; org-indent-indentation-per-level 1
          org-complete-tags-always-offer-all-agenda-tags t
@@ -122,7 +122,7 @@
 ** Priority
 #+begin_src emacs-lisp :tangle yes
 (after! org
-  (setq! org-priority-default 67
+  (setopt org-priority-default 67
          org-priority-lowest 69
          org-priority-faces '((65 . error)
                               (66 . warning)
@@ -136,7 +136,7 @@
 *** Default
 #+begin_src emacs-lisp :tangle yes
 (after! org
-  (setq! org-todo-keywords
+  (setopt org-todo-keywords
          '((sequence "TODO(t)" "NEXT(n)" "PROJ(p)" "WAIT(w@)" "HOLD(h@)" "|" "DONE(d)" "KILL(k@)")
            (sequence "[ ](T)" "[?](W@)" "|" "[X](D)")
            (sequence "INBOX" "|" ))))
@@ -155,7 +155,7 @@
 **** Clock
 #+begin_src emacs-lisp :tangle yes
 (after! org-agenda
-  (setq! org-agenda-files '("~/Personal/org/gtd/")
+  (setopt org-agenda-files '("~/Personal/org/gtd/")
    org-clock-report-include-clocking-task t
    org-agenda-clockreport-parameter-plist (quote (:link t :maxlevel 4 :fileskip0 t :compact t :narrow 80))
    org-agenda-start-with-log-mode '(state closed clock)))
@@ -164,7 +164,7 @@
 **** Agenda Tweak
 #+begin_src emacs-lisp :tangle yes
 (after! org-agenda
-  (setq! org-agenda-block-separator 9472
+  (setopt org-agenda-block-separator 9472
          org-agenda-compact-blocks t
          org-agenda-breadcrumbs-separator " / "
          org-agenda-span 'day
@@ -191,7 +191,7 @@
 **** Org Super Agenda
 ***** fanshi/agenda
 #+begin_src emacs-lisp :tangle yes
-(setq! fanshi/agenda
+(setopt fanshi/agenda
        '((:name "Clocked Today 📰📰📰" :log t)
          ;; (:name "Calendar 📅📅📅" :time-grid t :and (:scheduled today :not (:habit t) ))
          (:name "Calendar 📅📅📅" :time-grid t :scheduled today)
@@ -211,7 +211,7 @@
 ***** fanshi/alltodo
 #+begin_src emacs-lisp :tangle yes
 (after! (:and org org-gtd)
-  (setq! fanshi/alltodo
+  (setopt fanshi/alltodo
          `((:discard (:scheduled t :deadline t :regexp ,org-scheduled-time-hour-regexp))
            (:name "Important 💎💎💎" :tag "Payment" :priority "A" :order 2) ;;🚔🚔🚔
            ;; (:name "Do I really look like a guy with a plan??? 🃏🃏🃏" :and (:todo "TOPLAN" :priority> "D") :order 3)
@@ -247,7 +247,7 @@
 ***** fanshi/worktodo
 #+begin_src emacs-lisp :tangle yes
 (after! org
-  (setq! fanshi/worktodo
+  (setopt fanshi/worktodo
          `((:discard (:scheduled t :deadline t :regexp ,org-scheduled-time-hour-regexp :not (:file-path "work")))
            (:auto-outline-path t  :order 7))))
 #+end_src
@@ -256,7 +256,7 @@
 ***** fanshi/org-private-agenda-file-regexp (include GPG for private agenda)
 [[https://emacs.stackexchange.com/a/36543][org mode - Include .org.gpg files in org-agenda - Emacs Stack Exchange]]
 #+begin_src emacs-lisp :tangle yes
-(setq! fanshi/org-private-agenda-file-regexp "\\`[^.].*\\.org\\\(\\.gpg\\\)?\\'")
+(setopt fanshi/org-private-agenda-file-regexp "\\`[^.].*\\.org\\\(\\.gpg\\\)?\\'")
 #+end_src
 
 ***** Use Org Super Agenda
@@ -305,14 +305,14 @@
 ** Journal
 *** Encrypt
 #+begin_src emacs-lisp :tangle yes
-(after! org-journal (setq! org-journal-encrypt-journal t))
+(after! org-journal (setopt org-journal-encrypt-journal t))
 #+end_src
 ** GTD
 *** Encryption Setup
 #+begin_src emacs-lisp :tangle yes
 (progn
-  (setq! fanshi/org-private-agenda-file-regexp "\\`[^.].*\\.org\\\(\\.gpg\\\)?\\'")
-  (setq! org-agenda-file-regexp fanshi/org-private-agenda-file-regexp))
+  (setopt fanshi/org-private-agenda-file-regexp "\\`[^.].*\\.org\\\(\\.gpg\\\)?\\'")
+  (setopt org-agenda-file-regexp fanshi/org-private-agenda-file-regexp))
 #+end_src
 *** fanshi/org-web-tools--org-link-for-url
 #+begin_src emacs-lisp :tangle yes
@@ -329,10 +329,10 @@
 (use-package! org-gtd
   :after org
   :init
-  (setq! org-gtd-update-ack "3.0.0")
+  (setopt org-gtd-update-ack "3.0.0")
   :demand t
   :config
-  (setq! org-gtd-directory (f-join org-directory "gtd")
+  (setopt org-gtd-directory (f-join org-directory "gtd")
          org-edna-use-inheritance t org-gtd-organize-hooks '(org-gtd-set-area-of-focus)
          org-gtd-archive-file-format "gtd_archive_%s.gpg"
          org-gtd-canceled "KILL"
@@ -360,7 +360,7 @@
                                                name))))
   ;; NOTE: higher priority for haskell-cabal (than the nix-flake) for projectile project detection
   (if-let ((cabal-project (cl-find-if (lambda (project-type-record) (string= (car project-type-record) 'haskell-cabal)) projectile-project-types)))
-             (setq! projectile-project-types (cons cabal-project  projectile-project-types))))
+             (setopt projectile-project-types (cons cabal-project  projectile-project-types))))
 #+end_src
 * Clone projects
 ** clonable project configs
@@ -446,7 +446,7 @@
 *** LSP
 #+begin_src emacs-lisp :tangle no
 (add-hook 'haskell-ts-mode-local-vars-hook #'lsp! 'append)
-(after! lsp-haskell (setq! lsp-haskell-session-loading "multipleComponents"))
+(after! lsp-haskell (setopt lsp-haskell-session-loading "multipleComponents"))
 #+end_src
 *** Eglot
 **** fix elgot
@@ -550,7 +550,7 @@
 ** Lua
 *** lsp
 #+begin_src emacs-lisp :tangle no
-(setq! lsp-clients-lua-language-server-command "lua-language-server")
+(setopt lsp-clients-lua-language-server-command "lua-language-server")
 (advice-add #'lsp-clients-lua-language-server-test :around (lambda (old &rest para) (or (executable-find lsp-clients-lua-language-server-command) (apply old para))))
 #+end_src
 
@@ -578,8 +578,8 @@
 * PDF View
 #+begin_src emacs-lisp :tangle yes
 (after! pdf-view
-  (setq! pdf-tools-installer-os "nixos")
-  (setq! pdf-view-midnight-colors '("#ABB2BF" . "#282C35"))
+  (setopt pdf-tools-installer-os "nixos")
+  (setopt pdf-view-midnight-colors '("#ABB2BF" . "#282C35"))
   (add-hook! pdf-tools-enabled #'pdf-view-midnight-minor-mode)
   ;; (add-hook! pdf-tools-enabled #'hide-mode-line-mode)
   )
@@ -588,12 +588,12 @@
 * Vterm Use Fish
 #+begin_src emacs-lisp :tangle yes
 ;; use 'vterm' with 'fish'
-(after! vterm (setq! vterm-shell "fish"))
+(after! vterm (setopt vterm-shell "fish"))
 #+end_src
 * Hledger
 #+begin_src emacs-lisp :tangle no
 (after! ledger-mode
-  (setq!
+  (setopt
    ledger-binary-path "hledger"
    ledger-init-file-name nil)
   ;; (rassq-delete-all '('ledger-mode) auto-mode-alist)
@@ -627,7 +627,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+end_src
 * Plantuml
 #+begin_src emacs-lisp :tangle yes
-(after! plantuml-mode (setq! plantuml-default-exec-mode 'executable))
+(after! plantuml-mode (setopt plantuml-default-exec-mode 'executable))
 #+end_src
 
 * Use Nov Mode
@@ -650,7 +650,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+begin_src emacs-lisp :tangle no
 ;; FIXME
 (after! spell-fu
-  (setq! ispell-dictionary "en")
+  (setopt ispell-dictionary "en")
   (spell-fu-dictionary-add (spell-fu-get-ispell-dictionary "en")))
 #+end_src
 
@@ -661,7 +661,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   :hook (emacs-startup . global-jinx-mode)
   :bind (("M-$" . jinx-correct))
   :config (progn
-            (setq! jinx-languages "en_US"
+            (setopt jinx-languages "en_US"
                    jinx-delay 1.0)
             (after! vertico-multiform
               (add-to-list 'vertico-multiform-categories
@@ -670,7 +670,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 * I like to abuse writeroom
 #+begin_src emacs-lisp :tangle yes
 (after! writeroom-mode
-  (setq! writeroom-major-modes '(text-mode org-mode prog-mode))
+  (setopt writeroom-major-modes '(text-mode org-mode prog-mode))
   (pushnew! +zen-mixed-pitch-modes 'prog-mode))
 (global-writeroom-mode)
 #+end_src
@@ -679,7 +679,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 ** Default
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (setq!
+  (setopt
    gptel-display-buffer-action '(nil (body-function . select-window))
    gptel-default-mode 'org-mode
    gptel-highlight-methods '(margin face)
@@ -696,13 +696,13 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 ** Backend
 *** Copilot
 #+begin_src emacs-lisp :tangle no
-(after! gptel (setq! gptel-backend (gptel-make-gh-copilot "Copilot")))
+(after! gptel (setopt gptel-backend (gptel-make-gh-copilot "Copilot")))
 #+end_src
 *** Gemini
 **** default
 #+begin_src emacs-lisp :tangle no
 (after! gptel
-  (setq!
+  (setopt
    gptel-model 'gemini-flash-lit
    gptel-backend (gptel-make-gemini "Gemini"
                    :key #'gptel-api-key-from-auth-source
@@ -846,7 +846,7 @@ sources:
 #+begin_src emacs-lisp :tangle no
 (after! gptel
   ;; OpenRouter offers an OpenAI compatible API
-  (setq!
+  (setopt
    gptel-model 'xiaomi/mimo-v2-flash:free
    gptel-backend
    (gptel-make-openai "OpenRouter"
@@ -923,7 +923,7 @@ sources:
 **** default
 #+begin_src emacs-lisp :tangle no
 (after! gptel
-  (setq! gptel-model 'qwen3-max
+  (setopt gptel-model 'qwen3-max
          gptel-backend
          (gptel-make-openai "IFlow"
            :host "apis.iflow.cn"
@@ -953,7 +953,7 @@ sources:
             (mapcar (lambda (model) (intern (plist-get model :id)))
                     (plist-get data :data)))))))
 
-  (setq!
+  (setopt
    gptel-model 'Qwen3-Coder-Next-GGUF:Q8_0
    gptel-backend
    (gptel-make-openai "Local Llama"
@@ -1031,8 +1031,8 @@ Error (doom-first-file-hook): Error running hook "global-git-commit-mode" becaus
 #+begin_src emacs-lisp :tangle yes
 (use-package! agent-shell
   :config
-  (setq! agent-shell-opencode-acp-command `(,(executable-find "nono") "run" "--profile" "opencode" "--allow-cwd" "--" ,(executable-find "opencode") "acp"))
-  (setq! agent-shell-pi-acp-command `(,(executable-find "nono") "run" "--profile" "pi-coding-agent" "--allow-cwd" "--" ,(executable-find "pi-acp"))))
+  (setopt agent-shell-opencode-acp-command `(,(executable-find "nono") "run" "--profile" "opencode" "--allow-cwd" "--" ,(executable-find "opencode") "acp"))
+  (setopt agent-shell-pi-acp-command `(,(executable-find "nono") "run" "--profile" "pi-coding-agent" "--allow-cwd" "--" ,(executable-find "pi-acp"))))
 #+end_src
 * Use spatial-window
 #+begin_src emacs-lisp :tangle yes
@@ -1041,7 +1041,7 @@ Error (doom-first-file-hook): Error running hook "global-git-commit-mode" becaus
   :init
   (global-set-key [remap other-window] #'spatial-window-select)
   :config
-  (setq! spatial-window-expert-mode t))
+  (setopt spatial-window-expert-mode t))
 #+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
