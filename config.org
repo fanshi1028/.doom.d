@@ -968,7 +968,8 @@ sources:
                            ((string-match-p "^[0-9.]+$" val) (string-to-number val))
                            ((string= "nil" val) nil)
                            (t val)))
-                (push (cons key val) current-props)))
+                ;; Build proper plist instead of alist
+                (setq current-props (nconc current-props (list key val)))))
              ;; Ignore comments and empty lines
              ((or (string-match "^\\s-*;" line)
                   (string-match "^\\s-*$" line))
@@ -988,11 +989,15 @@ sources:
           (mime-types nil)
           (model-name (downcase hf-tag)))
       ;; Check for Qwen3.5, GLM-4.7, gpt-oss patterns (multimodal)
-      (when (string-match-p "qwen3\\.?5|glm-4\\.[67]|gpt-oss" model-name)
+      (when (or (string-match-p "qwen3\\.5" model-name)
+                (string-match-p "glm-4\\.6" model-name)
+                (string-match-p "glm-4\\.7" model-name)
+                (string-match-p "gpt-oss" model-name))
         (setq caps '(media tool-use json url)
               mime-types '("image/jpeg" "image/png" "image/gif" "image/webp")))
       ;; Check for Qwen3-Coder, coding-specific models
-      (when (string-match-p "qwen.*coder|omnicoder" model-name)
+      (when (or (string-match-p "-coder" model-name)
+                (string-match-p "omnicoder" model-name))
         (setq caps '(tool-use json)))
       (cons caps mime-types))))
 #+end_src
