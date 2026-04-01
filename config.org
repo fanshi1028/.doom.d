@@ -350,6 +350,38 @@
   (map! :map doom-leader-map :desc "Org GTD Capture" "X" #'org-gtd-capture)
   (org-gtd-mode))
 #+end_src
+** Paste image with pngpaste
+#+begin_src emacs-lisp :tangle yes
+(after! org
+  (defun fanshi/clipboard-contains-image-p ()
+    "Return non-nil if clipboard contains image data."
+    (when-let* ((targets (gui-get-selection 'CLIPBOARD 'TARGETS)))
+      (seq-some (lambda (type)
+                  (and (symbolp type)
+                       (string-prefix-p "image/" (symbol-name type))))
+                targets)))
+
+  (defun fanshi/evil-paste-image ()
+    "Paste clipboard image using pngpaste, return filename or nil if not image."
+    (when (fanshi/clipboard-contains-image-p)
+      (let* ((ext "png")
+             (filename (format "~/Download/clipboard-%s.%s" (format-time-string "%Y%m%d%H%M%S") ext)))
+        (call-process (executable-find "pngpaste") nil nil nil (expand-file-name filename))
+        (org-insert-link nil (concat "file:" filename))
+        filename)))
+
+  (defun fanshi/advice-evil-paste-image (orig-fn &rest args)
+    "If clipboard has image, paste image instead of text.
+Else call original evil-paste-after."
+    (if (and (bound-and-true-p evil-mode)
+             (fanshi/clipboard-contains-image-p))
+        (fanshi/evil-paste-image)
+      (apply orig-fn args)))
+
+  (advice-add #'evil-paste-after :around #'fanshi/advice-evil-paste-image)
+  (advice-add #'evil-paste-before :around #'fanshi/advice-evil-paste-image))
+#+end_src
+
 * Projectile
 #+begin_src emacs-lisp :tangle yes
 (after! projectile
@@ -1134,15 +1166,6 @@ Error (doom-first-file-hook): Error running hook "global-git-commit-mode" becaus
   (global-set-key [remap other-window] #'spatial-window-select)
   :config
   (setopt spatial-window-expert-mode t))
-#+end_src
-* pngpaste
-https://donaldh.wtf/2025/08/pasting-images-in-org-mode/
-#+begin_src emacs-lisp :tangle yes
-(defun fanshi/org-paste-to-inline-image (filename)
-  "Paste the clipboard to an inline image."
-  (interactive "FFilename: ")
-  (call-process (executable-find "pngpaste") nil nil nil (expand-file-name filename))
-  (org-insert-link nil (concat "file:" filename)))
 #+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
