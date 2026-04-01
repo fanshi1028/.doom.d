@@ -1135,6 +1135,15 @@ Error (doom-first-file-hook): Error running hook "global-git-commit-mode" becaus
   :config
   (setopt spatial-window-expert-mode t))
 #+end_src
+* pngpaste
+https://donaldh.wtf/2025/08/pasting-images-in-org-mode/
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/org-paste-to-inline-image (filename)
+  "Paste the clipboard to an inline image."
+  (interactive "FFilename: ")
+  (call-process (executable-find "pngpaste") nil nil nil (expand-file-name filename))
+  (org-insert-link nil (concat "file:" filename)))
+#+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
 ;; Here are some additional functions/macros that could help you configure Doom:
