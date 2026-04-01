@@ -937,121 +937,111 @@ sources:
            )))
 #+end_src
 *** Local llama-server
+**** fanshi/gptel--parse-llama-ini
 #+begin_src emacs-lisp :tangle yes
-(after! gptel (defun fanshi/gptel--parse-llama-ini ()
-                "Parse ~/.doom.d/llama-model.ini and return model configurations with multimodal support."
-                (let ((models nil)
-                      (current-section nil)
-                      (current-props nil))
-                  (with-temp-buffer
-                    (insert-file-contents-literally
-                     (expand-file-name "llama-model.ini" doom-user-dir))
-                    (goto-char (point-min))
-                    (while (not (eobp))
-                      (let ((line (buffer-substring-no-properties
-                                   (line-beginning-position)
-                                   (line-end-position))))
-                        (cond
-                         ;; Section header: [model-name]
-                         ((string-match "^\\[\\([^]]+\\)\\]$" line)
-                          (when current-section
-                            (push (cons current-section current-props) models))
-                          (setq current-section (intern (match-string 1 line))
-                                current-props nil))
-                         ;; Property line: key = value
-                         ((string-match "^\\([a-z-]+\\)\\s-*=\\s-*\\(.*\\)$" line)
-                          (let ((key (intern (concat ":" (match-string 1 line))))
-                                (val (match-string 2 line)))
-                            (setq val (cond
-                                       ((string-match-p "^[0-9.]+$" val) (string-to-number val))
-                                       ((string= "nil" val) nil)
-                                       (t val)))
-                            (push (cons key val) current-props)))
-                         ;; Ignore comments and empty lines
-                         ((or (string-match "^\\s-*;" line)
-                              (string-match "^\\s-*$" line))
-                          nil))
-                        (forward-line 1)))
-                    ;; Save last section
-                    (when current-section
-                      (push (cons current-section current-props) models)))
-                  (nreverse models)))
-
-  ;; Model multimodal capabilities based on research
-  (defvar fanshi/gptel--llama-ini-models-multimodal
-    '((Qwen3.5-27B . ((capabilities media tool-use json url)
-                      (mime-types "image/jpeg" "image/png" "image/gif" "image/webp")))
-      (Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled . ((capabilities reasoning)
-                                                          (mime-types)))
-      (Qwen3.5-122B-A10B . ((capabilities media tool-use json url)
-                            (mime-types "image/jpeg" "image/png" "image/gif" "image/webp")))
-      (Qwen3.5-35B-A3B . ((capabilities media tool-use json url)
-                          (mime-types "image/jpeg" "image/png" "image/gif" "image/webp")))
-      (GLM-4.7-Flash . ((capabilities media tool-use json url)
-                        (mime-types "image/jpeg" "image/png" "image/gif" "image/webp")))
-      (gpt-oss-120b . ((capabilities tool-use json)
-                       (mime-types)))
-      (NVIDIA-Nemotron-3-Super-120B-A12B . ((capabilities tool-use json)
-                                            (mime-types)))
-      (Nemotron-3-Nano-30B-A3B . ((capabilities tool-use json)
-                                  (mime-types)))
-      (Qwen3-Coder-Next . ((capabilities tool-use json)
-                           (mime-types)))
-      (OmniCoder-9B . ((capabilities tool-use json)
-                       (mime-types)))
-      (WEBGEN-OSS-20B . ((capabilities)
-                         (mime-types)))
-      ;; Uncensored variants inherit from base Qwen3.5
-      (Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive . ((capabilities media tool-use json url)
-                                                           (mime-types "image/jpeg" "image/png" "image/gif" "image/webp"))))
-    "Alist of model multimodal capabilities for INI models.")
-
-  (defun fanshi/gptel--get-model-mime-types (model)
-    "Get MIME types for MODEL from multimodal capabilities list."
-    (when-let ((caps (cdr (assoc model fanshi/gptel--llama-ini-models-multimodal))))
-      (cdr (assoc 'mime-types caps))))
-
-  (defun fanshi/gptel--get-model-capabilities (model)
-    "Get capabilities for MODEL from multimodal capabilities list."
-    (when-let ((caps (cdr (assoc model fanshi/gptel--llama-ini-models-multimodal))))
-      (cdr (assoc 'capabilities caps))))
-
+(after! gptel
+  (defun fanshi/gptel--parse-llama-ini ()
+    "Parse ~/.doom.d/llama-model.ini and return model configurations with multimodal support."
+    (let ((models nil)
+          (current-section nil)
+          (current-props nil))
+      (with-temp-buffer
+        (insert-file-contents-literally
+         (expand-file-name "llama-model.ini" doom-user-dir))
+        (goto-char (point-min))
+        (while (not (eobp))
+          (let ((line (buffer-substring-no-properties
+                       (line-beginning-position)
+                       (line-end-position))))
+            (cond
+             ;; Section header: [model-name]
+             ((string-match "^\\[\\([^]]+\\)\\]$" line)
+              (when current-section
+                (push (cons current-section current-props) models))
+              (setq current-section (intern (match-string 1 line))
+                    current-props nil))
+             ;; Property line: key = value
+             ((string-match "^\\([a-z-]+\\)\\s-*=\\s-*\\(.*\\)$" line)
+              (let ((key (intern (concat ":" (match-string 1 line))))
+                    (val (match-string 2 line)))
+                (setq val (cond
+                           ((string-match-p "^[0-9.]+$" val) (string-to-number val))
+                           ((string= "nil" val) nil)
+                           (t val)))
+                (push (cons key val) current-props)))
+             ;; Ignore comments and empty lines
+             ((or (string-match "^\\s-*;" line)
+                  (string-match "^\\s-*$" line))
+              nil))
+            (forward-line 1)))
+        ;; Save last section
+        (when current-section
+          (push (cons current-section current-props) models)))
+      (nreverse models))))
+#+end_src
+**** fanshi/gptel--infer-capabilities-from-hf
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel--infer-capabilities-from-hf (hf-tag)
+    "Infer capabilities based on MODEL-NAME and HF tag."
+    (let ((caps '())
+          (mime-types nil)
+          (model-name (downcase hf-tag)))
+      ;; Check for Qwen3.5, GLM-4.7, gpt-oss patterns (multimodal)
+      (when (string-match-p "qwen3\\.?5|glm-4\\.[67]|gpt-oss" model-name)
+        (setq caps '(media tool-use json url)
+              mime-types '("image/jpeg" "image/png" "image/gif" "image/webp")))
+      ;; Check for Qwen3-Coder, coding-specific models
+      (when (string-match-p "qwen.*coder|omnicoder" model-name)
+        (setq caps '(tool-use json)))
+      (cons caps mime-types))))
+#+end_src
+**** fanshi/gptel--model-to-gptel-spec
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
   (defun fanshi/gptel--model-to-gptel-spec (model-name)
     "Convert MODEL-NAME to gptel model specification with capabilities."
-    (when-let ((props (cdr (assoc model-name (fanshi/gptel--parse-llama-ini))))
-               (caps (fanshi/gptel--get-model-capabilities model-name))
-               (mime-types (fanshi/gptel--get-model-mime-types model-name)))
-      `(,model-name
-        :description ,(or (plist-get props :description) "Local Llama model")
-        :capabilities ,caps
-        :mime-types ,mime-types
-        :context-window ,(or (plist-get props :ctx-size) 65536)
-        :input-cost 0
-        :output-cost 0
-        :request-params ,(append
-                          (when (plist-get props :temp) `(:temperature ,(plist-get props :temp)))
-                          (when (plist-get props :top-p) `(:top_p ,(plist-get props :top-p)))
-                          (when (plist-get props :top-k) `(:top_k ,(plist-get props :top-k)))
-                          (when (plist-get props :min-p) `(:min_p ,(plist-get props :min-p)))
-                          (when (plist-get props :presence-penalty)
-                            `(:presence_penalty ,(plist-get props :presence-penalty)))))))
-
+    (when-let ((props (cdr (assoc model-name (fanshi/gptel--parse-llama-ini)))))
+      ;; Infer capabilities from HF tag
+      (let* ((hf-tag (or (plist-get props :hf) ""))
+             (infer (fanshi/gptel--infer-capabilities-from-hf hf-tag))
+             (caps (car infer))
+             (mime-types (cdr infer)))
+        `(,model-name
+          :description ,(or (plist-get props :description) "Local Llama model")
+          :capabilities ,caps
+          :mime-types ,mime-types
+          :context-window ,(or (plist-get props :ctx-size) 65536)
+          :input-cost 0
+          :output-cost 0
+          :request-params ,(append
+                            (when (plist-get props :temp) `(:temperature ,(plist-get props :temp)))
+                            (when (plist-get props :top-p) `(:top_p ,(plist-get props :top-p)))
+                            (when (plist-get props :top-k) `(:top_k ,(plist-get props :top-k)))
+                            (when (plist-get props :min-p) `(:min_p ,(plist-get props :min-p)))
+                            (when (plist-get props :presence-penalty)
+                              `(:presence_penalty ,(plist-get props :presence-penalty)))))))))
+#+end_src
+**** fanshi/gptel--load-llama-models
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
   ;; Build model list for gptel backend
-  (defvar fanshi/gptel--llama-ini-model-specs nil
+  (defvar fanshi/gptel--llama-models nil
     "List of model specifications from INI file.")
 
-  (defun fanshi/gptel--build-llama-model-specs ()
+  (defun fanshi/gptel--load-llama-models ()
     "Build gptel model specifications from INI file."
-    (setq fanshi/gptel--llama-ini-model-specs
+    (interactive)
+    (setq fanshi/gptel--llama-models
           (mapcan (lambda (model)
                     (when-let ((spec (fanshi/gptel--model-to-gptel-spec (car model))))
                       (list spec)))
-                  (fanshi/gptel--parse-llama-ini))))
-
-  ;; Initialize
-  (fanshi/gptel--build-llama-model-specs)
-
-  ;; Set up gptel backend with INI models
+                  (fanshi/gptel--parse-llama-ini)))))
+#+end_src
+**** default
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (fanshi/gptel--load-llama-models)
   (setopt
    gptel-model 'gpt-oss-120b
    gptel-backend
@@ -1059,7 +1049,7 @@ sources:
      :host "127.0.0.1:8080"
      :protocol "http"
      :stream t
-     :models fanshi/gptel--llama-ini-model-specs)))
+     :models fanshi/gptel--llama-models)))
 #+end_src
 
 ** TEMP fix for gptel-send with active regoin under org-mode
