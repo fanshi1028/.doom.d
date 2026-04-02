@@ -83,6 +83,35 @@ Corfu detected an error:
 ;; TEMP keywords
 (after! hl-todo (cl-pushnew '("TEMP" 'warning 'bold) hl-todo-keyword-faces))
 #+end_src
+** TEMP FIXME pass
+When copying pass
+#+begin_example
+kill-new: Wrong type argument: stringp, nil
+#+end_example
+*** This cause the error
+#+begin_src emacs-lisp :tangle no
+;; in `auth-source-pass--read-entry`
+(with-temp-buffer
+  (insert-file-contents
+   (expand-file-name
+    (format "%s.gpg" entry)
+    auth-source-pass-filename)))
+#+end_src
+*** But Somehow this is OK
+#+begin_src emacs-lisp :tangle no
+(insert-file-contents
+ (expand-file-name
+  (format "%s.gpg" entry)
+  auth-source-pass-filename))
+#+end_src
+*** TEMP FIX
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/auth-source-pass--read-entry (entry)
+  "Return a string with the file content of ENTRY."
+  (with-file-contents! (expand-file-name (format "%s.gpg" entry) auth-source-pass-filename)
+  (buffer-substring-no-properties (point-min) (point-max))))
+(advice-add 'auth-source-pass--read-entry :override #'fanshi/auth-source-pass--read-entry)
+#+end_src
 
 ** Pass
 #+begin_src elisp :tangle yes
