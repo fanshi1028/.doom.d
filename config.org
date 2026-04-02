@@ -1170,19 +1170,12 @@ kill-new: Wrong type argument: stringp, nil
 #+end_example
 *** This cause the error
 #+begin_src emacs-lisp :tangle no
-;; in `auth-source-pass--read-entry`
-(with-temp-buffer
-  (insert-file-contents
-   (expand-file-name
-    (format "%s.gpg" entry)
-    auth-source-pass-filename)))
+;; inside `auth-source-pass--read-entry` we have code like this
+(with-temp-buffer (insert-file-contents (expand-file-name "some.gpg")))
 #+end_src
 *** But Somehow this is OK
 #+begin_src emacs-lisp :tangle no
-(insert-file-contents
- (expand-file-name
-  (format "%s.gpg" entry)
-  auth-source-pass-filename))
+(insert-file-contents (expand-file-name "some.gpg"))
 #+end_src
 *** TEMP FIX
 #+begin_src emacs-lisp :tangle yes
