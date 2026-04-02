@@ -1193,7 +1193,6 @@ kill-new: Wrong type argument: stringp, nil
 (advice-add 'auth-source-pass--read-entry :override #'fanshi/auth-source-pass--read-entry)
 #+end_src
 
-
 * agent-shell
 #+begin_src emacs-lisp :tangle yes
 (use-package! agent-shell
