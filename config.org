@@ -394,7 +394,7 @@ Corfu detected an error:
     "Paste clipboard image using pngpaste, return filename or nil if not image."
     (when (fanshi/clipboard-contains-image-p)
       (let* ((ext "png")
-             (filename (format "~/Download/clipboard-%s.%s" (format-time-string "%Y%m%d%H%M%S") ext)))
+             (filename (format "~/Downloads/clipboard-%s.%s" (format-time-string "%Y%m%d%H%M%S") ext)))
         (call-process (executable-find "pngpaste") nil nil nil (expand-file-name filename))
         (org-insert-link nil (concat "file:" filename))
         filename)))
