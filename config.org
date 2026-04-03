@@ -755,6 +755,18 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* ")
   (gptel-highlight-mode t))
 #+end_src
+** Notification
+*** fanshi/notify
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/notify (start end)
+    (ns-do-applescript
+     (format "display notification \"%s\" with title \"%s\" sound name \"Submerge\""
+             "Response complete" "GPTel")))
+#+end_src
+*** Set gptel-post-response-functions
+#+begin_src emacs-lisp :tangle yes
+(after! gptel (setopt gptel-post-response-functions '(fanshi/notify)))
+#+end_src
 ** Backend
 *** Copilot
 #+begin_src emacs-lisp :tangle no
