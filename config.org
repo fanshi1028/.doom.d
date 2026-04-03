@@ -767,6 +767,36 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+begin_src emacs-lisp :tangle yes
 (after! gptel (setopt gptel-post-response-functions '(fanshi/notify)))
 #+end_src
+** Token Escape
+- ref :: https://github.com/ggml-org/llama.cpp/issues/19947#issuecomment-3971115828
+- escape <__something__>. Do we have any other tokens we want to escape?
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/gptel-escape-sensitive-token (_fsm)
+  "Replace <__something__> in the prompt buffer."
+  (goto-char (point-min))
+  (while (re-search-forward (regexp-quote "<__") nil t)
+    (replace-match "&lt;__")))
+(add-to-list 'gptel-prompt-transform-functions #'fanshi/gptel-escape-sensitive-token)
+(defun fanshi/gptel-escape-tool-args (tool-call)
+  "Escape <__something__> in TOOL-CALL's :args before execution. For 'gptel-pre-tool-call-functions'."
+  (let* ((args (plist-get tool-call :args))
+         (new-args (cl-loop for (k v) on args by #'cddr
+                            collect k and collect
+                            (if (stringp v)
+                                (replace-regexp-in-string
+                                 "<__"
+                                 "&lt;__"
+                                 v t t)
+                              ;; TEMP FIXME what if the it is not string but another plist/list etc?
+                              v))))
+    (plist-put tool-call :args new-args)))
+
+(defun fanshi/gptel-escape-tool-result (tool-call)
+  "Escape <__something__> in TOOL-CALL's :result after execution. For 'gptel-post-tool-call-functions'."
+  `(:result ,(replace-regexp-in-string "<__" "&lt;__" (plist-get tool-call :result) t t)))
+(add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel-escape-tool-args)
+(add-to-list 'gptel-post-tool-call-functions #'fanshi/gptel-escape-tool-result)
+#+end_src
 ** Backend
 *** Copilot
 #+begin_src emacs-lisp :tangle no
