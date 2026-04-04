@@ -1132,15 +1132,14 @@ Returns a cons cell of (CAPABILITIES MIME-TYPES)."
 #+end_src
 ***** fanshi/gptel--load-models
 #+begin_src emacs-lisp :tangle yes
-(require 'cl-lib)
-
 (after! gptel
   (defun fanshi/gptel--load-models (ini-file)
     "Build gptel model specifications from INI file."
-    (let ((models (fanshi/gptel--parse-ini ini-file)))
-      (cl-mapcar #'fanshi/gptel--model-to-gptel-spec
-                 (mapcar #'car models)
-                 (mapcar #'cdr models)))))
+    (mapcar (lambda (model)
+              (pcase model
+                (`(,name . ,props)
+                 (fanshi/gptel--model-to-gptel-spec name props))))
+            (fanshi/gptel--parse-ini ini-file))))
 #+end_src
 **** llama-server
 #+begin_src emacs-lisp :tangle yes
