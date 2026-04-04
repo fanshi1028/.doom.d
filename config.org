@@ -1052,94 +1052,69 @@ sources:
 #+end_src
 *** Local
 **** common
-***** fanshi/gptel--parse-ini
+***** fanshi/gptel--hf-to-capabilites-and-mimes
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (defun fanshi/gptel--parse-ini (ini-file)
-    "Parse INI-FILE and return model configurations as alist of (symbol . plist).
-INI-FILE is the filename (without path) to parse from doom-user-dir."
-    (let ((models '()) (section nil) (props '()))
-      (with-temp-buffer
-        (insert-file-contents-literally (expand-file-name ini-file doom-user-dir))
-        (goto-char (point-min))
-        (while (not (eobp))
-          (let ((line (buffer-substring-no-properties
-                       (line-beginning-position) (line-end-position))))
-            (cond
-             ;; Section header: [model-name]
-             ((string-match "^\\[\\([^]]+\\)\\]$" line)
-              (when section (push (cons section (nreverse props)) models))
-              (setq section (intern (match-string 1 line)) props '()))
-             ;; Property line: key = value
-             ((string-match "^\\([a-z-]+\\)\\s-*=\\s-*\\(.*\\)$" line)
-              (let ((key (intern (concat ":" (match-string 1 line))))
-                    (val (match-string 2 line)))
-                (setq val (cond
-                           ((string-match-p "^[0-9.]+$" val) (string-to-number val))
-                           ((string= "nil" val) nil)
-                           (t val)))
-                (push key props) (push val props)))
-             ((not (string-match-p "^\\s*[;\\s-]*$" line)) nil))
-            (forward-line 1)))
-        (when section (push (cons section (nreverse props)) models)))
-      (nreverse models))))
+  (defun fanshi/gptel--hf-to-capabilites-and-mimes (hf)
+    (pcase hf
+      ('nil (error "impossible: nil hf"))
+      ("" (error "impossible: empty string hf"))
+      ;; Multimodal models
+      ((or (pred (string-match-p "Qwen3\\.5"))
+           (pred (string-match-p "glm-4\\.6"))
+           (pred (string-match-p "glm-4\\.7"))
+           (pred (string-match-p "gpt-oss")))
+       (cons '(media tool-use json url) '("image/jpeg" "image/png" "image/gif" "image/webp")))
+      ;; Coding models
+      ((pred (string-match-p "coder")) (cons '(tool-use json) '()))
+      ;; Default
+      (_ (cons (list) (list))))))
 #+end_src
-***** fanshi/gptel--infer-capabilities-from-hf
+***** fanshi/gptel--load-models-from-ini
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (defun fanshi/gptel--infer-capabilities-from-hf (hf-tag)
-    "Infer capabilities based on HF TAG.
-Returns a cons cell of (CAPABILITIES MIME-TYPES)."
-    (let ((tag-lower (downcase hf-tag)))
-      (cond
-       ;; Multimodal models (Qwen3.5, GLM-4.6/4.7, gpt-oss)
-       ((string-match-p "\\(qwen3\\.5\\|glm-4\\.6\\|glm-4\\.7\\|gpt-oss\\)" tag-lower)
-        (cons '(media tool-use json url) '("image/jpeg" "image/png" "image/gif" "image/webp")))
-       ;; Coding models (-coder, omnicoder)
-       ((string-match-p "\\(-coder\\|omnicoder\\)" tag-lower)
-        (cons '(tool-use json) '()))
-       ;; Default: no special capabilities
-       (t (cons '() '()))))))
-#+end_src
-***** fanshi/gptel--model-to-gptel-spec
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defun fanshi/gptel--model-to-gptel-spec (model-name props)
-    "Convert MODEL-NAME and PROPS to gptel model specification with capabilities."
-    (let* ((hf-tag (or (plist-get props :hf) ""))
-           (caps-mime (fanshi/gptel--infer-capabilities-from-hf hf-tag))
-           (caps (car caps-mime))
-           (mime-types (cdr caps-mime))
-           (desc (plist-get props :description))
-           (ctx (or (plist-get props :ctx-size) 65536))
-           (temp (plist-get props :temp))
-           (top-p (plist-get props :top-p))
-           (top-k (plist-get props :top-k))
-           (min-p (plist-get props :min-p))
-           (presence (plist-get props :presence-penalty)))
-      (list model-name
-            :description (or desc "Local model")
-            :capabilities caps
-            :mime-types mime-types
-            :context-window ctx
-            :input-cost 0
-            :output-cost 0
-            :request-params (nconc (when temp (list :temperature temp))
-                                   (when top-p (list :top_p top-p))
-                                   (when top-k (list :top_k top-k))
-                                   (when min-p (list :min_p min-p))
-                                   (when presence (list :presence_penalty presence)))))))
-#+end_src
-***** fanshi/gptel--load-models
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defun fanshi/gptel--load-models (ini-file)
-    "Build gptel model specifications from INI file."
-    (mapcar (lambda (model)
-              (pcase model
-                (`(,name . ,props)
-                 (fanshi/gptel--model-to-gptel-spec name props))))
-            (fanshi/gptel--parse-ini ini-file))))
+  (defun fanshi/gptel--load-models-from-ini (backend)
+    "Parse INI file for BACKEND ('Llama or 'Mlx) and return model specifications for gptel.
+For 'Llama: uses section name as model symbol, :hf tag for capability inference.
+For 'Mlx: uses :hf tag value as model symbol."
+    (with-temp-buffer
+      (insert-file-contents-literally (expand-file-name (concat (symbol-name backend) "-model.ini") doom-user-dir))
+      (goto-char (point-min))
+      (let ((models '()))
+        (while-let ((_ (not (eobp)))
+                    (line (buffer-substring-no-properties (line-beginning-position) (line-end-position))))
+          (when ;; Section header: [model-name]
+              (string-match "^\\[\\([^]]+\\)\\]$" line)
+            (let ((section (intern (match-string 1 line))) (props))
+              (forward-line 1)
+              (while-let ((_ (not (eobp)))
+                          (line (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
+                          (_ (not (string-match "^\\[\\([^]]+\\)\\]$" line))))
+                (when ;; Property line: key = value
+                    (string-match "^\\([a-z-]+\\)\\s-*=\\s-*\\(.*\\)$" line)
+                  (let ((key (pcase (match-string 1 line)
+                               ("temp" :temperature)
+                               ("ctx-size" :context-window)
+                               (str (intern (concat ":" (string-replace "-" "_" str))))))
+                        (val (pcase (match-string 2 line)
+                               ((and (pred (string-match-p "^[0-9.]+$")) str) (string-to-number str))
+                               (str str))))
+                    (if (memq key '(:temperature :top_p :top_k :min_p :presence_penalty))
+                        (let ((request-params (plist-put (plist-get props :request-params) key val)))
+                          (setf (plist-get props :request-params) request-params))
+                      (setq props (plist-put props key val)))))
+                (forward-line 1))
+              (let (;; For Mlx, use :hf tag value as the model symbol
+                    (model-symbol  (or (and (eq backend 'Mlx) (intern (plist-get props :hf)))
+                                       section))
+                    (caps-mime (fanshi/gptel--hf-to-capabilites-and-mimes (plist-get props :hf))))
+                (push (cons model-symbol (-> props (plist-put :input-cost 0)
+                                             (plist-put :output-cost 0)
+                                             (plist-put :capabilities (car caps-mime))
+                                             (plist-put :mime-types (cdr caps-mime))))
+                      models))))
+          (forward-line 1))
+        (nreverse models)))))
 #+end_src
 **** llama-server
 #+begin_src emacs-lisp :tangle yes
@@ -1151,20 +1126,20 @@ Returns a cons cell of (CAPABILITIES MIME-TYPES)."
      :host "127.0.0.1:8080"
      :protocol "http"
      :stream t
-     :models (fanshi/gptel--load-models "llama-model.ini"))))
+     :models (fanshi/gptel--load-models-from-ini 'Llama))))
 #+end_src
 
 **** mlx_lm server
-#+begin_src emacs-lisp :tangle no
+#+begin_src emacs-lisp :tangle yes
 (after! gptel
   (setopt
-   gptel-model 'Qwen3.5-122B-A10B
+   gptel-model 'mlx-community/Qwen3.5-122B-A10B-6bit
    gptel-backend
    (gptel-make-openai "Local MLX"
      :host "127.0.0.1:8080"
      :protocol "http"
      :stream t
-     :models (fanshi/gptel--load-models "mlx-model.ini"))))
+     :models (fanshi/gptel--load-models-from-ini 'Mlx))))
 #+end_src
 
 ** TEMP fix for gptel-send with active regoin under org-mode
