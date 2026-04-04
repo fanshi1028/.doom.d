@@ -736,25 +736,6 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+end_src
 
 * Gptel
-** Default
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (setopt
-   gptel-display-buffer-action '(nil (body-function . select-window))
-   gptel-default-mode 'org-mode
-   gptel-highlight-methods '(margin face)
-   gptel-log-level 'info
-   gptel-track-media t
-   gptel-org-validate-link #'gptel-org--link-standalone-p)
-  (add-to-list 'gptel-directives '(full . "Please think harder to give your highest quality answer.
-    We pursue depth, not superficial breadth;
-    we pursue essential insight, not a list of appearances;
-    we pursue innovation in thinking, not habitual reiteration.
-    Think critically! Think creatively!
-    Please show us your cognitive limits.") nil (-on #'eq #'car))
-  (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* ")
-  (gptel-highlight-mode t))
-#+end_src
 ** Notification
 *** fanshi/notify
 #+begin_src emacs-lisp :tangle yes
@@ -1119,22 +1100,17 @@ For 'Mlx: uses :hf tag value as model symbol."
 **** llama-server
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (setopt
-   gptel-model 'Qwen3.5-122B-A10B-instruct
-   gptel-backend
+  (defvar fanshi/gptel-local-llama
    (gptel-make-openai "Local Llama"
      :host "127.0.0.1:8080"
      :protocol "http"
      :stream t
      :models (fanshi/gptel--load-models-from-ini 'Llama))))
 #+end_src
-
 **** mlx_lm server
 #+begin_src emacs-lisp :tangle no
 (after! gptel
-  (setopt
-   gptel-model 'mlx-community/Qwen3.5-122B-A10B-6bit
-   gptel-backend
+  (defvar fanshi/gptel-local-mlx
    (gptel-make-openai "Local MLX"
      :host "127.0.0.1:8080"
      :protocol "http"
@@ -1163,6 +1139,28 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
          (apply #'gptel-make-preset (intern agent-name) agent-plist)))))
   (gptel-agent-update)
   (fanshi/my-gptel-agent-update))
+#+end_src
+** Default
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (setopt
+   gptel-display-buffer-action '(nil (body-function . select-window))
+   gptel-default-mode 'org-mode
+   gptel-highlight-methods '(margin face)
+   gptel-log-level 'info
+   gptel-track-media t
+   gptel-org-validate-link #'gptel-org--link-standalone-p
+   gptel-backend fanshi/gptel-local-llama
+   gptel-model 'mlx-community/Qwen3.5-122B-A10B-6bit)
+  (add-to-list 'gptel-directives '(full . "Please think harder to give your highest quality answer.
+    We pursue depth, not superficial breadth;
+    we pursue essential insight, not a list of appearances;
+    we pursue innovation in thinking, not habitual reiteration.
+    Think critically! Think creatively!
+    Please show us your cognitive limits.") nil (-on #'eq #'car))
+  (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* ")
+  (gptel-highlight-mode t)
+  )
 #+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
