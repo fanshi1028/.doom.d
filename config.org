@@ -995,7 +995,7 @@ kill-new: Wrong type argument: stringp, nil
   (setopt agent-shell-opencode-acp-command `(,fanshi/opencode "acp"))
   (setopt agent-shell-pi-acp-command `(,fanshi/pi-acp))
   (setopt agent-shell-opencode-default-model-id "llama.cpp/Qwen3-Coder-Next")
-  (setopt agent-shell-pi-default-model-id "llama.cpp/Qwen3-Coder-Next"))
+  (setopt agent-shell-pi-default-model-id "Qwen3-Coder-Next"))
 #+end_src
 * Use spatial-window
 #+begin_src emacs-lisp :tangle yes
