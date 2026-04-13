@@ -99,7 +99,7 @@
 ;; version 0.9.2 <2026-02-07 Sat>
 (package! spatial-window :recipe (:host github :repo "lewang/spatial-window") :pin "b51c4c92abfa4c700a4ffec1240ee96dc4130974")
 
-(package! agent-shell :recipe (:host github :repo "xenodium/agent-shell") :pin "de0db122d1d57d5fd7e2c1853faf411456382235")
+(package! agent-shell :recipe (:host github :repo "xenodium/agent-shell") :pin "7f106a355295d6c0fde5cd589cf566df7850463f")
 
 (package! kbd-mode :recipe (:host github :repo "kmonad/kbd-mode") :pin "1c81889f00de92483b48a16bb32b4c2a5eddcfc1")
 
