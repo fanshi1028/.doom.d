@@ -102,3 +102,5 @@
 (package! agent-shell :recipe (:host github :repo "xenodium/agent-shell") :pin "de0db122d1d57d5fd7e2c1853faf411456382235")
 
 (package! kbd-mode :recipe (:host github :repo "kmonad/kbd-mode") :pin "1c81889f00de92483b48a16bb32b4c2a5eddcfc1")
+
+(package! dirvish :disable t)
