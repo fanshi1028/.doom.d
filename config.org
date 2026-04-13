@@ -976,9 +976,11 @@ kill-new: Wrong type argument: stringp, nil
            (profile (map-elt config :identifier))
            ;; HACK Have to hard code due to path problem.
            (args `(,fanshi/nono "run" "-v"))
-           ;; FIXME ~/.config/cabal/config & $HOME/.config/cabal/config don't work
-           (haskell-args '("--read-file" "/Users/francischan/.config/cabal/config"
-                           "--allow" "/Users/francischan/.cache/cabal"))
+           ;; NOTE: due to nono's bug(I guess): ~/.config/cabal/config & $HOME/.config/cabal/config don't work
+           (haskell-args (let ((base-haskell-args '("--read-file" "/Users/francischan/.config/cabal/config"
+                                                    "--allow" "/Users/francischan/.cache/cabal"
+                                                    "--allow" "/Users/francischan/.local/state/cabal/store")))
+                           base-haskell-args))
            (args (append args `("--profile" ,(symbol-name profile))))
            (args (if (eq (projectile-project-type) 'haskell-cabal)
                      (append args haskell-args)
