@@ -960,11 +960,38 @@ kill-new: Wrong type argument: stringp, nil
 #+end_src
 
 * agent-shell
+** Work around path issue
+#+begin_src emacs-lisp :tangle yes
+(defconst fanshi/nono (executable-find "nono"))
+(defconst fanshi/opencode (executable-find "opencode"))
+(defconst fanshi/pi-acp (executable-find "pi-acp"))
+#+end_src
+** fanshi/agent-shell-command-prefix
+#+begin_src emacs-lisp :tangle yes
+(after! agent-shell
+  (defun fanshi/agent-shell-command-prefix (buffer)
+    (let* ((config (agent-shell-get-config buffer))
+           (profile (map-elt config :identifier))
+           ;; HACK Have to hard code due to path problem.
+           (args `(,fanshi/nono "run" "-v"))
+           ;; FIXME ~/.config/cabal/config & $HOME/.config/cabal/config don't work
+           (haskell-args '("--read-file" "/Users/francischan/.config/cabal/config"
+                           "--allow" "/Users/francischan/.cache/cabal"))
+           (args (append args `("--profile" ,(symbol-name profile))))
+           (args (if (eq (projectile-project-type) 'haskell-cabal)
+                     (append args haskell-args)
+                   args)))
+      (append args '("--allow-cwd" "--")))))
+#+end_src
+** Use it!
 #+begin_src emacs-lisp :tangle yes
 (use-package! agent-shell
   :config
-  (setopt agent-shell-opencode-acp-command `(,(executable-find "nono") "run" "--profile" "opencode" "--allow-cwd" "--" ,(executable-find "opencode") "acp"))
-  (setopt agent-shell-pi-acp-command `(,(executable-find "nono") "run" "--profile" "pi-coding-agent" "--allow-cwd" "--" ,(executable-find "pi-acp"))))
+  (setopt agent-shell-command-prefix #'fanshi/agent-shell-command-prefix)
+  (setopt agent-shell-opencode-acp-command `(,fanshi/opencode "acp"))
+  (setopt agent-shell-pi-acp-command `(,fanshi/pi-acp))
+  (setopt agent-shell-opencode-default-model-id "llama.cpp/Qwen3-Coder-Next")
+  (setopt agent-shell-pi-default-model-id "llama.cpp/Qwen3-Coder-Next"))
 #+end_src
 * Use spatial-window
 #+begin_src emacs-lisp :tangle yes
