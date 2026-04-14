@@ -961,6 +961,15 @@ kill-new: Wrong type argument: stringp, nil
 (advice-add 'auth-source-pass--read-entry :override #'fanshi/auth-source-pass--read-entry)
 #+end_src
 
+** Path vs Dictation issues
+- Opening with GUI apps got me not such issue. But some how we lose the mac dictation
+- Opening from terminal is the opposite
+*** Solution
+- ref :: https://stackoverflow.com/a/29214791
+#+begin_src emacs-lisp :tangle yes
+(setopt shell-file-name "bash")
+#+end_src
+And use the GUI apps. We keep both.
 * agent-shell
 ** Work around path issue
 #+begin_src emacs-lisp :tangle yes
