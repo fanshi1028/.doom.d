@@ -970,6 +970,27 @@ kill-new: Wrong type argument: stringp, nil
 (setopt shell-file-name "bash")
 #+end_src
 And use the GUI apps. We keep both.
+** Sanitize bytes like \342\200\224 (not string) which break gptel, I don't know how does these btyes happened though, it is obviously em-dash?
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/gptel--recursive-sanitize (obj)
+  "Recursively find all strings in OBJ and sanitize them."
+  (cond
+   ((stringp obj) (fanshi/gptel--sanitize-string obj))
+   ((vectorp obj) (vconcat (mapcar #'fanshi/gptel--recursive-sanitize obj))) ; Handle vectors if any
+   ((listp obj) (mapcar #'fanshi/gptel--recursive-sanitize obj))
+   (t obj)))
+
+;; If your sanitize-string uses the round-trip method:
+(defun fanshi/gptel--sanitize-string (str)
+  (decode-coding-string (encode-coding-string str 'utf-8) 'utf-8))
+
+(defun fanshi/gptel-curl--get-args-a (args)
+  (let* ((data (car args))
+         (cleaned-data (fanshi/gptel--recursive-sanitize data)))
+    (cons cleaned-data (cdr args))))
+
+(advice-add 'gptel-curl--get-args :filter-args #'fanshi/gptel-curl--get-args-a)
+#+end_src
 * agent-shell
 ** Work around path issue
 #+begin_src emacs-lisp :tangle yes
