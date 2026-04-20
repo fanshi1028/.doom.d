@@ -808,7 +808,9 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
           (let ((json-object-type 'alist)
                 (json-array-type 'list))
             (cl-loop for model in (alist-get 'data (json-read))
-                     collect (intern (alist-get 'id model))))))))
+                     for id = (alist-get 'id model)
+                     unless (string-match "dflash" id)
+                     collect (intern id)))))))
 #+end_src
 ** Agents
 #+begin_src emacs-lisp :tangle yes
