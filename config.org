@@ -788,6 +788,45 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   (add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel-escape-tool-args)
   (add-to-list 'gptel-post-tool-call-functions #'fanshi/gptel-escape-tool-result))
 #+end_src
+** For gptel-send with active regoin under org-mode
+gptel--insert-response use org-cycle to hide some block in response which in turn trigger +org-yas-expand-maybe-h unexpectedly
+#+begin_src emacs-lisp :tangle yes
+(advice-add #'gptel-send :after (lambda (&rest r) "call `deactivate-mark' after, to temp fix an unexpected trigger of snippet by org-cycle calls in reponse" (if (use-region-p) (deactivate-mark))))
+#+end_src
+** fanshi/gptel-fetch-avaliable-models
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/gptel-fetch-avaliable-models (host &optional pass-entry)
+  "Fetch available models from local Llama server."
+  (let* ((url-request-method "GET")
+         (url-request-data nil)
+         (url-request-extra-headers (if pass-entry  `(("Authorization" . ,(concat "Bearer " (+pass-get-secret pass-entry)))) url-request-extra-headers ))
+         (response (url-retrieve-synchronously (concat "http://" host "/v1/models"))))
+    (when response
+        (with-current-buffer response
+          (goto-char (point-min))
+          (re-search-forward "\n\n")
+          (let ((json-object-type 'alist)
+                (json-array-type 'list))
+            (cl-loop for model in (alist-get 'data (json-read))
+                     collect (intern (alist-get 'id model))))))))
+#+end_src
+** Agents
+#+begin_src emacs-lisp :tangle yes
+(use-package! gptel-agent :after gptel)
+
+(after! gptel-agent
+  (defvar fanshi/gptel-agent-dir "~/.gptel-agents")
+  (defun fanshi/my-gptel-agent-update ()
+    (interactive)
+    (dolist (path (f-entries fanshi/gptel-agent-dir
+                             (lambda (f) (and (file-regular-p f)
+                                              (string= "md" (f-ext f))))))
+      (pcase (gptel-agent-read-file path '(()))
+        (`(,agent-name . ,agent-plist)
+         (apply #'gptel-make-preset (intern agent-name) agent-plist)))))
+  (gptel-agent-update)
+  (fanshi/my-gptel-agent-update))
+#+end_src
 ** Backend
 *** Local
 **** common
@@ -856,7 +895,7 @@ For 'Mlx: uses :hf tag value as model symbol."
         (nreverse models)))))
 #+end_src
 **** llama-server
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! gptel
   (defvar fanshi/gptel-local-llama)
   (setq fanshi/gptel-local-llama
@@ -864,7 +903,7 @@ For 'Mlx: uses :hf tag value as model symbol."
           :host "127.0.0.1:8080"
           :protocol "http"
           :stream t
-          :models (fanshi/gptel--load-models-from-ini 'Llama))))
+          :models (fanshi/gptel-fetch-avaliable-models "127.0.0.1:8080"))))
 #+end_src
 **** mlx_lm server
 #+begin_src emacs-lisp :tangle no
@@ -875,31 +914,22 @@ For 'Mlx: uses :hf tag value as model symbol."
           :host "127.0.0.1:8080"
           :protocol "http"
           :stream t
-          :models (fanshi/gptel--load-models-from-ini 'Mlx))))
+          :models (fanshi/gptel-fetch-avaliable-models "127.0.0.1:8080"))))
 #+end_src
 
-** TEMP fix for gptel-send with active regoin under org-mode
-gptel--insert-response use org-cycle to hide some block in response which in turn trigger +org-yas-expand-maybe-h unexpectedly
+**** omlx server
 #+begin_src emacs-lisp :tangle yes
-(advice-add #'gptel-send :after (lambda (&rest r) "call `deactivate-mark' after, to temp fix an unexpected trigger of snippet by org-cycle calls in reponse" (if (use-region-p) (deactivate-mark))))
+(after! gptel
+  (defvar fanshi/gpel-local-omlx)
+  (setq fanshi/gptel-local-omlx
+        (gptel-make-openai "Local OMLX"
+          :host "127.0.0.1:8000"
+          :protocol "http"
+          :key (lambda () (+pass-get-secret "omlx/1"))
+          :stream t
+          :models (fanshi/gptel-fetch-avaliable-models "127.0.0.1:8000" "omlx/1"))))
 #+end_src
-** Agents
-#+begin_src emacs-lisp :tangle yes
-(use-package! gptel-agent :after gptel)
 
-(after! gptel-agent
-  (defvar fanshi/gptel-agent-dir "~/.gptel-agents")
-  (defun fanshi/my-gptel-agent-update ()
-    (interactive)
-    (dolist (path (f-entries fanshi/gptel-agent-dir
-                             (lambda (f) (and (file-regular-p f)
-                                              (string= "md" (f-ext f))))))
-      (pcase (gptel-agent-read-file path '(()))
-        (`(,agent-name . ,agent-plist)
-         (apply #'gptel-make-preset (intern agent-name) agent-plist)))))
-  (gptel-agent-update)
-  (fanshi/my-gptel-agent-update))
-#+end_src
 ** Default
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
@@ -910,8 +940,8 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
    gptel-log-level 'info
    gptel-track-media t
    gptel-org-validate-link #'gptel-org--link-standalone-p
-   gptel-backend fanshi/gptel-local-llama
-   gptel-model 'Qwen3.5-122B-A10B-instruct
+   gptel-backend fanshi/gptel-local-omlx
+   gptel-model 'Qwen3.6-35B-A3B-MLX-8bit
    gptel-max-tokens nil)
   (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* ")
   (gptel-highlight-mode t))
