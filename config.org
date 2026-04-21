@@ -943,7 +943,7 @@ For 'Mlx: uses :hf tag value as model symbol."
    gptel-track-media t
    gptel-org-validate-link #'gptel-org--link-standalone-p
    gptel-backend fanshi/gptel-local-omlx
-   gptel-model 'Qwen3.6-35B-A3B-MLX-8bit
+   gptel-model 'Qwen3.6-35B-A3B
    gptel-max-tokens nil)
   (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* ")
   (gptel-highlight-mode t))
