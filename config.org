@@ -1151,6 +1151,22 @@ COMMAND is the bash command string to execute."
         (funcall callback (format "Project root not found, command blocked: %s" command)))))
   (advice-add 'gptel-agent--execute-bash :override #'fanshi/gptel-agent--execute-bash-a))
 #+end_src
+*** fanshi/restrict-to-projectile-files-a
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/restrict-to-projectile-files-a (&rest args)
+    (if-let* ((root (projectile-project-root))
+              (abs-root (expand-file-name root))
+              (path (car args))
+              (abs-path (expand-file-name path)))
+        (unless (string-prefix-p abs-root abs-path)
+          (error "Error: File or directory %s is not avaliable (restricted to project root %s)" path root))
+      (error "Error: Unexpected project root or path: %s, %s" root path)))
+  (advice-add 'gptel-agent--edit-files :before #'fanshi/restrict-to-projectile-files-a)
+  (advice-add 'gptel-agent--insert-in-file :before #'fanshi/restrict-to-projectile-files-a)
+  (advice-add 'gptel-agent--write-file :before #'fanshi/restrict-to-projectile-files-a)
+  (advice-add 'gptel-agent--read-file-lines :before #'fanshi/restrict-to-projectile-files-a))
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
