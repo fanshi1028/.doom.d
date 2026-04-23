@@ -1116,8 +1116,26 @@ For 'Mlx: uses :hf tag value as model symbol."
   (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* ")
   (gptel-highlight-mode t))
 #+end_src
-** nono warp Tools
-*** fanshi/gptel-agent--execute-bash-a
+** Restrict tools
+*** fanshi/restrict-to-projectile-files-a
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/restrict-to-projectile-files-a (&rest args)
+    (if-let* ((root (projectile-project-root))
+              (abs-root (expand-file-name root))
+              (path (car args))
+              (abs-path (expand-file-name path)))
+        (unless (string-prefix-p abs-root abs-path)
+          (error "Error: File or directory %s is not avaliable (restricted to project root %s)" path root))
+      (error "Error: Unexpected project root or path: %s, %s" root path)))
+  (advice-add 'gptel-agent--edit-files :before #'fanshi/restrict-to-projectile-files-a)
+  (advice-add 'gptel-agent--insert-in-file :before #'fanshi/restrict-to-projectile-files-a)
+  (advice-add 'gptel-agent--write-file :before #'fanshi/restrict-to-projectile-files-a)
+  (advice-add 'gptel-agent--read-file-lines :before #'fanshi/restrict-to-projectile-files-a))
+#+end_src
+
+*** nono
+**** fanshi/gptel-agent--execute-bash-a
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
   (defun fanshi/gptel-agent--execute-bash-a (callback command)
@@ -1151,23 +1169,7 @@ COMMAND is the bash command string to execute."
         (funcall callback (format "Project root not found, command blocked: %s" command)))))
   (advice-add 'gptel-agent--execute-bash :override #'fanshi/gptel-agent--execute-bash-a))
 #+end_src
-*** fanshi/restrict-to-projectile-files-a
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defun fanshi/restrict-to-projectile-files-a (&rest args)
-    (if-let* ((root (projectile-project-root))
-              (abs-root (expand-file-name root))
-              (path (car args))
-              (abs-path (expand-file-name path)))
-        (unless (string-prefix-p abs-root abs-path)
-          (error "Error: File or directory %s is not avaliable (restricted to project root %s)" path root))
-      (error "Error: Unexpected project root or path: %s, %s" root path)))
-  (advice-add 'gptel-agent--edit-files :before #'fanshi/restrict-to-projectile-files-a)
-  (advice-add 'gptel-agent--insert-in-file :before #'fanshi/restrict-to-projectile-files-a)
-  (advice-add 'gptel-agent--write-file :before #'fanshi/restrict-to-projectile-files-a)
-  (advice-add 'gptel-agent--read-file-lines :before #'fanshi/restrict-to-projectile-files-a))
-#+end_src
-*** fanshi/gptel-agent--glob-a
+**** fanshi/gptel-agent--glob-a
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (defun fanshi/gptel-agent--glob-a (pattern &optional path depth)
@@ -1218,7 +1220,7 @@ Raises an error if PATTERN is empty, PATH is not readable, or the
         (buffer-string))))
   (advice-add 'gptel-agent--glob :override #'fanshi/gptel-agent--glob-a))
 #+end_src
-*** fanshi/gptel-agent--grep-a
+**** fanshi/gptel-agent--grep-a
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (defun fanshi/gptel-agent--grep-a (regex path &optional glob context-lines)
