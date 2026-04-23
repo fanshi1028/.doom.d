@@ -1167,6 +1167,57 @@ COMMAND is the bash command string to execute."
   (advice-add 'gptel-agent--write-file :before #'fanshi/restrict-to-projectile-files-a)
   (advice-add 'gptel-agent--read-file-lines :before #'fanshi/restrict-to-projectile-files-a))
 #+end_src
+*** fanshi/gptel-agent--glob-a
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-agent--glob-a (pattern &optional path depth)
+    "Find files matching PATTERN using the `tree' command.
+
+PATTERN is a case-insensitive regex pattern to match filenames against.
+PATH is the optional directory to search (defaults to current directory).
+DEPTH limits recursion depth when provided (non-negative integer).
+
+Returns a string listing matching files with full paths, sorted by
+modification time.  If the output is too large (>20000 chars), it writes
+the full results to a temporary file and returns a truncated version with
+instructions to use `Read' for the full contents.
+
+Raises an error if PATTERN is empty, PATH is not readable, or the
+`tree' executable is not found."
+    (when (string-empty-p pattern)
+      (error "Error: pattern must not be empty"))
+    (if path
+        (unless (and (file-readable-p path) (file-directory-p path))
+          (error "Error: path %s is not readable" path))
+      (setq path "."))
+    (unless (executable-find "nono")
+      (error "Error: Executable `nono` not found.  This tool cannot be used"))
+    (unless (executable-find "tree")
+      (error "Error: Executable `tree` not found.  This tool cannot be used"))
+
+    (let ((full-path (expand-file-name path))
+          (root (projectile-project-root)))
+      (unless root
+        (error "Error: Project root not found. This tool cannot be used"))
+      (with-temp-buffer
+        (let* ((args (list "run" "--allow" root "--" "tree" "-l" "-f" "-i" "-I" ".git"
+                           "--sort=mtime" "--ignore-case"
+                           "--prune" "-P" pattern full-path))
+               (args (if (natnump depth)
+                         (nconc args (list "-L" (number-to-string depth)))
+                       args))
+               (exit-code (apply #'call-process "nono" nil t nil args)))
+          (when (/= exit-code 0)
+            (goto-char (point-min))
+            (insert (format "Glob failed with exit code %d\n.STDOUT:\n\n"
+                            exit-code))))
+        (goto-char (point-min))
+        (let ((pos (search-forward "Applying sandbox...\n")))
+          (when pos (delete-region (point-min) pos)))
+        (gptel-agent--truncate-buffer "glob")
+        (buffer-string))))
+  (advice-add 'gptel-agent--glob :override #'fanshi/gptel-agent--glob-a))
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
