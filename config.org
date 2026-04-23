@@ -826,7 +826,7 @@ return nil if the validation suceeded else return a string describing the errors
          (unless (and optional (null input_arg))
            (concat
             (when (not (fanshi/gptel--validate-simple-tool-arg-type type input_arg)) simple-error)
-            (when (and enum (not (member input_arg enum))) (format "Error: tool call arg %s (%s) expected enum (in %s) but got %s\n\n" name description enum input_arg))
+            (when (and enum (null (seq-position enum input_arg))) (format "Error: tool call arg %s (%s) expected enum (in %s) but got %s\n\n" name description enum input_arg))
             (when (and (eq type 'array) (not (listp input_arg))) simple-error)
             (when (eq type 'array) (let ((items (plist-get arg :items)))
                                      (when (and items (all (lambda (item) (not (fanshi/gptel fs--validate-simple-tool-arg-type item input_arg optional))) items))
