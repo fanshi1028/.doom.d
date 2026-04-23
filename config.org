@@ -1118,33 +1118,38 @@ For 'Mlx: uses :hf tag value as model symbol."
 #+end_src
 ** nono warp Tools
 *** fanshi/gptel-agent--execute-bash-a
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
   (defun fanshi/gptel-agent--execute-bash-a (callback command)
     "Execute COMMAND (wrapped by nono) asynchronously in bash and call CALLBACK with output.
 
 CALLBACK is called with the command output string when the process finishes.
 COMMAND is the bash command string to execute."
-    (if-let* ((output-buffer (generate-new-buffer " *gptel-agent-bash*"))
-              (root (projectile-project-root)))
-        (make-process
-         :name "gptel-agent-bash"
-         :buffer output-buffer
-         :command (list "nono" "run" "--allow" root "--" "bash" "-c" command)
-         :connection-type 'pipe
-         :sentinel
-         (lambda (process _event)
-           (when (memq (process-status process) '(exit signal))
-             (let* ((exit-code (process-exit-status process))
-                    (output (with-current-buffer (process-buffer process)
-                              (buffer-string))))
-               (kill-buffer (process-buffer process))
-               (funcall callback
-                        (if (zerop exit-code)
-                            output
-                          (format "Command failed with exit code %d:\nSTDOUT+STDERR:\n%s"
-                                  exit-code output)))))))
-      (funcall callback (format "Project root not found, command blocked: %s" command))))
+    (let ((output-buffer (generate-new-buffer " *gptel-agent-bash*"))
+          (root (projectile-project-root)))
+      (if root
+          (make-process
+           :name "gptel-agent-bash"
+           :buffer output-buffer
+           :command (list "nono" "run" "--allow" root "--" "bash" "-c" command)
+           :connection-type 'pipe
+           :sentinel
+           (lambda (process _event)
+             (when (memq (process-status process) '(exit signal))
+               (let* ((exit-code (process-exit-status process))
+                      (output (with-current-buffer (process-buffer process)
+                                (when (zerop exit-code)
+                                  (goto-char (point-min))
+                                  (let ((pos (search-forward "Applying sandbox...\n")))
+                                    (when pos (delete-region (point-min) pos))))
+                                (buffer-string))))
+                 (kill-buffer (process-buffer process))
+                 (funcall callback
+                          (if (zerop exit-code)
+                              output
+                            (format "Command failed with exit code %d:\nSTDOUT+STDERR:\n%s"
+                                    exit-code output)))))))
+        (funcall callback (format "Project root not found, command blocked: %s" command)))))
   (advice-add 'gptel-agent--execute-bash :override #'fanshi/gptel-agent--execute-bash-a))
 #+end_src
 * Literate recompilation only for config.org
