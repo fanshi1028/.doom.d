@@ -1100,6 +1100,18 @@ For 'Mlx: uses :hf tag value as model symbol."
           :models (fanshi/gptel-fetch-avaliable-models "127.0.0.1:8000" "omlx/1"))))
 #+end_src
 
+**** swiftlm server
+#+begin_src emacs-lisp :tangle no
+(after! gptel
+  (defvar fanshi/gptel-local-swiftlm)
+  (setq fanshi/gptel-local-swiftlm
+        (gptel-make-openai "Local SwiftLM"
+          :host "127.0.0.1:5413"
+          :protocol "http"
+          :stream t
+          :models (fanshi/gptel-fetch-avaliable-models "127.0.0.1:5413"))))
+#+end_src
+
 ** Default
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
