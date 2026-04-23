@@ -1130,8 +1130,21 @@ For 'Mlx: uses :hf tag value as model symbol."
       (error "Error: Unexpected project root or path: %s, %s" root path)))
   (advice-add 'gptel-agent--edit-files :before #'fanshi/restrict-to-projectile-files-a)
   (advice-add 'gptel-agent--insert-in-file :before #'fanshi/restrict-to-projectile-files-a)
-  (advice-add 'gptel-agent--write-file :before #'fanshi/restrict-to-projectile-files-a)
   (advice-add 'gptel-agent--read-file-lines :before #'fanshi/restrict-to-projectile-files-a))
+#+end_src
+*** fanshi/gptel-agent--write-file-a
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-agent--write-file-a (&rest args)
+    (if-let* ((root (projectile-project-root))
+              (abs-root (expand-file-name root))
+              (path (car args))
+              (filename (cadr args))
+              (abs-path (expand-file-name filename path)))
+        (unless (string-prefix-p abs-root abs-path)
+          (error "Error: File or directory %s is not avaliable (restricted to project root %s)" path root))
+      (error "Error: Unexpected project root, path or filename: %s, %s, %s" root path filename)))
+  (advice-add 'gptel-agent--write-file :before #'fanshi/gptel-agent--write-file-a))
 #+end_src
 
 *** nono
