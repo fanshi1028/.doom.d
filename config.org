@@ -1218,6 +1218,68 @@ Raises an error if PATTERN is empty, PATH is not readable, or the
         (buffer-string))))
   (advice-add 'gptel-agent--glob :override #'fanshi/gptel-agent--glob-a))
 #+end_src
+*** fanshi/gptel-agent--grep-a
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-agent--grep-a (regex path &optional glob context-lines)
+    "Search for REGEX in file or directory at PATH using ripgrep.
+
+REGEX is a PCRE-format regular expression to search for.
+PATH can be a file or directory to search in.
+
+Optional arguments:
+GLOB restricts the search to files matching the glob pattern.
+  Examples: \"*.el\", \"*.md\", \"*.rs\"
+CONTEXT-LINES specifies the number of lines of context to show
+  around each match (0-15 inclusive, defaults to 0).
+
+Returns a string containing matches grouped by file, with line numbers
+and optional context.  Results are limited to 1000 or fewer matches per
+file.  Results are sorted by modification time."
+    (unless (file-readable-p path)
+      (error "Error: File or directory %s is not readable" path))
+
+    (let ((root (projectile-project-root))
+          (nono (executable-find "nono"))
+          (grepper (or (executable-find "rg") (executable-find "grep"))))
+      (unless root
+        (error "Error: project root not found, this tool cannot be used"))
+      (unless nono
+        (error "Error: nono not available, this tool cannot be used"))
+      (unless grepper
+        (error "Error: ripgrep/grep not available, this tool cannot be used"))
+      (with-temp-buffer
+        (let* ((cmd (file-name-sans-extension (file-name-nondirectory grepper)))
+               (args
+                (cond
+                 ((string= "rg" cmd)
+                  (delq nil (list "--sort=modified"
+                                  (and (natnump context-lines)
+                                       (format "--context=%d" context-lines))
+                                  (and glob (format "--glob=%s" glob))
+                                  ;; "--files-with-matches"
+                                  "--max-count=1000"
+                                  "--heading" "--line-number" "-e" regex
+                                  (expand-file-name (substitute-in-file-name path)))))
+                 ((string= "grep" cmd)
+                  (delq nil (list "--recursive"
+                                  (and (natnump context-lines)
+                                       (format "--context=%d" context-lines))
+                                  (and glob (format "--include=%s" glob))
+                                  "--max-count=1000"
+                                  "--line-number" "--regexp" regex
+                                  (expand-file-name (substitute-in-file-name path)))))
+                 (t (error "Error: failed to identify grepper"))))
+               (args (append (list "run" "--allow" root "--" grepper) args))
+               (exit-code (apply #'call-process nono nil '(t t) nil args)))
+          (goto-char (point-min))
+          (if (/= exit-code 0)
+              (insert (format "Error: search failed with exit-code %d.  Tool output:\n\n" exit-code))
+            (let ((pos (search-forward "Applying sandbox...\n")))
+              (when pos (delete-region (point-min) pos))))
+          (buffer-string)))))
+  (advice-add 'gptel-agent--grep :override #'fanshi/gptel-agent--grep-a))
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
