@@ -1205,8 +1205,6 @@ Raises an error if PATTERN is empty, PATH is not readable, or the
         (unless (and (file-readable-p path) (file-directory-p path))
           (error "Error: path %s is not readable" path))
       (setq path "."))
-    (unless (executable-find "nono")
-      (error "Error: Executable `nono` not found.  This tool cannot be used"))
     (unless (executable-find "tree")
       (error "Error: Executable `tree` not found.  This tool cannot be used"))
 
@@ -1221,7 +1219,7 @@ Raises an error if PATTERN is empty, PATH is not readable, or the
                (args (if (natnump depth)
                          (nconc args (list "-L" (number-to-string depth)))
                        args))
-               (exit-code (apply #'call-process "nono" nil t nil args)))
+               (exit-code (apply #'call-process fanshi/nono nil t nil args)))
           (when (/= exit-code 0)
             (goto-char (point-min))
             (insert (format "Glob failed with exit code %d\n.STDOUT:\n\n"
