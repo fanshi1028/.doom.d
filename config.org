@@ -1090,7 +1090,7 @@ For 'Mlx: uses :hf tag value as model symbol."
 **** omlx server
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (defvar fanshi/gpel-local-omlx)
+  (defvar fanshi/gptel-local-omlx)
   (setq fanshi/gptel-local-omlx
         (gptel-make-openai "Local OMLX"
           :host "127.0.0.1:8000"
