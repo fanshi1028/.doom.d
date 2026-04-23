@@ -1138,17 +1138,16 @@ COMMAND is the bash command string to execute."
              (when (memq (process-status process) '(exit signal))
                (let* ((exit-code (process-exit-status process))
                       (output (with-current-buffer (process-buffer process)
-                                (when (zerop exit-code)
-                                  (goto-char (point-min))
-                                  (let ((pos (search-forward "Applying sandbox...\n")))
-                                    (when pos (delete-region (point-min) pos))))
-                                (buffer-string))))
+                                (if (zerop exit-code)
+                                    (progn
+                                      (goto-char (point-min))
+                                      (let ((pos (search-forward "Applying sandbox...\n")))
+                                        (when pos (delete-region (point-min) pos)))
+                                      (buffer-string))
+                                  (format "Command failed with exit code %d:\nSTDOUT+STDERR:\n%s"
+                                          exit-code (buffer-string))))))
                  (kill-buffer (process-buffer process))
-                 (funcall callback
-                          (if (zerop exit-code)
-                              output
-                            (format "Command failed with exit code %d:\nSTDOUT+STDERR:\n%s"
-                                    exit-code output)))))))
+                 (funcall callback output)))))
         (funcall callback (format "Project root not found, command blocked: %s" command)))))
   (advice-add 'gptel-agent--execute-bash :override #'fanshi/gptel-agent--execute-bash-a))
 #+end_src
