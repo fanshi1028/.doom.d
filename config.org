@@ -799,16 +799,14 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
 *** fanshi/gptel--validate-simple-tool-arg-type & fanshi/gptel--validate-tool-args
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (defun fanshi/gptel--validate-simple-tool-arg-type (type arg optional)
-    (or
-     (pcase type
-       ((or 'null "null") (null arg))
-       ((or 'string "string") (stringp arg))
-       ((or 'number "number") (numberp arg))
-       ((or 'integer "integer") (integerp arg))
-       ((or 'boolean "boolean") (booleanp arg))
-       (_ (progn (message (format "Warning: FIXME TBE %s, return t" type)) t)))
-     (and optional (null arg))))
+  (defun fanshi/gptel--validate-simple-tool-arg-type (type arg)
+    (pcase type
+      ((or 'null "null") (null arg))
+      ((or 'string "string") (stringp arg))
+      ((or 'number "number") (numberp arg))
+      ((or 'integer "integer") (integerp arg))
+      ((or 'boolean "boolean") (booleanp arg))
+      (_ (progn (message (format "Warning: FIXME TBE %s, return t" type)) t))))
   (defun fanshi/gptel--validate-tool-args (tool-spec args)
     "validate ARGS according to TOOL-SPEC.
 
@@ -816,29 +814,26 @@ TOOL-SPEC is a `gptel-tool' and ARGS is a plist of arguments for a tool
 call.  The argument list is suitable for supplying to the tool function.
 return nil if the validation suceeded else return a string describing the errors.
 "
-    (s-join ""
-            (mapcar
-             (lambda (arg)
-               (let* ((name (plist-get arg :name))
-                      (input_arg (plist-get args (intern (concat ":" name))))
-                      (description (plist-get arg :description))
-                      (optional (plist-get arg :optional))
-                      (enum (plist-get arg :enum))
-                      (type (plist-get arg :type))
-                      (simple-error (format "Error: tool call arg %s (%s) expected type %s but got %s\n\n" name description type input_arg)))
-                 (and
-                  (cond
-                   ((not (fanshi/gptel--validate-simple-tool-arg-type type input_arg optional)) simple-error)
-                   ((and (eq type 'array) (not (listp input_arg))) simple-error)
-                   ((eq type 'array) (let ((items (plist-get arg :items)))
-                                       (if (and items (all (lambda (item) (not (fanshi/gptel fs--validate-simple-tool-arg-type item input_arg optional))) items))
-                                           (format "Error: tool call arg %s (%s) expected array with item type in %s but got %s\n\n" name description items input_arg)
-                                         nil)))
-                   ;; NOTE: :properties, if the type is object.  Its value must be a plist that can be
-                   ;; serialized into a JSON object specification by `json-serialize'.
-                   ((eq type 'object) nil)) ;; TEMP FIXME: complex validation of object is not needed, as I don't have a tool with object arg yet, so skip it for now
-                  (when (and enum (member input_arg enum)) (format "Error: tool call arg %s (%s) expected enum (in %s) but got %s\n\n" name description enum input_arg)))))
-             (gptel-tool-args tool-spec)))))
+    (mapconcat
+     (lambda (arg)
+       (let* ((name (plist-get arg :name))
+              (input_arg (plist-get args (intern (concat ":" name))))
+              (description (plist-get arg :description))
+              (optional (plist-get arg :optional))
+              (enum (plist-get arg :enum))
+              (type (plist-get arg :type))
+              (simple-error (format "Error: tool call arg %s (%s) expected type %s but got %s\n\n" name description type input_arg)))
+         (unless (and optional (null input_arg))
+           (concat
+            (when (not (fanshi/gptel--validate-simple-tool-arg-type type input_arg)) simple-error)
+            (when (and enum (not (member input_arg enum))) (format "Error: tool call arg %s (%s) expected enum (in %s) but got %s\n\n" name description enum input_arg))
+            (when (and (eq type 'array) (not (listp input_arg))) simple-error)
+            (when (eq type 'array) (let ((items (plist-get arg :items)))
+                                     (when (and items (all (lambda (item) (not (fanshi/gptel fs--validate-simple-tool-arg-type item input_arg optional))) items))
+                                       (format "Error: tool call arg %s (%s) expected array with item type in %s but got %s\n\n" name description items input_arg))))
+            ;; TEMP FIXME: I don't have a tool with object arg yet, so skip it now
+            (when (eq type 'object) nil)))))
+     (gptel-tool-args tool-spec))))
 #+end_src
 *** fanshi/gptel--handle-tool-use-a
 #+begin_src emacs-lisp :tangle yes
@@ -897,8 +892,8 @@ return nil if the validation suceeded else return a string describing the errors
           (when pending-calls
             (plist-put info :tool-pending t)
             (funcall (plist-get info :callback)
-                     (cons 'tool-call pending-calls) info)))))
-    (advice-add 'gptel--handle-tool-use :override #'fanshi/gptel--handle-tool-use-a)))
+                     (cons 'tool-call pending-calls) info))))))
+  (advice-add 'gptel--handle-tool-use :override #'fanshi/gptel--handle-tool-use-a))
 #+end_src
 *** fanshi/gptel--handle-post-tool-a
 #+begin_src emacs-lisp :tangle yes
