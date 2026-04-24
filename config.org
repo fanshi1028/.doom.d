@@ -1393,6 +1393,8 @@ kill-new: Wrong type argument: stringp, nil
   (cond
    ((stringp obj) (fanshi/gptel--sanitize-string obj))
    ((vectorp obj) (vconcat (mapcar #'fanshi/gptel--recursive-sanitize obj))) ; Handle vectors if any
+   ((consp obj) (cons (fanshi/gptel--recursive-sanitize (car obj))
+                      (fanshi/gptel--recursive-sanitize (cdr obj))))
    ((listp obj) (mapcar #'fanshi/gptel--recursive-sanitize obj))
    (t obj)))
 
