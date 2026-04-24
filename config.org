@@ -1346,13 +1346,27 @@ file.  Results are sorted by modification time."
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (defun fanshi/gptel--rewrite-directive-default ()
-    (when (memq 'gptel-mode minor-mode-list)
+    (cond
+     (gptel-mode
       (concat "You are a prompt engineer.  "
               "Your take a user's draft prompt and *IMMEDIATELY* rewrite it into a superior prompt. \n"
               "- Generate ONLY the prompt as output"
               "- Preserve the user's original intent"
               "- Do not ask for further clarification, and make "
-              "any assumptions you need to follow instructions.")))
+              "any assumptions you need to follow instructions."))
+     ((-some-->
+          (derived-mode-p 'org-mode)
+        (eq 'src-block (org-element-type (org-element-context)))
+        (org-element-property :language (org-element-at-point))
+        (format (concat "You are a %s programmer.  "
+                        "Follow my instructions and refactor %s code I provide.\n"
+                        "- Generate ONLY %s code as output, without "
+                        "any explanation or markdown code fences.\n"
+                        "- Generate code in full, do not abbreviate or omit code.\n"
+                        "- Do not produce intermediate text or report on your progress.\n"
+                        "- Do not ask for further clarification, and make "
+                        "any assumptions you need to follow instructions.")
+                it it it)))))
   (advice-add 'gptel--rewrite-directive-default :before-until 'fanshi/gptel--rewrite-directive-default))
 #+end_src
 ** Allow user to reject tool call with a reason
