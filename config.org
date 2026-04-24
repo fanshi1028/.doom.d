@@ -1355,6 +1355,16 @@ file.  Results are sorted by modification time."
               "any assumptions you need to follow instructions.")))
   (advice-add 'gptel--rewrite-directive-default :before-until 'fanshi/gptel--rewrite-directive-default))
 #+end_src
+** Allow user to reject tool call with a reason
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel--reject-tool-calls-a (&optional tool-calls _ov)
+    (cl-loop for (_tool-spec _arg-plist process-tool-result) in tool-calls
+             do (pcase (read-from-minibuffer "Reason to reject the tool call: ")
+                  ((and (pred (not string-empty-p)) reason) (funcall process-tool-result (concat "User rejected tool call: " reason)))
+                  (_))))
+  (advice-add 'gptel--reject-tool-calls :after #'fanshi/gptel--reject-tool-calls-a))
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
