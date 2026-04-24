@@ -1095,7 +1095,7 @@ For 'Mlx: uses :hf tag value as model symbol."
         (gptel-make-openai "Local OMLX"
           :host "127.0.0.1:8000"
           :protocol "http"
-          :key (lambda () (+pass-get-secret "omlx/1"))
+          :key (password-store-get "omlx/1")
           :stream t
           :models (fanshi/gptel-fetch-avaliable-models "127.0.0.1:8000" "omlx/1"))))
 #+end_src
