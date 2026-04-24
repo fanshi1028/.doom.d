@@ -1315,6 +1315,8 @@ file.  Results are sorted by modification time."
      (lambda (cb)
        (progn
          (goto-char (point-min))
+         ;; TEMP FIXME handle more content type like img or other?
+         ;; maybe if model can handling those mime, pass it to them in the right way.
          (if (search-forward "content-type: application/pdf" (save-excursion (forward-paragraph) (point)) t)
              (funcall cb "TEMP FIXME: pdf returned from the url, but handler for pdf is not implemented")
            (goto-char (point-min))
