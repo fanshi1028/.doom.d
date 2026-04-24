@@ -870,6 +870,7 @@ return nil if the validation suceeded else return a string describing the errors
                          (funcall process-tool-result tool-args-errors)
                        (let ((confirm)) ;Check if tool requires confirmation
                          (cond ;:confirm in tool-call (from hooks) takes precedence
+                          ((member name fanshi/safe-tool))
                           ((and-let* ((call-confirm (plist-member tool-call :confirm)))
                              (setq confirm (cadr call-confirm))))
                           ((and gptel-confirm-tool-calls ;global and tool-specific setting
@@ -1335,6 +1336,11 @@ file.  Results are sorted by modification time."
                                         errdata)))))))
      tool-cb (format "Fetch for \"%s\"" url)))
   (advice-add 'gptel-agent--read-url :override #'fanshi/gptel-agent--read-url-a))
+#+end_src
+*** liberate restricted tools!
+#+begin_src emacs-lisp :tangle yes
+;; NOTE TEMP FIXME: "Bash" is nono warped and should be safe-enough? But for now I am keeping it out of this whitelist
+(defvar fanshi/safe-tool '("Write" "Edit" "Insert" "Mkdir"))
 #+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
