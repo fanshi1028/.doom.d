@@ -788,7 +788,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   (add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel-escape-tool-args)
   (add-to-list 'gptel-post-tool-call-functions #'fanshi/gptel-escape-tool-result))
 #+end_src
-** For gptel-send with active regoin under org-mode
+** For gptel-send with active region under org-mode
 gptel--insert-response use org-cycle to hide some block in response which in turn trigger +org-yas-expand-maybe-h unexpectedly
 #+begin_src emacs-lisp :tangle yes
 (advice-add #'gptel-send :after (lambda (&rest r) "call `deactivate-mark' after, to temp fix an unexpected trigger of snippet by org-cycle calls in reponse" (if (use-region-p) (deactivate-mark))))
@@ -961,8 +961,7 @@ return nil if the validation suceeded else return a string describing the errors
                            (plist-put tool-call :result result))))))))))))))
   (advice-add 'gptel--handle-post-tool :override #'fanshi/gptel--handle-post-tool-a))
 #+end_src
-
-** fanshi/gptel-fetch-avaliable-models
+** fanshi/gptel-fetch-available-models
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/gptel-fetch-avaliable-models (host &optional pass-entry)
   "Fetch available models from local Llama server."
