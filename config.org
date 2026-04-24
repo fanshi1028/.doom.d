@@ -1341,6 +1341,20 @@ file.  Results are sorted by modification time."
 ;; NOTE TEMP FIXME: "Bash" is nono warped and should be safe-enough? But for now I am keeping it out of this whitelist
 (defvar fanshi/safe-tool '("Write" "Edit" "Insert" "Mkdir"))
 #+end_src
+** Prompt rewrite for gptel-mode
+*** fanshi/gptel-rewrite
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel--rewrite-directive-default ()
+    (when (memq 'gptel-mode minor-mode-list)
+      (concat "You are a prompt engineer.  "
+              "Your take a user's draft prompt and *IMMEDIATELY* rewrite it into a superior prompt. \n"
+              "- Generate ONLY the prompt as output"
+              "- Preserve the user's original intent"
+              "- Do not ask for further clarification, and make "
+              "any assumptions you need to follow instructions.")))
+  (advice-add 'gptel--rewrite-directive-default :before-until 'fanshi/gptel--rewrite-directive-default))
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
