@@ -1129,7 +1129,8 @@ For 'Mlx: uses :hf tag value as model symbol."
   (gptel-highlight-mode t))
 #+end_src
 ** Restrict tools
-*** fanshi/restrict-to-projectile-files-a
+*** restrict-to-projectile-files
+**** fanshi/restrict-to-projectile-files-a
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (defun fanshi/restrict-to-projectile-files-a (&rest args)
@@ -1144,10 +1145,10 @@ For 'Mlx: uses :hf tag value as model symbol."
   (advice-add 'gptel-agent--insert-in-file :before #'fanshi/restrict-to-projectile-files-a)
   (advice-add 'gptel-agent--read-file-lines :before #'fanshi/restrict-to-projectile-files-a))
 #+end_src
-*** fanshi/gptel-agent--write-file-a
+**** fanshi/restrict-to-projectile-files-2-a
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (defun fanshi/gptel-agent--write-file-a (&rest args)
+  (defun fanshi/restrict-to-projectile-files-2-a (&rest args)
     (if-let* ((root (projectile-project-root))
               (abs-root (expand-file-name root))
               (path (car args))
@@ -1156,9 +1157,9 @@ For 'Mlx: uses :hf tag value as model symbol."
         (unless (string-prefix-p abs-root abs-path)
           (error "Error: File or directory %s is not avaliable (restricted to project root %s)" path root))
       (error "Error: Unexpected project root, path or filename: %s, %s, %s" root path filename)))
-  (advice-add 'gptel-agent--write-file :before #'fanshi/gptel-agent--write-file-a))
+  (advice-add 'gptel-agent--write-file :before #'fanshi/restrict-to-projectile-files-2-a)
+  (advice-add 'gptel-agent--make-directory :before #'fanshi/restrict-to-projectile-files-2-a))
 #+end_src
-
 *** nono
 **** fanshi/gptel-agent--execute-bash-a
 #+begin_src emacs-lisp :tangle yes :lexical t
