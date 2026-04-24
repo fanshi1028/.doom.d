@@ -1305,6 +1305,34 @@ file.  Results are sorted by modification time."
           (buffer-string)))))
   (advice-add 'gptel-agent--grep :override #'fanshi/gptel-agent--grep-a))
 #+end_src
+*** gptel-agent--read-url
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-agent--read-url-a (tool-cb url)
+    "Fetch URL text and call TOOL-CB with it."
+    (gptel-agent--fetch-with-timeout
+     url
+     (lambda (cb)
+       (progn
+         (goto-char (point-min))
+         (if (search-forward "content-type: application/pdf" (save-excursion (forward-paragraph) (point)) t)
+             (funcall cb "TEMP FIXME: pdf returned from the url, but handler for pdf is not implemented")
+           (goto-char (point-min))
+           (forward-paragraph)
+           (condition-case errdata
+               (let ((dom (libxml-parse-html-region (point) (point-max))))
+                 (with-temp-buffer
+                   (eww-score-readability dom)
+                   (shr-insert-document (eww-highest-readability dom))
+                   (decode-coding-region (point-min) (point-max) 'utf-8)
+                   (funcall
+                    cb (buffer-substring-no-properties
+                        (point-min) (point-max)))))
+             (error (funcall cb (format "Error: Request failed with error data:\n%S"
+                                        errdata)))))))
+     tool-cb (format "Fetch for \"%s\"" url)))
+  (advice-add 'gptel-agent--read-url :override #'fanshi/gptel-agent--read-url-a))
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
