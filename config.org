@@ -961,6 +961,34 @@ return nil if the validation suceeded else return a string describing the errors
                            (plist-put tool-call :result result))))))))))))))
   (advice-add 'gptel--handle-post-tool :override #'fanshi/gptel--handle-post-tool-a))
 #+end_src
+*** Timout when tool calling asking for user confirmation
+- user might be afk, so better just try to find the other way out.
+#+begin_src emacs-lisp :tangle yes  :lexical t
+(after! gptel
+  (defvar fanshi/gptel-tool-call-confirm-timeout 30)
+  (defvar fanshi/gptel-tool-call-confirm-mutex (make-mutex))
+  (defvar fanshi/tool-call-confirm-timer)
+
+  (defun fanshi/gptel--display-tool-calls-a (tool-calls info &optional _use-minibuffer)
+    (let ((ov (cdr-safe (get-char-property-and-overlay (point) 'gptel-tool))))
+      (setq fanshi/tool-call-confirm-timer
+            (run-at-time
+             fanshi/gptel-tool-call-confirm-timeout nil
+             (lambda ()
+               (with-mutex fanshi/gptel-tool-call-confirm-mutex
+                 (gptel--reject-tool-calls tool-calls ov)))))))
+
+  (advice-add 'gptel--display-tool-calls :after #'fanshi/gptel--display-tool-calls-a)
+
+  (defun fanshi/gptel-agent--clear-tool-calls-confirmation-timer (&rest _args)
+    (when (mutexp fanshi/gptel-tool-call-confirm-mutex)
+      (with-mutex fanshi/gptel-tool-call-confirm-mutex
+        (when fanshi/tool-call-confirm-timer
+          (cancel-timer fanshi/tool-call-confirm-timer)
+          (setq fanshi/tool-call-confirm-timer nil)))))
+  (advice-add 'gptel--accept-tool-calls :before #'fanshi/gptel-agent--clear-tool-calls-confirmation-timer)
+  (advice-add 'gptel--reject-tool-calls :before #'fanshi/gptel-agent--clear-tool-calls-confirmation-timer))
+#+end_src
 ** fanshi/gptel-fetch-available-models
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/gptel-fetch-avaliable-models (host &optional pass-entry)
@@ -1374,9 +1402,11 @@ file.  Results are sorted by modification time."
 (after! gptel
   (defun fanshi/gptel--reject-tool-calls-a (&optional tool-calls _ov)
     (cl-loop for (_tool-spec _arg-plist process-tool-result) in tool-calls
-             do (pcase (read-from-minibuffer "Reason to reject the tool call: ")
-                  ((and (pred (not string-empty-p)) reason) (funcall process-tool-result (concat "User rejected tool call: " reason)))
-                  (_))))
+             do (if (not (called-interactively-p 'any)) ;; NOTE: not called by the user -> timeout!
+                    (funcall process-tool-result "User probably AFK, please try finding another way to achieve whatever the tool call was intended")
+                  (pcase (read-from-minibuffer "Reason to reject the tool call: ")
+                    ((and (pred (not string-empty-p)) reason) (funcall process-tool-result (concat "User rejected tool call: " reason)))
+                    (_)))))
   (advice-add 'gptel--reject-tool-calls :after #'fanshi/gptel--reject-tool-calls-a))
 #+end_src
 * Literate recompilation only for config.org
