@@ -1474,6 +1474,50 @@ file.  Results are sorted by modification time."
                     (_)))))
   (advice-add 'gptel--reject-tool-calls :after #'fanshi/gptel--reject-tool-calls-a))
 #+end_src
+** Different Context, Different Preset
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defvar fanshi/show-prompt-classification t)
+  (defvar fanshi/prompt-classes '(coding do research plan))
+  (defun fanshi/gptel-apply-preset-by-prompt-classification (cb info)
+    (let ((prompt (buffer-substring-no-properties (point-min) (point-max))))
+      (condition-case err
+          (gptel-request
+              (format
+               "classify the below prompt into one of the classes in %s,
+                  coding: if it is an executable coding task with clear scope and objective
+                  do: if it is a simple instruction
+                  research: if it require deeper research for specific topic to answer
+                  plan: require thoughtful planing and even clarification from user
+                only responds with an simple answer, nothing else:
+
+                %s"
+               fanshi/prompt-classes
+               prompt)
+            :callback
+            (lambda (classification _info)
+              (progn
+                (when fanshi/show-prompt-classification
+                  (goto-char (+ (point-min) (length (gptel-prompt-prefix-string))))
+                  (insert "@" classification " ")
+                  (goto-char (point-max)))
+                (gptel--apply-preset
+                 (intern-soft classification)
+                 (lambda (sym val) (set (make-local-variable sym) val)))
+                (funcall cb))))
+        (t (message (format "Prompt classification %s" err))))))
+  (add-to-list 'gptel-prompt-transform-functions #'fanshi/gptel-apply-preset-by-prompt-classification)
+
+  (defun fanshi/gptel--transform-apply-preset-a (&rest args)
+    "If preset is specified in the prompt, skip prompt classification"
+    (save-excursion
+      (goto-char (point-min))
+      (when (re-search-forward "@\\([^[:space:]]+\\)\\_>" nil t)
+        (setq-local gptel-prompt-transform-functions
+                    (remove #'fanshi/gptel-apply-preset-by-prompt-classification gptel-prompt-transform-functions)))))
+
+  (advice-add 'gptel--transform-apply-preset :before #'fanshi/gptel--transform-apply-preset-a))
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
