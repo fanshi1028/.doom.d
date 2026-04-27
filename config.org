@@ -1442,7 +1442,7 @@ file.  Results are sorted by modification time."
 (defvar fanshi/safe-tool '("Write" "Edit" "Insert" "Mkdir"))
 #+end_src
 ** Prompt rewrite for gptel-mode
-*** fanshi/gptel-rewrite
+*** fanshi/gptel--rewrite-directive-default
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (defun fanshi/gptel--rewrite-directive-default ()
