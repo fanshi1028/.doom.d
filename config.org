@@ -1077,7 +1077,7 @@ return nil if the validation suceeded else return a string describing the errors
                       :max_tokens :null)
     :description "Preset for writing code"
     :model 'Qwen3.6-35B-A3B
-    :tools '("TodoWrite" "Glob" "Grep" "Insert" "Edit" "Write" "Bash")
+    :tools '("TodoWrite" "Glob" "Grep" "Read" "Insert" "Edit" "Write" "Bash" "WebFetch")
     :use-context (with-temp-buffer (insert-file-contents "./gptel/coding.md") (buffer-string))
     :context nil))
 #+end_src
