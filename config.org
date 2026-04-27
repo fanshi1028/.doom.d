@@ -1030,16 +1030,23 @@ return nil if the validation suceeded else return a string describing the errors
   :init (setopt gptel-agent-dirs '())
   :after gptel)
 #+end_src
+*** with-file-read/write-tools
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (gptel-make-preset 'with-file-read-tools
+    :tools '(:append ("Glob" "Grep" "Read")))
+  (gptel-make-preset 'with-file-write-tools
+    :parents 'with-file-read-tools
+    :tools '(:append ("Insert" "Edit" "Write" "Bash"))))
+#+end_src
 *** General tasks
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (gptel-make-preset 'plan :parents 'gptel-agent)
   (gptel-make-preset 'gptel-agent
-    :request-params '(:enable-thinking t :preserve-thinking t
-                      :temperature 1.0 :top-p 0.95 :top-k 20 :min-p 0.0 :presence-penalty 1.5 :repetition-penalty 1.0)
+    :parents 'research
     :description "Preset for general plan"
-    :model 'Qwen3.6-35B-A3B
-    :tools '("Agent" "TodoWrite" "Glob" "Grep" "Read" "WebSearch" "WebFetch" "YouTube")
+    :tools '(:append ("Agent" "TodoWrite"))
     :use-context 'system
     :context nil))
 #+end_src
@@ -1047,11 +1054,12 @@ return nil if the validation suceeded else return a string describing the errors
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (gptel-make-preset 'research
+    :parents 'with-file-read-tools
     :request-params '(:enable-thinking t :preserve-thinking t
                       :temperature 1.0 :top-p 0.95 :top-k 20 :min-p 0.0 :presence-penalty 1.5 :repetition-penalty 1.0)
     :description "Preset for research"
     :model 'Qwen3.6-35B-A3B
-    :tools '("Glob" "Grep" "Read" "WebSearch" "WebFetch" "YouTube")
+    :tools '(:append ("WebSearch" "WebFetch" "YouTube"))
     :use-context (with-temp-buffer (insert-file-contents "./gptel/research.md") (buffer-string))
     :context nil))
 #+end_src
@@ -1063,7 +1071,7 @@ return nil if the validation suceeded else return a string describing the errors
                       :temperature 0.7 :top-p 0.80 :top-k 20 :min-p 0.0 :presence-penalty 1.5 :repetition-penalty 1.0)
     :description "Preset for execute instruction"
     :model 'Qwen3.6-35B-A3B
-    :tools '("Glob" "Grep" "Read" "Insert" "Edit" "Write" "Bash")
+    :tools nil
     :use-context 'system
     :context nil))
 #+end_src
@@ -1071,13 +1079,14 @@ return nil if the validation suceeded else return a string describing the errors
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (gptel-make-preset 'coding
+    :parents 'with-file-write-tools
     :request-params '(:temperature 0.6 :top-p 0.95 :top-k 20 :min-p 0.0
                       :presence-penalty 0.0 :repetition-penalty 1.0
                       :enable-thinking t :preserve-thinking t
                       :max_tokens :null)
     :description "Preset for writing code"
     :model 'Qwen3.6-35B-A3B
-    :tools '("TodoWrite" "Glob" "Grep" "Read" "Insert" "Edit" "Write" "Bash" "WebFetch")
+    :tools '(:append ("TodoWrite" "Bash" "WebFetch"))
     :use-context (with-temp-buffer (insert-file-contents "./gptel/coding.md") (buffer-string))
     :context nil))
 #+end_src
@@ -1086,9 +1095,7 @@ return nil if the validation suceeded else return a string describing the errors
 (after! gptel
   (gptel-make-preset 'heavy
     :description "Preset for heavy task"
-    :model 'Qwen3.6-27B
-    ;; :context '("./.grammar_rules.md" "./jargonfile.md")
-    ))
+    :model 'Qwen3.6-27B))
 #+end_src
 ** Backend
 *** Local
