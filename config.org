@@ -1626,6 +1626,12 @@ kill-new: Wrong type argument: stringp, nil
 (defconst fanshi/opencode (executable-find "opencode"))
 (defconst fanshi/pi-acp (executable-find "pi-acp"))
 #+end_src
+#+begin_src emacs-lisp :tangle yes
+(after! agent-shell
+  (setopt agent-shell-pi-environment
+        (agent-shell-make-environment-variables
+         "OMLX_API_KEY" (password-store-get "omlx/1"))))
+#+end_src
 ** fanshi/agent-shell-command-prefix
 #+begin_src emacs-lisp :tangle yes
 (after! agent-shell
