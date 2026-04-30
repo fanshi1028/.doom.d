@@ -1464,6 +1464,14 @@ file.  Results are sorted by modification time."
                 it it it)))))
   (advice-add 'gptel--rewrite-directive-default :before-until 'fanshi/gptel--rewrite-directive-default))
 #+end_src
+*** skip prompt classification when gptel-rewrite
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-rewrite-a (orig-f &rest args)
+    (let ((gptel-prompt-transform-functions (remove #'fanshi/gptel-apply-preset-by-prompt-classification gptel-prompt-transform-functions)))
+      (apply orig-f args)))
+  (advice-add 'gptel-rewrite :around #'fanshi/gptel-rewrite-a))
+#+end_src
 ** Allow user to reject tool call with a reason
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
