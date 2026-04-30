@@ -963,7 +963,7 @@ return nil if the validation suceeded else return a string describing the errors
 #+end_src
 *** Timout when tool calling asking for user confirmation
 - user might be afk, so better just try to find the other way out.
-#+begin_src emacs-lisp :tangle yes  :lexical t
+#+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
   (defvar fanshi/gptel-tool-call-confirm-timeout 30)
   (defvar fanshi/gptel-tool-call-confirm-mutex (make-mutex))
