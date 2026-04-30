@@ -1482,35 +1482,38 @@ file.  Results are sorted by modification time."
   (defvar fanshi/show-prompt-classification t)
   (defvar fanshi/prompt-classes '(coding do research plan))
   (defun fanshi/gptel-apply-preset-by-prompt-classification (cb info)
-    (when-let ((gptel-mode)
-               (prompt (buffer-substring-no-properties (point-min) (point-max))))
-      (condition-case err
-          (let ((gptel-model 'Qwen3.6-35B-A3B))
-            (gptel-request
-                (format
-                 "classify the below prompt into one of the classes in %s,
+    (if (and gptel-mode gptel--known-presets)
+        (progn
+          (text-property-search-backward 'gptel nil t)
+          (let ((prompt (buffer-substring-no-properties (point) (point-max))))
+            (condition-case err
+                (let ((gptel-model 'Qwen3.6-35B-A3B))
+                  (gptel-request
+                      (format
+                       "classify the below prompt into one of the classes in %s,
+                  research: if it is a question
                   do: if it is a simple instruction
-                  research: if it is vague and/or require deeper research
                   coding: if it is a coding task with clear scope and objective
                   plan: require thoughtful planing and even clarification from user
                 only responds with an simple answer, nothing else:
 
                 %s"
-                 fanshi/prompt-classes
-                 prompt)
-              :callback
-              (lambda (classification _info)
-                (progn
-                  (when fanshi/show-prompt-classification
-                    (org-up-heading-safe)
-                    (forward-char (length (gptel-prompt-prefix-string)))
-                    (insert "@" classification " ")
-                    (goto-char (point-max)))
-                  (gptel--apply-preset
-                   (intern-soft classification)
-                   (lambda (sym val) (set (make-local-variable sym) val)))
-                  (funcall cb)))))
-        (t (message (format "Prompt classification %s" err))))))
+                       fanshi/prompt-classes
+                       prompt)
+                    :callback
+                    (lambda (classification _info)
+                      (progn
+                        (gptel--apply-preset
+                         (intern-soft classification)
+                         (lambda (sym val) (set (make-local-variable sym) val)))
+                        (when fanshi/show-prompt-classification
+                          (org-up-heading-safe)
+                          (forward-char (length (gptel-prompt-prefix-string)))
+                          (insert "@" classification " ")
+                          (goto-char (point-max)))
+                        (funcall cb)))))
+              (t (message (format "Prompt classification %s" err))))))
+      (funcall cb)))
   (add-to-list 'gptel-prompt-transform-functions #'fanshi/gptel-apply-preset-by-prompt-classification)
 
   (defun fanshi/gptel--transform-apply-preset-a (&rest args)
