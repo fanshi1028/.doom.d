@@ -1047,8 +1047,7 @@ return nil if the validation suceeded else return a string describing the errors
     :parents 'research
     :description "Preset for general plan"
     :tools '(:append ("Agent" "TodoWrite"))
-    :use-context 'system
-    :context nil))
+    :use-context 'system))
 #+end_src
 *** Research
 #+begin_src emacs-lisp :tangle yes
@@ -1060,8 +1059,7 @@ return nil if the validation suceeded else return a string describing the errors
     :description "Preset for research"
     :model 'Qwen3.6-35B-A3B
     :tools '(:append ("WebSearch" "WebFetch" "YouTube"))
-    :use-context (with-temp-buffer (insert-file-contents "./gptel/research.md") (buffer-string))
-    :context nil))
+    :system (with-temp-buffer (insert-file-contents (expand-file-name "./gptel/research.md" doom-user-dir)) (buffer-string))))
 #+end_src
 *** Instruct
 #+begin_src emacs-lisp :tangle yes
@@ -1072,8 +1070,7 @@ return nil if the validation suceeded else return a string describing the errors
     :description "Preset for execute instruction"
     :model 'Qwen3.6-35B-A3B
     :tools nil
-    :use-context 'system
-    :context nil))
+    :use-context 'system))
 #+end_src
 *** Coding
 #+begin_src emacs-lisp :tangle yes
@@ -1087,8 +1084,7 @@ return nil if the validation suceeded else return a string describing the errors
     :description "Preset for writing code"
     :model 'Qwen3.6-35B-A3B
     :tools '(:append ("TodoWrite" "Bash" "WebFetch"))
-    :use-context (with-temp-buffer (insert-file-contents "./gptel/coding.md") (buffer-string))
-    :context nil))
+    :system (with-temp-buffer (insert-file-contents (expand-file-name "./gptel/coding.md" doom-user-dir)) (buffer-string))))
 #+end_src
 *** Heavy
 #+begin_src emacs-lisp :tangle yes
