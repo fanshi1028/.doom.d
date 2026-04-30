@@ -1535,7 +1535,8 @@ file.  Results are sorted by modification time."
 
   (advice-add 'gptel--transform-apply-preset :before #'fanshi/gptel--transform-apply-preset-a))
 #+end_src
-** Default to save to .gptel-agent under project root when saving gptel-agent's chat
+** Default to save to .gptel-agent under project root when saving gptel-agent's chat + auto infer filename-prefix by chat content
+*** fanshi/gptel-agent--auto-assign-filename
 #+begin_src elisp :tangle yes
 (after! gptel
   (defun fanshi/gptel-agent--auto-assign-filename ()
@@ -1552,15 +1553,101 @@ associated, or a prefix arg was used, does nothing."
                 (expand-file-name
                  (concat timestamp ".org")
                  dir))
-          (rename-buffer (file-name-nondirectory buffer-file-name) t)))))
-
-  (defun fanshi/gptel-agent--setup-auto-save ()
-    "Set up auto-save to ./gptel-agent/ for gptel-agent buffers."
-    (add-hook 'before-save-hook #'fanshi/gptel-agent--auto-assign-filename
-              nil 'local))
-
-  (add-hook 'gptel-mode-hook #'fanshi/gptel-agent--setup-auto-save))
+          (rename-buffer (file-name-nondirectory buffer-file-name) t))))))
 #+end_src
+*** fanshi/gptel-agent--resolve-file-and-content
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-agent--resolve-file-and-content ()
+    "Return a cons (FILE . CONTENT) for the current context.
+
+Works in three modes:
+1. If current buffer is visiting a file: use =buffer-file-name= and buffer contents.
+2. If current buffer is Dired: use the file at point and its disk contents.
+3. Otherwise: signal an error."
+    (cond
+     ;; Case 1: buffer is visiting a file
+     (buffer-file-name
+      (cons buffer-file-name
+            (buffer-substring-no-properties (point-min) (point-max))))
+     ;; Case 2: Dired buffer — file at point
+     ((derived-mode-p 'dired-mode)
+      (when-let* ((file (dired-get-filename nil t)))
+        (cons file
+              (with-temp-buffer
+                (insert-file-contents file)
+                (buffer-substring-no-properties (point-min) (point-max))))))
+     ;; Case 3: no valid context
+     (_
+      (user-error "No file context: not visiting a file and not in Dired")))))
+#+end_src
+*** fanshi/gptel-agent--suggest-filename-prefix
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defun fanshi/gptel-agent--suggest-filename-prefix (&optional content file)
+    "Suggest a concise filename prefix via gptel-request based on CHAT content.
+
+Runs asynchronously.  When called interactively:
+- In a buffer visiting a file: operates on that file.
+- In a Dired buffer: operates on the file at point.
+
+When run from =after-save-hook', CONTENT and FILE are provided as arguments.
+
+If the file already has a prefix (matching pattern PREFIX-TIMESTAMP.org),
+replaces the old prefix with the new one."
+    (interactive)
+    (when-let* ((resolved (or (and content file (cons file content))
+                              (fanshi/gptel-agent--resolve-file-and-content)))
+                (file (car resolved))
+                (dir (file-name-directory file))
+                (base (file-name-sans-extension file))
+                (ext (file-name-extension file))
+                ;; Extract trailing timestamp YYYYMMDD-HHMMSS
+                (timestamp (when-let*
+                               ((match (string-match
+                                        "\\([0-9]\\{8\\}-[0-9]\\{6\\}\\)$" base)))
+                             (match-string 1 base)))
+                (suffix (or timestamp base))
+                (content (cdr resolved))
+                (gptel-model 'Qwen3.6-35B-A3B))
+      (gptel-request content
+        :context nil
+        :system "You are a file naming assistant. Based on the following chat transcript, suggest a CONCISE filename prefix (2-4 words). Rules:
+- Return ONLY the prefix, nothing else
+- Use lowercase, replace spaces with hyphens
+- Capture the core topic or task
+- No quotes, no code blocks, no explanations"
+        :callback (lambda (response _)
+                    (when (stringp response)
+                      (message response)
+                      (let* ((prefix (string-trim response))
+                             (prefix (replace-regexp-in-string
+                                      "^\\=\\=\\=[^a-z]*\\|\\=\\=\\=$\\|^[=\"']+\\|[=\"']+$"
+                                      "" prefix))
+                             (prefix (string-trim prefix))
+                             (prefix (downcase prefix))
+                             (prefix (replace-regexp-in-string "[^a-z0-9-]" "-" prefix))
+                             (prefix (replace-regexp-in-string "-\\+" "-" prefix))
+                             (prefix (string-trim prefix "-"))
+                             (new-base (if (> (length prefix) 1)
+                                           (concat prefix "-" suffix)
+                                         suffix))
+                             (new-file (expand-file-name
+                                        (concat new-base "." ext)
+                                        dir)))
+                        (when (and (> (length prefix) 1) (not (string= file new-file)))
+                          (rename-file file new-file)))))))))
+#+end_src
+*** set it all up
+#+begin_src elisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-agent--setup-auto-save ()
+    "Set up auto-save and auto-rename for gptel-agent buffers."
+    (add-hook! 'before-save-hook :local #'fanshi/gptel-agent--auto-assign-filename)
+    (add-hook! 'after-save-hook :local #'fanshi/gptel-agent--suggest-filename-prefix))
+  (add-hook! 'gptel-mode-hook :append #'fanshi/gptel-agent--setup-auto-save))
+#+end_src
+
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
