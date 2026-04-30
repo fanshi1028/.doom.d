@@ -1182,7 +1182,6 @@ For 'Mlx: uses :hf tag value as model symbol."
           :stream t
           :models (fanshi/gptel-fetch-avaliable-models "127.0.0.1:8080"))))
 #+end_src
-
 **** omlx server
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
@@ -1517,11 +1516,11 @@ file.  Results are sorted by modification time."
   (defun fanshi/gptel--transform-apply-preset-a (&rest args)
     "If preset is specified in the prompt, skip prompt classification"
     (when gptel-mode
-        (save-excursion
-          (org-up-heading-safe)
-          (when (re-search-forward "@\\([^[:space:]]+\\)\\_>" nil t)
-            (setq-local gptel-prompt-transform-functions
-                        (remove #'fanshi/gptel-apply-preset-by-prompt-classification gptel-prompt-transform-functions))))))
+      (save-excursion
+        (org-up-heading-safe)
+        (when (re-search-forward "@\\([^[:space:]]+\\)\\_>" nil t)
+          (setq-local gptel-prompt-transform-functions
+                      (remove #'fanshi/gptel-apply-preset-by-prompt-classification gptel-prompt-transform-functions))))))
 
   (advice-add 'gptel--transform-apply-preset :before #'fanshi/gptel--transform-apply-preset-a))
 #+end_src
