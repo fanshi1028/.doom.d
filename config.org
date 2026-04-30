@@ -1525,6 +1525,32 @@ file.  Results are sorted by modification time."
 
   (advice-add 'gptel--transform-apply-preset :before #'fanshi/gptel--transform-apply-preset-a))
 #+end_src
+** Default to save to .gptel-agent under project root when saving gptel-agent's chat
+#+begin_src elisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-agent--auto-assign-filename ()
+    "Auto-assign a timestamped filename under ./gptel-agent/ for gptel-agent buffers.
+
+Intended for use in `before-save-hook'.  If the buffer already has a file
+associated, or a prefix arg was used, does nothing."
+    (unless (or buffer-file-name current-prefix-arg)
+      (when (string-prefix-p "*gptel-agent:" (buffer-name))
+        (let ((dir (expand-file-name ".gptel-agent/" default-directory))
+              (timestamp (format-time-string "%Y%m%d-%H%M%S")))
+          (make-directory dir t)
+          (setq buffer-file-name
+                (expand-file-name
+                 (concat timestamp ".org")
+                 dir))
+          (rename-buffer (file-name-nondirectory buffer-file-name) t)))))
+
+  (defun fanshi/gptel-agent--setup-auto-save ()
+    "Set up auto-save to ./gptel-agent/ for gptel-agent buffers."
+    (add-hook 'before-save-hook #'fanshi/gptel-agent--auto-assign-filename
+              nil 'local))
+
+  (add-hook 'gptel-mode-hook #'fanshi/gptel-agent--setup-auto-save))
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
