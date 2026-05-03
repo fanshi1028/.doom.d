@@ -422,6 +422,9 @@ Else call original evil-paste-after."
   (if-let ((cabal-project (cl-find-if (lambda (project-type-record) (string= (car project-type-record) 'haskell-cabal)) projectile-project-types)))
              (setopt projectile-project-types (cons cabal-project  projectile-project-types))))
 #+end_src
+#+begin_src emacs-lisp :tangle yes
+(after! projectile (projectile-register-project-type 'python-uv '("uv.lock") :project-file "uv.lock"))
+#+end_src
 * Clone projects
 ** clonable project configs
 #+begin_src emacs-lisp :tangle yes
