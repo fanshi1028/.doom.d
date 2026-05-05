@@ -1775,9 +1775,13 @@ kill-new: Wrong type argument: stringp, nil
            (haskell-args '("--read-file" "/Users/francischan/.config/cabal/config"
                            "--allow" "/Users/francischan/.cache/cabal"
                            "--allow" "/Users/francischan/.local/state/cabal/store"))
+           (uv-args '("--allow" "/Users/francischan/.cache/uv"))
            (args (append args `("--profile" ,(symbol-name profile))))
-           (args (if (eq (projectile-project-type) 'haskell-cabal)
+           (args (if (equal (projectile-project-type) 'haskell-cabal)
                      (append args haskell-args)
+                   args))
+           (args (if (eq (projectile-project-type) 'python-uv)
+                     (append args uv-args)
                    args)))
       (append args '("--allow-cwd" "--")))))
 #+end_src
