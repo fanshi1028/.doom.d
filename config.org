@@ -1706,6 +1706,76 @@ point is placed at its position."
                                    (set (make-local-variable sym) val))))))))
   (advice-add 'gptel--transform-apply-preset :override  #'fanshi/gptel--transform-apply-preset-a))
 #+end_src
+** Redirect context to last-accessed gptel-agent
+- When adding context from a non-gptel buffer, redirect to the last visited gptel-agent buffer instead of the global gptel-context.
+#+begin_src emacs-lisp :tangle yes
+(defvar fanshi/gptel-last-agent-buffer nil
+  "Last visited gptel-agent buffer.")
+
+(defvar fanshi/context-overlay-gptel-agent-buffer-alist nil
+  "alist to store information about which agent buffer are using the overlay as context,
+   so that when the overlay is removed, the context for that agent is removed accordingly")
+
+(after! gptel
+  (defun fanshi/gptel-agent--make-local-context ()
+    "Initialize buffer-local gptel-context for the current agent buffer."
+    (make-local-variable 'gptel-context)
+    (setq gptel-context '())
+    (when (string-prefix-p "*gptel-agent:" (buffer-name))
+      (setq fanshi/gptel-last-agent-buffer (current-buffer))))
+
+  (add-hook! 'gptel-mode-hook :append #'fanshi/gptel-agent--make-local-context)
+
+  (defun fanshi/gptel-context--with-agent-context (orig-fun &rest args)
+    "Redirect context additions to the last visited gptel-agent buffer.
+
+When called from a non-gptel buffer, adds context to the agent buffer
+tracked in `fanshi/gptel-last-agent-buffer' instead of the global
+`gptel-context'."
+    (if gptel-mode (apply orig-fun args)
+      (if-let* ((target fanshi/gptel-last-agent-buffer)
+                ((buffer-live-p target)))
+          (with-current-buffer target
+            (apply orig-fun args))
+        (apply orig-fun args))))
+
+  (advice-add 'gptel-context-add-file :around #'fanshi/gptel-context--with-agent-context)
+
+  (defun fanshi/gptel-context--make-overlay-a (orig-f start end &optional advance)
+    "Highlight the region from START to END.
+
+ADVANCE controls the overlay boundary behavior."
+    (if fanshi/gptel-last-agent-buffer
+        (let* ((overlay (funcall orig-f start end advance))
+               (context-source-buffer (current-buffer)))
+          (setf (alist-get overlay fanshi/context-overlay-gptel-agent-buffer-alist)
+                (cons fanshi/gptel-last-agent-buffer (alist-get overlay fanshi/context-overlay-gptel-agent-buffer-alist)))
+          (with-current-buffer fanshi/gptel-last-agent-buffer
+            (let ((buf-entry (alist-get context-source-buffer gptel-context)))
+              (setf (alist-get context-source-buffer gptel-context)
+                    (plist-put buf-entry :overlays (cons overlay (plist-get buf-entry :overlays)))))))
+      overlay))
+  (advice-add 'gptel-context--make-overlay :around #'fanshi/gptel-context--make-overlay-a)
+
+  (defun fanshi/gptel-context-remove-a (orig-f &optional context)
+    (if (and context (overlayp context))
+        (progn
+          (when-let ((agent-buffers (alist-get context fanshi/context-overlay-gptel-agent-buffer-alist))
+                     (buf (overlay-buffer context)))
+            (funcall orig-f context)
+            (dolist (agent-buffer agent-buffers)
+              (with-current-buffer agent-buffer
+                (unless
+                    (cl-loop
+                     for ov in
+                     (plist-get (alist-get buf gptel-context) :overlays)
+                     thereis (overlay-start ov))
+                  (setf (alist-get buf gptel-context nil 'remove) nil)))))
+          (setq fanshi/context-overlay-gptel-agent-buffer-alist
+                (assq-delete-all context fanshi/context-overlay-gptel-agent-buffer-alist)))))
+
+  (advice-add 'gptel-context-remove :around #'fanshi/gptel-context-remove-a))
+#+end_src
 
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
