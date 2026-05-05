@@ -1650,6 +1650,37 @@ replaces the old prefix with the new one."
     (add-hook! 'after-save-hook :local #'fanshi/gptel-agent--suggest-filename-prefix))
   (add-hook! 'gptel-mode-hook :append #'fanshi/gptel-agent--setup-auto-save))
 #+end_src
+** Fix gptel--transform-apply-preset to handle the case where we resume from the middle of a agent response.
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel--transform-apply-preset-a (_fsm)
+    "Apply a gptel preset to the buffer depending on the prompt.
+
+If the last user prompt includes @foo, the preset foo is applied.
+Before applying the preset, \"@foo\" is removed from the prompt and
+point is placed at its position."
+    (when gptel--known-presets
+      (progn
+        (text-property-search-backward 'gptel nil t)
+        ;; NOTE: keep going to find the prompt!
+        (while (and (not (org-at-heading-p)) (not (bobp)))
+          (text-property-search-backward 'gptel nil t)))
+      (while (re-search-forward "@\\([^[:space:]]+\\)\\_>" nil t)
+        ;; The following convoluted check is because re-search is much faster if
+        ;; the search pattern begins with a non-whitespace char.
+        (when (or (= (match-beginning 0) (point-min))
+                  (memq (char-syntax (char-before (match-beginning 0))) '(32 62)))
+          (when-let* ((name (match-string 1))
+                      (preset (or (gptel-get-preset (intern-soft name))
+                                  (gptel-get-preset name))))
+            (delete-region (match-beginning 0) (match-end 0))
+            ;; Point must be after @foo when the preset is applied to allow for
+            ;; more advanced transformations.
+            (gptel--apply-preset preset
+                                 (lambda (sym val)
+                                   (set (make-local-variable sym) val))))))))
+  (advice-add 'gptel--transform-apply-preset :override  #'fanshi/gptel--transform-apply-preset-a))
+#+end_src
 
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
