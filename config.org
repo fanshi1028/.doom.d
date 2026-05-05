@@ -1097,6 +1097,19 @@ return nil if the validation suceeded else return a string describing the errors
     :model 'Qwen3.6-27B))
 #+end_src
 ** Backend
+*** Cloud
+**** Groq
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defvar fanshi/gptel-cloud-groq)
+  (setq fanshi/gptel-cloud-groq
+        (gptel-make-openai "Free Groq"
+          :host "api.groq.com/openai/v1"
+          :protocol "https"
+          :key (password-store-get "groq/1")
+          :stream t
+          :models (fanshi/gptel-fetch-avaliable-models "api.groq.com/openai/v1" "groq/1"))))
+#+end_src
 *** Local
 **** common
 ***** fanshi/gptel--hf-to-capabilites-and-mimes
