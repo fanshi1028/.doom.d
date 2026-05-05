@@ -1110,6 +1110,18 @@ return nil if the validation suceeded else return a string describing the errors
           :stream t
           :models (fanshi/gptel-fetch-avaliable-models "api.groq.com/openai/v1" "groq/1"))))
 #+end_src
+**** Google Gemini
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defvar fanshi/gptel-cloud-gemini)
+  (setq fanshi/gptel-cloud-gemini
+        (gptel-make-openai "Free Gemini"
+          :host "generativelanguage.googleapis.com/v1beta/openai"
+          :protocol "https"
+          :key (password-store-get "gemini/1")
+          :stream t
+          :models (fanshi/gptel-fetch-avaliable-models "generativelanguage.googleapis.com/v1beta/openai" "gemini/1"))))
+#+end_src
 *** Local
 **** common
 ***** fanshi/gptel--hf-to-capabilites-and-mimes
