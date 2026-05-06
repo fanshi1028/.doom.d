@@ -1652,24 +1652,33 @@ associated, or a prefix arg was used, does nothing."
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (defun fanshi/gptel-agent--resolve-file-and-content ()
-    "Return a cons (FILE . CONTENT) for the current context.
+    "Return a cons (FILE . CONTENT) for the current context,
+or a list of such conses when multiple files are resolved
+(e.g. marked files in Dired).
 
 Works in three modes:
 1. If current buffer is visiting a file: use =buffer-file-name= and buffer contents.
-2. If current buffer is Dired: use the file at point and its disk contents.
+2. If current buffer is Dired: use marked files if any, otherwise the file at point and its disk contents.
 3. Otherwise: signal an error."
     (cond
      ;; Case 1: buffer is visiting a file
      (buffer-file-name
       (cons buffer-file-name
             (buffer-substring-no-properties (point-min) (point-max))))
-     ;; Case 2: Dired buffer — file at point
+     ;; Case 2: Dired buffer — marked files, or file at point
      ((derived-mode-p 'dired-mode)
-      (when-let* ((file (dired-get-filename nil t)))
-        (cons file
-              (with-temp-buffer
-                (insert-file-contents file)
-                (buffer-substring-no-properties (point-min) (point-max))))))
+      (or
+       (cl-loop for file in (dired-get-marked-files nil)
+                collect (cons file
+                              (with-temp-buffer
+                                (insert-file-contents file)
+                                (buffer-substring-no-properties (point-min) (point-max)))))
+       (let ((file (dired-get-filename nil t)))
+         (if (null file) (user-error "No file at point and no marked files in Dired")
+           (list (cons file
+                       (with-temp-buffer
+                         (insert-file-contents file)
+                         (buffer-substring-no-properties (point-min) (point-max)))))))))
      ;; Case 3: no valid context
      (_
       (user-error "No file context: not visiting a file and not in Dired")))))
@@ -1682,54 +1691,59 @@ Works in three modes:
 
 Runs asynchronously.  When called interactively:
 - In a buffer visiting a file: operates on that file.
-- In a Dired buffer: operates on the file at point.
+- In a Dired buffer: operates on marked files if any, otherwise the file at point.
 
 When run from =after-save-hook', CONTENT and FILE are provided as arguments.
 
 If the file already has a prefix (matching pattern PREFIX-TIMESTAMP.org),
 replaces the old prefix with the new one."
     (interactive)
-    (when-let* ((resolved (or (and content file (cons file content))
-                              (fanshi/gptel-agent--resolve-file-and-content)))
-                (file (car resolved))
-                (dir (file-name-directory file))
-                (base (file-name-sans-extension file))
-                (ext (file-name-extension file))
-                ;; Extract trailing timestamp YYYYMMDD-HHMMSS
-                (timestamp (when-let*
-                               ((match (string-match
-                                        "\\([0-9]\\{8\\}-[0-9]\\{6\\}\\)$" base)))
-                             (match-string 1 base)))
-                (suffix (or timestamp base))
-                (content (cdr resolved))
-                (gptel-model 'Qwen3.6-35B-A3B))
-      (gptel-request content
-        :context nil
-        :system "You are a file naming assistant. Based on the following chat transcript, suggest a CONCISE filename prefix (2-4 words). Rules:
+    (if (and content file)
+        (fanshi/gptel-agent--suggest-filename-prefix--1 (cons file content))
+      (cl-loop for res in (fanshi/gptel-agent--resolve-file-and-content)
+               do (fanshi/gptel-agent--suggest-filename-prefix--1 res)))))
+
+(defun fanshi/gptel-agent--suggest-filename-prefix--1 (resolved)
+  "Process a single (FILE . CONTENT) resolved pair."
+  (when-let* ((file (car resolved))
+              (dir (file-name-directory file))
+              (base (file-name-sans-extension file))
+              (ext (file-name-extension file))
+              ;; Extract trailing timestamp YYYYMMDD-HHMMSS
+              (timestamp (when-let*
+                             ((match (string-match
+                                      "\\([0-9]\\{8\\}-[0-9]\\{6\\}\\)$" base)))
+                           (match-string 1 base)))
+              (suffix (or timestamp base))
+              (content (cdr resolved))
+              (gptel-model 'Qwen3.6-35B-A3B))
+    (gptel-request content
+      :context nil
+      :system "You are a file naming assistant. Based on the following chat transcript, suggest a CONCISE filename prefix (2-4 words). Rules:
 - Return ONLY the prefix, nothing else
 - Use lowercase, replace spaces with hyphens
 - Capture the core topic or task
 - No quotes, no code blocks, no explanations"
-        :callback (lambda (response _)
-                    (when (stringp response)
-                      (message response)
-                      (let* ((prefix (string-trim response))
-                             (prefix (replace-regexp-in-string
-                                      "^\\=\\=\\=[^a-z]*\\|\\=\\=\\=$\\|^[=\"']+\\|[=\"']+$"
-                                      "" prefix))
-                             (prefix (string-trim prefix))
-                             (prefix (downcase prefix))
-                             (prefix (replace-regexp-in-string "[^a-z0-9-]" "-" prefix))
-                             (prefix (replace-regexp-in-string "-\\+" "-" prefix))
-                             (prefix (string-trim prefix "-"))
-                             (new-base (if (> (length prefix) 1)
-                                           (concat prefix "-" suffix)
-                                         suffix))
-                             (new-file (expand-file-name
-                                        (concat new-base "." ext)
-                                        dir)))
-                        (when (and (> (length prefix) 1) (not (string= file new-file)))
-                          (rename-file file new-file)))))))))
+      :callback (lambda (response _)
+                  (when (stringp response)
+                    (message response)
+                    (let* ((prefix (string-trim response))
+                           (prefix (replace-regexp-in-string
+                                    "^\\=\\=\\=[^a-z]*\\|\\=\\=\\=$\\|^[=\"']+\\|[=\"']+$"
+                                    "" prefix))
+                           (prefix (string-trim prefix))
+                           (prefix (downcase prefix))
+                           (prefix (replace-regexp-in-string "[^a-z0-9-]" "-" prefix))
+                           (prefix (replace-regexp-in-string "-\\+" "-" prefix))
+                           (prefix (string-trim prefix "-"))
+                           (new-base (if (> (length prefix) 1)
+                                         (concat prefix "-" suffix)
+                                       suffix))
+                           (new-file (expand-file-name
+                                      (concat new-base "." ext)
+                                      dir)))
+                      (when (and (> (length prefix) 1) (not (string= file new-file)))
+                        (rename-file file new-file)))))))))
 #+end_src
 *** set it all up
 #+begin_src elisp :tangle yes
