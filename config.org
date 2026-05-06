@@ -1582,7 +1582,7 @@ file.  Results are sorted by modification time."
   (advice-add 'gptel--reject-tool-calls :after #'fanshi/gptel--reject-tool-calls-a))
 #+end_src
 ** Different Context, Different Preset
-#+begin_src emacs-lisp :tangle yes :lexical t
+#+begin_src emacs-lisp :tangle no :lexical t
 (after! gptel
   (defvar fanshi/show-prompt-classification t)
   (defvar fanshi/prompt-classes '(coding do research plan))
