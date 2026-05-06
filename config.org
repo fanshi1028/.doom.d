@@ -1001,15 +1001,19 @@ return nil if the validation suceeded else return a string describing the errors
          (url-request-extra-headers (if pass-entry  `(("Authorization" . ,(concat "Bearer " (+pass-get-secret pass-entry)))) url-request-extra-headers ))
          (response (url-retrieve-synchronously (concat "http://" host "/v1/models"))))
     (when response
-        (with-current-buffer response
-          (goto-char (point-min))
-          (re-search-forward "\n\n")
-          (let ((json-object-type 'alist)
-                (json-array-type 'list))
-            (cl-loop for model in (alist-get 'data (json-read))
-                     for id = (alist-get 'id model)
-                     unless (string-match "dflash" id)
-                     collect (intern id)))))))
+      (with-current-buffer response
+        (goto-char (point-min))
+        (re-search-forward "\n\n")
+        (let ((json-object-type 'alist)
+              (json-array-type 'list))
+          (cl-loop for model in (alist-get 'data (json-read))
+                   for id = (alist-get 'id model)
+                   unless (string-match "dflash" id)
+                   unless (string-match "Kokoro" id)
+                   unless (string-match "VoxCPM2" id)
+                   unless (string-match "fish-audio" id)
+                   unless (string-match "Wan2.2" id)
+                   collect (intern id)))))))
 #+end_src
 ** Agents
 #+begin_src emacs-lisp :tangle no
