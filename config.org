@@ -1189,7 +1189,7 @@ CALLBACK is called with a list of interned model IDs."
                                                  :key (password-store-get "Nvidia/API/1")
                                                  :stream t
                                                  :models models)))
-                                       "Nvidia/API/1" "https")))
+                                       "Nvidia/API/1" "https"))
 #+end_src
 *** Local
 **** common
@@ -1266,7 +1266,7 @@ For 'Mlx: uses :hf tag value as model symbol."
                                                  :host "127.0.0.1:8080"
                                                  :protocol "http"
                                                  :stream t
-                                                 :models models))))))
+                                                 :models models)))))
 #+end_src
 **** mlx_lm server
 #+begin_src emacs-lisp :tangle no
@@ -1279,7 +1279,7 @@ For 'Mlx: uses :hf tag value as model symbol."
                                                  :host "127.0.0.1:8080"
                                                  :protocol "http"
                                                  :stream t
-                                                 :models models))))))
+                                                 :models models)))))
 #+end_src
 **** omlx server
 #+begin_src emacs-lisp :tangle yes
@@ -1307,7 +1307,7 @@ For 'Mlx: uses :hf tag value as model symbol."
                                                  :host "127.0.0.1:5413"
                                                  :protocol "http"
                                                  :stream t
-                                                 :models models))))))
+                                                 :models models)))))
 #+end_src
 
 ** Default
@@ -1712,49 +1712,49 @@ replaces the old prefix with the new one."
         (fanshi/gptel-agent--suggest-filename-prefix--1 (list (cons file content)))
       (let ((resolved (fanshi/gptel-agent--resolve-file-and-content)))
         (cl-loop for res in (if (consp resolved) (list resolved) resolved)
-                 do (fanshi/gptel-agent--suggest-filename-prefix--1 res))))))
+                 do (fanshi/gptel-agent--suggest-filename-prefix--1 res)))))
 
-(defun fanshi/gptel-agent--suggest-filename-prefix--1 (resolved)
-  "Process a single (FILE . CONTENT) resolved pair."
-  (when-let* ((file (car resolved))
-              (dir (file-name-directory file))
-              (base (file-name-sans-extension file))
-              (ext (file-name-extension file))
-              ;; Extract trailing timestamp YYYYMMDD-HHMMSS
-              (timestamp (when-let*
-                             ((match (string-match
-                                      "\\([0-9]\\{8\\}-[0-9]\\{6\\}\\)$" base)))
-                           (match-string 1 base)))
-              (suffix (or timestamp base))
-              (content (cdr resolved))
-              (gptel-model 'Qwen3.6-35B-A3B))
-    (gptel-request content
-      :context nil
-      :system "You are a file naming assistant. Based on the following chat transcript, suggest a CONCISE filename prefix (2-4 words). Rules:
+  (defun fanshi/gptel-agent--suggest-filename-prefix--1 (resolved)
+    "Process a single (FILE . CONTENT) resolved pair."
+    (when-let* ((file (car resolved))
+                (dir (file-name-directory file))
+                (base (file-name-sans-extension file))
+                (ext (file-name-extension file))
+                ;; Extract trailing timestamp YYYYMMDD-HHMMSS
+                (timestamp (when-let*
+                               ((match (string-match
+                                        "\\([0-9]\\{8\\}-[0-9]\\{6\\}\\)$" base)))
+                             (match-string 1 base)))
+                (suffix (or timestamp base))
+                (content (cdr resolved))
+                (gptel-model 'Qwen3.6-35B-A3B))
+      (gptel-request content
+        :context nil
+        :system "You are a file naming assistant. Based on the following chat transcript, suggest a CONCISE filename prefix (2-4 words). Rules:
 - Return ONLY the prefix, nothing else
 - Use lowercase, replace spaces with hyphens
 - Capture the core topic or task
 - No quotes, no code blocks, no explanations"
-      :callback (lambda (response _)
-                  (when (stringp response)
-                    (message response)
-                    (let* ((prefix (string-trim response))
-                           (prefix (replace-regexp-in-string
-                                    "^\\=\\=\\=[^a-z]*\\|\\=\\=\\=$\\|^[=\"']+\\|[=\"']+$"
-                                    "" prefix))
-                           (prefix (string-trim prefix))
-                           (prefix (downcase prefix))
-                           (prefix (replace-regexp-in-string "[^a-z0-9-]" "-" prefix))
-                           (prefix (replace-regexp-in-string "-\\+" "-" prefix))
-                           (prefix (string-trim prefix "-"))
-                           (new-base (if (> (length prefix) 1)
-                                         (concat prefix "-" suffix)
-                                       suffix))
-                           (new-file (expand-file-name
-                                      (concat new-base "." ext)
-                                      dir)))
-                      (when (and (> (length prefix) 1) (not (string= file new-file)))
-                        (rename-file file new-file)))))))))
+        :callback (lambda (response _)
+                    (when (stringp response)
+                      (message response)
+                      (let* ((prefix (string-trim response))
+                             (prefix (replace-regexp-in-string
+                                      "^\\=\\=\\=[^a-z]*\\|\\=\\=\\=$\\|^[=\"']+\\|[=\"']+$"
+                                      "" prefix))
+                             (prefix (string-trim prefix))
+                             (prefix (downcase prefix))
+                             (prefix (replace-regexp-in-string "[^a-z0-9-]" "-" prefix))
+                             (prefix (replace-regexp-in-string "-\\+" "-" prefix))
+                             (prefix (string-trim prefix "-"))
+                             (new-base (if (> (length prefix) 1)
+                                           (concat prefix "-" suffix)
+                                         suffix))
+                             (new-file (expand-file-name
+                                        (concat new-base "." ext)
+                                        dir)))
+                        (when (and (> (length prefix) 1) (not (string= file new-file)))
+                          (rename-file file new-file)))))))))
 #+end_src
 *** set it all up
 #+begin_src elisp :tangle yes
