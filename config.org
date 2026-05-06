@@ -1085,7 +1085,7 @@ return nil if the validation suceeded else return a string describing the errors
                       :enable-thinking t :preserve-thinking t
                       :max_tokens :null)
     :description "Preset for writing code"
-    :model 'Qwen3.6-27B-UD-MLX-4bit
+    :model 'Qwen3.6-27B
     :tools '(:append ("TodoWrite" "Bash" "WebFetch"))
     :system (with-temp-buffer (insert-file-contents (expand-file-name "./gptel/coding.md" doom-user-dir)) (buffer-string))))
 #+end_src
