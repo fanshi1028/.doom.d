@@ -1841,7 +1841,20 @@ ADVANCE controls the overlay boundary behavior."
 
   (advice-add 'gptel-context-remove :around #'fanshi/gptel-context-remove-a))
 #+end_src
-
+** Prevent user from accidentally sending request twice by misclick?
+#+begin_src elisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-send--prevent-duplicate-a (&optional arg)
+    "Prevent sending duplicate requests if one is already in progress."
+    (let ((buffer (current-buffer)))
+      (when (cl-find-if (lambda (entry)
+                          (eq (plist-get (gptel-fsm-info (cadr entry)) :buffer)
+                              buffer))
+                        gptel--request-alist)
+        (message "A gptel request is already in progress in %s. Use `gptel-abort' to cancel it first, or wait for it to complete." buffer)
+        t)))
+  (advice-add 'gptel-send :before-until #'fanshi/gptel-send--prevent-duplicate-a))
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
