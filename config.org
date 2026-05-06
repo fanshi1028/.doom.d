@@ -1016,6 +1016,7 @@ return nil if the validation suceeded else return a string describing the errors
                    collect (intern id)))))))
 #+end_src
 ** Agents
+*** init
 #+begin_src emacs-lisp :tangle no
 (use-package! gptel-agent :after gptel)
 
