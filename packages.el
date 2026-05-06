@@ -87,8 +87,7 @@
 (package! wordnut :pin "feac531404041855312c1a046bde7ea18c674915")
 (package! synosaurus :pin "14d34fc92a77c3a916b4d58400424c44ae99cd81")
 
-(package! org-gtd :recipe (:host github :repo "Trevoke/org-gtd.el") :pin "578e83b0f67cb57dd1b10e9eea4f40d2e925b9b9")
-
+(package! org-gtd :recipe (:host github :repo "Trevoke/org-gtd.el") :pin "1b93028024f587b3da133b4bcae473f92bb60bb6")
 
 (package! gptel :recipe (:host github :repo "karthink/gptel") :pin "a0adf16a3c9f1aadcb3ed92b76be371f2e5b5219")
 

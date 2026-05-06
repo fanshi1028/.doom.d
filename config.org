@@ -183,8 +183,7 @@ Corfu detected an error:
 **** Clock
 #+begin_src emacs-lisp :tangle yes
 (after! org-agenda
-  (setopt org-agenda-files '("~/Personal/org/gtd/")
-   org-clock-report-include-clocking-task t
+  (setopt org-clock-report-include-clocking-task t
    org-agenda-clockreport-parameter-plist (quote (:link t :maxlevel 4 :fileskip0 t :compact t :narrow 80))
    org-agenda-start-with-log-mode '(state closed clock)))
 #+end_src
@@ -357,14 +356,19 @@ Corfu detected an error:
 (use-package! org-gtd
   :after org
   :init
-  (setopt org-gtd-update-ack "3.0.0")
+  (setopt org-gtd-update-ack "4.6.1")
   :demand t
   :config
   (setopt org-gtd-directory (f-join org-directory "gtd")
-         org-edna-use-inheritance t org-gtd-organize-hooks '(org-gtd-set-area-of-focus)
-         org-gtd-archive-file-format "gtd_archive_%s.gpg"
-         org-gtd-canceled "KILL"
-         org-gtd-canceled-suffix "(k@)")
+          org-edna-use-inheritance t org-gtd-organize-hooks '(org-gtd-set-area-of-focus)
+          org-gtd-archive-file-format "gtd_archive_%s.gpg"
+          org-gtd-keyword-mapping
+          '((todo . "TODO")
+            (next . "NEXT")
+            (wait . "WAIT")
+            (done . "DONE")
+            (canceled . "KILL"))
+          org-agenda-files (list org-gtd-directory))
   (org-edna-mode)
   (advice-add #'org-gtd--path :filter-return (lambda (return-gtd-path)
                                                "gtd file path .gpg appended when not inbox"
@@ -375,7 +379,19 @@ Corfu detected an error:
                                                  (concat return-gtd-path ".gpg"))))
   (setf (alist-get "l" org-gtd-capture-templates nil nil #'string=)
         `("link" entry (file ,(org-gtd-inbox-path)) ,(string-join '("* %(fanshi/org-web-tools--org-link-for-url)" "%U") "\n") :immediate-finish t))
-  (map! :map doom-leader-map :desc "Org GTD Capture" "X" #'org-gtd-capture)
+  (map! :map doom-leader-map :desc "Capture" "X" #'org-gtd-capture)
+  (map! :map doom-leader-map
+        (:prefix ("D" . "org-gtd")
+         ;; :desc "Engage"         "e"  #'org-gtd-engage
+         :desc "Process inbox"  "i"  #'org-gtd-process-inbox
+         :desc "Show all next"  "n"  #'org-gtd-show-all-next
+         ;; :desc "Stuck projects" "s"  #'org-gtd-reflect-stuck-projects
+         ))
+  (map! :map org-gtd-clarify-mode-map
+        :desc "Organize this item" "C-c c" #'org-gtd-organize)
+  ;; Quick task actions in agenda view
+  (map! :map org-agenda-mode-map
+        :desc "GTD quick actions" "C-c ." #'org-gtd-agenda-transient)
   (org-gtd-mode))
 #+end_src
 ** Paste image with pngpaste
