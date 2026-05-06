@@ -993,27 +993,33 @@ return nil if the validation suceeded else return a string describing the errors
   (advice-add 'gptel--reject-tool-calls :before #'fanshi/gptel-agent--clear-tool-calls-confirmation-timer))
 #+end_src
 ** fanshi/gptel-fetch-available-models
-#+begin_src emacs-lisp :tangle yes
-(defun fanshi/gptel-fetch-available-models (host &optional pass-entry protocol)
-  "Fetch available models from an OpenAI-compatible server."
-  (let* ((url-request-method "GET")
-         (url-request-data nil)
-         (url-request-extra-headers (if pass-entry  `(("Authorization" . ,(concat "Bearer " (+pass-get-secret pass-entry)))) url-request-extra-headers))
-         (response (url-retrieve-synchronously (concat (or protocol "http") "://" host "/v1/models"))))
-    (when response
-      (with-current-buffer response
-        (goto-char (point-min))
-        (re-search-forward "\n\n")
-        (let ((json-object-type 'alist)
-              (json-array-type 'list))
-          (cl-loop for model in (alist-get 'data (json-read))
-                   for id = (alist-get 'id model)
-                   unless (string-match "dflash" id)
-                   unless (string-match "Kokoro" id)
-                   unless (string-match "VoxCPM2" id)
-                   unless (string-match "fish-audio" id)
-                   unless (string-match "Wan2.2" id)
-                   collect (intern id)))))))
+#+begin_src emacs-lisp :tangle yes :lexical t
+(defun fanshi/gptel-fetch-available-models (host callback &optional pass-entry protocol)
+  "Fetch available models from an OpenAI-compatible server.
+CALLBACK is called with a list of interned model IDs."
+  (let ((url-request-method "GET")
+        (url-request-data nil)
+        (url-request-extra-headers (if pass-entry
+                                       `(("Authorization" . ,(concat "Bearer " (+pass-get-secret pass-entry)))
+                                         ,@url-request-extra-headers)
+                                     url-request-extra-headers)))
+    (url-retrieve (concat (or protocol "http") "://" host "/v1/models")
+                  (lambda (status)
+                    (unless (car status)
+                      (with-current-buffer (current-buffer)
+                        (goto-char (point-min))
+                        (re-search-forward "\n\n")
+                        (let ((json-object-type 'alist)
+                              (json-array-type 'list))
+                          (funcall callback
+                                   (cl-loop for model in (alist-get 'data (json-read))
+                                            for id = (alist-get 'id model)
+                                            unless (string-match "dflash" id)
+                                            unless (string-match "Kokoro" id)
+                                            unless (string-match "VoxCPM2" id)
+                                            unless (string-match "fish-audio" id)
+                                            unless (string-match "Wan2.2" id)
+                                            collect (intern id))))))))))
 #+end_src
 ** Agents
 *** init
@@ -1174,15 +1180,17 @@ return nil if the validation suceeded else return a string describing the errors
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (defvar fanshi/gptel-cloud-nvidia)
-  (setq fanshi/gptel-cloud-nvidia
-        (gptel-make-openai "Nvidia"
-          :host "integrate.api.nvidia.com1"
-          :protocol "https"
-          :key (password-store-get "Nvidia/API/1")
-          :stream t
-          :models (fanshi/gptel-fetch-available-models "integrate.api.nvidia.com" "Nvidia/API/1" "https"))))
+  (fanshi/gptel-fetch-available-models "integrate.api.nvidia.com"
+                                       (lambda (models)
+                                         (setq fanshi/gptel-cloud-nvidia
+                                               (gptel-make-openai "Nvidia"
+                                                 :host "integrate.api.nvidia.com1"
+                                                 :protocol "https"
+                                                 :key (password-store-get "Nvidia/API/1")
+                                                 :stream t
+                                                 :models models)))
+                                       "Nvidia/API/1" "https")))
 #+end_src
-
 *** Local
 **** common
 ***** fanshi/gptel--hf-to-capabilites-and-mimes
@@ -1251,47 +1259,55 @@ For 'Mlx: uses :hf tag value as model symbol."
 #+begin_src emacs-lisp :tangle no
 (after! gptel
   (defvar fanshi/gptel-local-llama)
-  (setq fanshi/gptel-local-llama
-        (gptel-make-openai "Local Llama"
-          :host "127.0.0.1:8080"
-          :protocol "http"
-          :stream t
-          :models (fanshi/gptel-fetch-available-models "127.0.0.1:8080"))))
+  (fanshi/gptel-fetch-available-models "127.0.0.1:8080"
+                                       (lambda (models)
+                                         (setq fanshi/gptel-local-llama
+                                               (gptel-make-openai "Local Llama"
+                                                 :host "127.0.0.1:8080"
+                                                 :protocol "http"
+                                                 :stream t
+                                                 :models models))))))
 #+end_src
 **** mlx_lm server
 #+begin_src emacs-lisp :tangle no
 (after! gptel
   (defvar fanshi/gptel-local-mlx)
-  (setq fanshi/gptel-local-mlx
-        (gptel-make-openai "Local MLX"
-          :host "127.0.0.1:8080"
-          :protocol "http"
-          :stream t
-          :models (fanshi/gptel-fetch-available-models "127.0.0.1:8080"))))
+  (fanshi/gptel-fetch-available-models "127.0.0.1:8080"
+                                       (lambda (models)
+                                         (setq fanshi/gptel-local-mlx
+                                               (gptel-make-openai "Local MLX"
+                                                 :host "127.0.0.1:8080"
+                                                 :protocol "http"
+                                                 :stream t
+                                                 :models models))))))
 #+end_src
 **** omlx server
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (defvar fanshi/gptel-local-omlx)
-  (setq fanshi/gptel-local-omlx
-        (gptel-make-openai "Local OMLX"
-          :host "127.0.0.1:8000"
-          :protocol "http"
-          :key (password-store-get "omlx/1")
-          :stream t
-          :models (fanshi/gptel-fetch-available-models "127.0.0.1:8000" "omlx/1"))))
+  (fanshi/gptel-fetch-available-models "127.0.0.1:8000"
+                                       (lambda (models)
+                                         (setq fanshi/gptel-local-omlx
+                                               (gptel-make-openai "Local OMLX"
+                                                 :host "127.0.0.1:8000"
+                                                 :protocol "http"
+                                                 :key (password-store-get "omlx/1")
+                                                 :stream t
+                                                 :models models)))
+                                       "omlx/1"))
 #+end_src
-
 **** swiftlm server
 #+begin_src emacs-lisp :tangle no
 (after! gptel
   (defvar fanshi/gptel-local-swiftlm)
-  (setq fanshi/gptel-local-swiftlm
-        (gptel-make-openai "Local SwiftLM"
-          :host "127.0.0.1:5413"
-          :protocol "http"
-          :stream t
-          :models (fanshi/gptel-fetch-available-models "127.0.0.1:5413"))))
+  (fanshi/gptel-fetch-available-models "127.0.0.1:5413"
+                                       (lambda (models)
+                                         (setq fanshi/gptel-local-swiftlm
+                                               (gptel-make-openai "Local SwiftLM"
+                                                 :host "127.0.0.1:5413"
+                                                 :protocol "http"
+                                                 :stream t
+                                                 :models models))))))
 #+end_src
 
 ** Default
