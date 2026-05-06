@@ -1186,17 +1186,15 @@ return nil if the validation suceeded else return a string describing the errors
 *** Local
 **** common
 ***** fanshi/gptel--hf-to-capabilites-and-mimes
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! gptel
   (defun fanshi/gptel--hf-to-capabilites-and-mimes (hf)
     (pcase hf
       ('nil (error "impossible: nil hf"))
       ("" (error "impossible: empty string hf"))
       ;; Multimodal models
-      ((or (pred (string-match-p "Qwen3\\.5"))
-           (pred (string-match-p "glm-4\\.6"))
-           (pred (string-match-p "glm-4\\.7"))
-           (pred (string-match-p "gpt-oss")))
+      ((or (pred (string-match-p "Qwen3\\.6"))
+           (pred (string-match-p "gemma-4")))
        (cons '(media tool-use json url) '("image/jpeg" "image/png" "image/gif" "image/webp")))
       ;; Coding models
       ((pred (string-match-p "coder")) (cons '(tool-use json) '()))
@@ -1204,7 +1202,7 @@ return nil if the validation suceeded else return a string describing the errors
       (_ (cons (list) (list))))))
 #+end_src
 ***** fanshi/gptel--load-models-from-ini
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! gptel
   (defun fanshi/gptel--load-models-from-ini (backend)
     "Parse INI file for BACKEND ('Llama or 'Mlx) and return model specifications for gptel.
