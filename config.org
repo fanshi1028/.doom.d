@@ -1167,30 +1167,21 @@ return nil if the validation suceeded else return a string describing the errors
 #+end_src
 ** Backend
 *** Cloud
-**** Groq
+**** NVIDIA NIM
+- url :: https://build.nvidia.com/explore/discover
+- rate limit :: 40 RPM
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (defvar fanshi/gptel-cloud-groq)
-  (setq fanshi/gptel-cloud-groq
-        (gptel-make-openai "Free Groq"
-          :host "api.groq.com/openai/v1"
+  (defvar fanshi/gptel-cloud-nvidia)
+  (setq fanshi/gptel-cloud-nvidia
+        (gptel-make-openai "Nvidia"
+          :host "integrate.api.nvidia.com1"
           :protocol "https"
-          :key (password-store-get "groq/1")
+          :key (password-store-get "Nvidia/API/1")
           :stream t
-          :models (fanshi/gptel-fetch-avaliable-models "api.groq.com/openai/v1" "groq/1"))))
+          :models (fanshi/gptel-fetch-available-models "integrate.api.nvidia.com" "Nvidia/API/1" "https"))))
 #+end_src
-**** Google Gemini
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defvar fanshi/gptel-cloud-gemini)
-  (setq fanshi/gptel-cloud-gemini
-        (gptel-make-openai "Free Gemini"
-          :host "generativelanguage.googleapis.com/v1beta/openai"
-          :protocol "https"
-          :key (password-store-get "gemini/1")
-          :stream t
-          :models (fanshi/gptel-fetch-avaliable-models "generativelanguage.googleapis.com/v1beta/openai" "gemini/1"))))
-#+end_src
+
 *** Local
 **** common
 ***** fanshi/gptel--hf-to-capabilites-and-mimes
