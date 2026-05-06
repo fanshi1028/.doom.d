@@ -1107,6 +1107,13 @@ CALLBACK is called with a list of interned model IDs."
     :description "Preset for heavy task"
     :model 'Qwen3.6-27B))
 #+end_src
+*** Fast
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (gptel-make-preset 'fast
+    :description "Preset for quick simple task"
+    :model 'gemma-4-E2B-it))
+#+end_src
 *** Model switch
 **** fanshi/models-hierarchy-list
 #+begin_src emacs-lisp :tangle yes
