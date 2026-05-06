@@ -994,12 +994,12 @@ return nil if the validation suceeded else return a string describing the errors
 #+end_src
 ** fanshi/gptel-fetch-available-models
 #+begin_src emacs-lisp :tangle yes
-(defun fanshi/gptel-fetch-avaliable-models (host &optional pass-entry)
-  "Fetch available models from local Llama server."
+(defun fanshi/gptel-fetch-available-models (host &optional pass-entry protocol)
+  "Fetch available models from an OpenAI-compatible server."
   (let* ((url-request-method "GET")
          (url-request-data nil)
-         (url-request-extra-headers (if pass-entry  `(("Authorization" . ,(concat "Bearer " (+pass-get-secret pass-entry)))) url-request-extra-headers ))
-         (response (url-retrieve-synchronously (concat "http://" host "/v1/models"))))
+         (url-request-extra-headers (if pass-entry  `(("Authorization" . ,(concat "Bearer " (+pass-get-secret pass-entry)))) url-request-extra-headers))
+         (response (url-retrieve-synchronously (concat (or protocol "http") "://" host "/v1/models"))))
     (when response
       (with-current-buffer response
         (goto-char (point-min))
@@ -1266,7 +1266,7 @@ For 'Mlx: uses :hf tag value as model symbol."
           :host "127.0.0.1:8080"
           :protocol "http"
           :stream t
-          :models (fanshi/gptel-fetch-avaliable-models "127.0.0.1:8080"))))
+          :models (fanshi/gptel-fetch-available-models "127.0.0.1:8080"))))
 #+end_src
 **** mlx_lm server
 #+begin_src emacs-lisp :tangle no
@@ -1277,7 +1277,7 @@ For 'Mlx: uses :hf tag value as model symbol."
           :host "127.0.0.1:8080"
           :protocol "http"
           :stream t
-          :models (fanshi/gptel-fetch-avaliable-models "127.0.0.1:8080"))))
+          :models (fanshi/gptel-fetch-available-models "127.0.0.1:8080"))))
 #+end_src
 **** omlx server
 #+begin_src emacs-lisp :tangle yes
@@ -1289,7 +1289,7 @@ For 'Mlx: uses :hf tag value as model symbol."
           :protocol "http"
           :key (password-store-get "omlx/1")
           :stream t
-          :models (fanshi/gptel-fetch-avaliable-models "127.0.0.1:8000" "omlx/1"))))
+          :models (fanshi/gptel-fetch-available-models "127.0.0.1:8000" "omlx/1"))))
 #+end_src
 
 **** swiftlm server
@@ -1301,7 +1301,7 @@ For 'Mlx: uses :hf tag value as model symbol."
           :host "127.0.0.1:5413"
           :protocol "http"
           :stream t
-          :models (fanshi/gptel-fetch-avaliable-models "127.0.0.1:5413"))))
+          :models (fanshi/gptel-fetch-available-models "127.0.0.1:5413"))))
 #+end_src
 
 ** Default
@@ -1331,7 +1331,7 @@ For 'Mlx: uses :hf tag value as model symbol."
               (path (car args))
               (abs-path (expand-file-name path)))
         (unless (string-prefix-p abs-root abs-path)
-          (error "Error: File or directory %s is not avaliable (restricted to project root %s)" path root))
+          (error "Error: File or directory %s is not available (restricted to project root %s)" path root))
       (error "Error: Unexpected project root or path: %s, %s" root path)))
   (advice-add 'gptel-agent--edit-files :before #'fanshi/restrict-to-projectile-files-a)
   (advice-add 'gptel-agent--insert-in-file :before #'fanshi/restrict-to-projectile-files-a)
@@ -1347,7 +1347,7 @@ For 'Mlx: uses :hf tag value as model symbol."
               (filename (cadr args))
               (abs-path (expand-file-name filename path)))
         (unless (string-prefix-p abs-root abs-path)
-          (error "Error: File or directory %s is not avaliable (restricted to project root %s)" path root))
+          (error "Error: File or directory %s is not available (restricted to project root %s)" path root))
       (error "Error: Unexpected project root, path or filename: %s, %s, %s" root path filename)))
   (advice-add 'gptel-agent--write-file :before #'fanshi/restrict-to-projectile-files-2-a)
   (advice-add 'gptel-agent--make-directory :before #'fanshi/restrict-to-projectile-files-2-a))
