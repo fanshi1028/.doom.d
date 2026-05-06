@@ -1709,9 +1709,10 @@ If the file already has a prefix (matching pattern PREFIX-TIMESTAMP.org),
 replaces the old prefix with the new one."
     (interactive)
     (if (and content file)
-        (fanshi/gptel-agent--suggest-filename-prefix--1 (cons file content))
-      (cl-loop for res in (fanshi/gptel-agent--resolve-file-and-content)
-               do (fanshi/gptel-agent--suggest-filename-prefix--1 res)))))
+        (fanshi/gptel-agent--suggest-filename-prefix--1 (list (cons file content)))
+      (let ((resolved (fanshi/gptel-agent--resolve-file-and-content)))
+        (cl-loop for res in (if (consp resolved) (list resolved) resolved)
+                 do (fanshi/gptel-agent--suggest-filename-prefix--1 res))))))
 
 (defun fanshi/gptel-agent--suggest-filename-prefix--1 (resolved)
   "Process a single (FILE . CONTENT) resolved pair."
