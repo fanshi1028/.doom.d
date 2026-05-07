@@ -1008,34 +1008,34 @@ return nil if the validation suceeded else return a string describing the errors
   (advice-add 'gptel--accept-tool-calls :before #'fanshi/gptel-agent--clear-tool-calls-confirmation-timer)
   (advice-add 'gptel--reject-tool-calls :before #'fanshi/gptel-agent--clear-tool-calls-confirmation-timer))
 #+end_src
-** fanshi/gptel-fetch-available-models
+** fanshi/gptel-make-openai
 #+begin_src emacs-lisp :tangle yes :lexical t
-(defun fanshi/gptel-fetch-available-models (host callback &optional pass-entry protocol)
-  "Fetch available models from an OpenAI-compatible server.
-CALLBACK is called with a list of interned model IDs."
-  (let ((url-request-method "GET")
-        (url-request-data nil)
-        (url-request-extra-headers (if pass-entry
-                                       `(("Authorization" . ,(concat "Bearer " (+pass-get-secret pass-entry)))
-                                         ,@url-request-extra-headers)
-                                     url-request-extra-headers)))
-    (url-retrieve (concat (or protocol "http") "://" host "/v1/models")
+(defun fanshi/gptel-make-openai (backend-name host &optional pass-entry protocol)
+  "Setup an OpenAI-compatible server."
+  (let* ((url-request-method "GET")
+         (url-request-data nil)
+         (url-request-extra-headers (if pass-entry
+                                        `(("Authorization" . ,(concat "Bearer " (+pass-get-secret pass-entry)))
+                                          ,@url-request-extra-headers)
+                                      url-request-extra-headers))
+         (protocol (or protocol "http")))
+    (url-retrieve (concat protocol "://" host "/v1/models")
                   (lambda (status)
-                    (unless (car status)
-                      (with-current-buffer (current-buffer)
-                        (goto-char (point-min))
-                        (re-search-forward "\n\n")
-                        (let ((json-object-type 'alist)
-                              (json-array-type 'list))
-                          (funcall callback
-                                   (cl-loop for model in (alist-get 'data (json-read))
-                                            for id = (alist-get 'id model)
-                                            unless (string-match "dflash" id)
-                                            unless (string-match "Kokoro" id)
-                                            unless (string-match "VoxCPM2" id)
-                                            unless (string-match "fish-audio" id)
-                                            unless (string-match "Wan2.2" id)
-                                            collect (intern id))))))))))
+                    (if (eq (car status) :error)
+                        (user-error (format "%s" (cdr status)))
+                      (goto-char (point-min))
+                      (re-search-forward "\n\n")
+                      (let ((json-object-type 'alist)
+                            (json-array-type 'list))
+                        (gptel-make-openai backend-name
+                          :host host
+                          :protocol protocol
+                          :key (when pass-entry (lambda () (+pass-get-secret pass-entry)))
+                          :stream t
+                          :models (cl-loop
+                                   for model in (alist-get 'data (json-read))
+                                   for id = (alist-get 'id model)
+                                   collect (intern id)))))))))
 #+end_src
 ** Agents
 *** init
@@ -1201,18 +1201,7 @@ CALLBACK is called with a list of interned model IDs."
 - url :: https://build.nvidia.com/explore/discover
 - rate limit :: 40 RPM
 #+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defvar fanshi/gptel-cloud-nvidia)
-  (fanshi/gptel-fetch-available-models "integrate.api.nvidia.com"
-                                       (lambda (models)
-                                         (setq fanshi/gptel-cloud-nvidia
-                                               (gptel-make-openai "Nvidia"
-                                                 :host "integrate.api.nvidia.com1"
-                                                 :protocol "https"
-                                                 :key (password-store-get "Nvidia/API/1")
-                                                 :stream t
-                                                 :models models)))
-                                       "Nvidia/API/1" "https"))
+(after! gptel (fanshi/gptel-make-openai "Nvidia" "integrate.api.nvidia.com" "Nvidia/API/1" "https"))
 #+end_src
 *** Local
 **** common
@@ -1280,57 +1269,19 @@ For 'Mlx: uses :hf tag value as model symbol."
 #+end_src
 **** llama-server
 #+begin_src emacs-lisp :tangle no
-(after! gptel
-  (defvar fanshi/gptel-local-llama)
-  (fanshi/gptel-fetch-available-models "127.0.0.1:8080"
-                                       (lambda (models)
-                                         (setq fanshi/gptel-local-llama
-                                               (gptel-make-openai "Local Llama"
-                                                 :host "127.0.0.1:8080"
-                                                 :protocol "http"
-                                                 :stream t
-                                                 :models models)))))
+(after! gptel (fanshi/gptel-make-openai "LlamaCPP" "127.0.0.1:8080"))
 #+end_src
 **** mlx_lm server
 #+begin_src emacs-lisp :tangle no
-(after! gptel
-  (defvar fanshi/gptel-local-mlx)
-  (fanshi/gptel-fetch-available-models "127.0.0.1:8080"
-                                       (lambda (models)
-                                         (setq fanshi/gptel-local-mlx
-                                               (gptel-make-openai "Local MLX"
-                                                 :host "127.0.0.1:8080"
-                                                 :protocol "http"
-                                                 :stream t
-                                                 :models models)))))
+(after! gptel (fanshi/gptel-make-openai "MLX-LM" "127.0.0.1:8080"))
 #+end_src
 **** omlx server
 #+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defvar fanshi/gptel-local-omlx)
-  (fanshi/gptel-fetch-available-models "127.0.0.1:8000"
-                                       (lambda (models)
-                                         (setq fanshi/gptel-local-omlx
-                                               (gptel-make-openai "Local OMLX"
-                                                 :host "127.0.0.1:8000"
-                                                 :protocol "http"
-                                                 :key (password-store-get "omlx/1")
-                                                 :stream t
-                                                 :models models)))
-                                       "omlx/1"))
+(after! gptel (fanshi/gptel-make-openai "oMLX"  "127.0.0.1:8000" "omlx/1"))
 #+end_src
 **** swiftlm server
 #+begin_src emacs-lisp :tangle no
-(after! gptel
-  (defvar fanshi/gptel-local-swiftlm)
-  (fanshi/gptel-fetch-available-models "127.0.0.1:5413"
-                                       (lambda (models)
-                                         (setq fanshi/gptel-local-swiftlm
-                                               (gptel-make-openai "Local SwiftLM"
-                                                 :host "127.0.0.1:5413"
-                                                 :protocol "http"
-                                                 :stream t
-                                                 :models models)))))
+(after! gptel (fanshi/gptel-make-openai "SwiftLM" "127.0.0.1:5413"))
 #+end_src
 
 ** Default
@@ -1343,8 +1294,8 @@ For 'Mlx: uses :hf tag value as model symbol."
    gptel-log-level 'info
    gptel-track-media t
    gptel-org-validate-link #'gptel-org--link-standalone-p
-   gptel-backend fanshi/gptel-local-omlx
    gptel-model 'Qwen3.6-35B-A3B
+   gptel-backend (gptel-get-backend "oMLX")
    gptel-max-tokens nil)
   (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* ")
   (gptel-highlight-mode t))
