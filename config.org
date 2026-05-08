@@ -1011,7 +1011,23 @@ return nil if the validation suceeded else return a string describing the errors
 ** fanshi/gptel-make-openai
 #+begin_src emacs-lisp :tangle yes :lexical t
 (defun fanshi/gptel-make-openai (backend-name host &optional pass-entry protocol)
-  "Setup an OpenAI-compatible server."
+  "Register an OpenAI-compatible gptel backend.
+
+Fetches available models from HOST via /v1/models, then calls
+`gptel-make-openai' with the discovered model list.
+
+BACKEND-NAME is the name of the new backend.
+
+HOST is the server hostname (with optional port), e.g.
+\"127.0.0.1:8080\" or \"integrate.api.nvidia.com\".
+
+PASS-ENTRY is an optional auth secret entry passed to
+`+pass-get-secret'.  If it is a string, it is treated as the
+entry name; if it is nil or non-string, it is used directly as
+the :key for `gptel-make-openai'.
+
+PROTOCOL is the URL scheme, defaulting to \"http\".  Use \"https\"
+for remote APIs."
   (let* ((url-request-method "GET")
          (url-request-data nil)
          (pass-key (when (and pass-entry (stringp pass-entry)) (+pass-get-secret pass-entry)))
