@@ -1014,8 +1014,9 @@ return nil if the validation suceeded else return a string describing the errors
   "Setup an OpenAI-compatible server."
   (let* ((url-request-method "GET")
          (url-request-data nil)
-         (url-request-extra-headers (if pass-entry
-                                        `(("Authorization" . ,(concat "Bearer " (+pass-get-secret pass-entry)))
+         (pass-key (when pass-entry (+pass-get-secret pass-entry)))
+         (url-request-extra-headers (if pass-key
+                                        `(("Authorization" . ,(concat "Bearer " pass-key))
                                           ,@url-request-extra-headers)
                                       url-request-extra-headers))
          (protocol (or protocol "http")))
@@ -1030,7 +1031,7 @@ return nil if the validation suceeded else return a string describing the errors
                         (gptel-make-openai backend-name
                           :host host
                           :protocol protocol
-                          :key (when pass-entry (lambda () (+pass-get-secret pass-entry)))
+                          :key pass-key
                           :stream t
                           :models (cl-loop
                                    for model in (alist-get 'data (json-read))
