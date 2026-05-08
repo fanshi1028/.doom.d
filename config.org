@@ -1870,13 +1870,24 @@ ADVANCE controls the overlay boundary behavior."
         t)))
   (advice-add 'gptel-send :before-until #'fanshi/gptel-send--prevent-duplicate-a))
 #+end_src
-** TODO Multi send!
+** fanshi/gptel-multisend
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/gptel-multisend (&optional ARG)
+  "Send ARG repetitions of the current org subtree using gptel.
+
+If ARG is provided, it specifies the number of additional times
+to send the subtree.  Each repetition is cloned and sent in turn,
+advancing to the next sibling heading after each send.
+
+Interactively, use prefix argument to specify the count.  Without
+a prefix argument, the default is 1 additional send.
+
+This command temporarily enables `gptel-org-branching-context' to
+allow cloned subtrees to maintain their own history context."
   (interactive "P")
   (let ((gptel-org-branching-context t))
     (org-clone-subtree-with-time-shift ARG)
-    (cl-loop repeat (1+ ARG)
+    (cl-loop repeat (1+ (if (numberp ARG) ARG 1))
              do (progn
                   (end-of-line)
                   (gptel-send)
