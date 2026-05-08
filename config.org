@@ -1870,6 +1870,18 @@ ADVANCE controls the overlay boundary behavior."
         t)))
   (advice-add 'gptel-send :before-until #'fanshi/gptel-send--prevent-duplicate-a))
 #+end_src
+** TODO Multi send!
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/gptel-multisend (&optional ARG)
+  (interactive "P")
+  (let ((gptel-org-branching-context t))
+    (org-clone-subtree-with-time-shift ARG)
+    (cl-loop repeat (1+ ARG)
+             do (progn
+                  (end-of-line)
+                  (gptel-send)
+                  (org-next-visible-heading 1)))))
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
