@@ -1928,8 +1928,8 @@ allow cloned subtrees to maintain their own history context."
 BODY is the prompt text. PARAMS is an alist of header arguments."
     (let* ((model (or (cdr (assq :model params))
                       (cdr (assq :model org-babel-default-header-args:draw))))
-           (out-file (cdr (or (assq :file params)
-                              (error "You must specify a :file header argument"))))
+           (out-file (or (cdr (assq :file params))
+                         (concat (make-temp-name "draw-") ".png")))
            (cmd (format "draw-things-cli generate --model %s --prompt %s --output %s"
                         (shell-quote-argument model)
                         (shell-quote-argument body)
