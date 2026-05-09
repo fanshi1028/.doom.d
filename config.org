@@ -1914,6 +1914,35 @@ allow cloned subtrees to maintain their own history context."
                    ("\\cvevent{%s}" . "\\cvevent*{%s}")))
     ))
 #+end_src
+* Draw things
+** org-babel-language:draw
+#+begin_src emacs-lisp :tangle yes
+(after! org
+  (defvar org-babel-default-header-args:draw
+    '((:results . "file")
+      (:model . "baidu/ERNIE-Image-Turbo")
+      (:async . t))
+    "Default header args for draw blocks.")
+  (defun org-babel-execute:draw (body params)
+    "Execute a draw prompt block.
+BODY is the prompt text. PARAMS is an alist of header arguments."
+    (let* ((model (or (cdr (assq :model params))
+                      (cdr (assq :model org-babel-default-header-args:draw))))
+           (out-file (cdr (or (assq :file params)
+                              (error "You must specify a :file header argument"))))
+           (cmd (format "draw-things-cli generate --model %s --prompt %s --output %s"
+                        (shell-quote-argument model)
+                        (shell-quote-argument body)
+                        (shell-quote-argument out-file))))
+      (message "draw: generating with %s → %s" model out-file)
+      (call-process-shell-command cmd nil 0)
+      out-file))
+  (add-to-list 'org-src-lang-modes '("draw" . text))
+  (add-to-list 'org-babel-load-languages '(draw . t))
+  ;; REQUIRED: prevent Doom from trying to load ob-draw.el in async subprocess
+  (add-to-list 'ob-async-no-async-languages-alist "draw"))
+#+end_src
+
 * TEMP FIX
 ** pass
 When copying pass
