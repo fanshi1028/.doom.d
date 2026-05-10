@@ -1010,7 +1010,7 @@ return nil if the validation suceeded else return a string describing the errors
 #+end_src
 ** fanshi/gptel-make-openai
 #+begin_src emacs-lisp :tangle yes :lexical t
-(defun fanshi/gptel-make-openai (backend-name host &optional pass-entry protocol)
+(defun fanshi/gptel-make-openai (backend-name host &optional pass-entry protocol set-as-backend)
   "Register an OpenAI-compatible gptel backend.
 
 Fetches available models from HOST via /v1/models, then calls
@@ -1042,17 +1042,23 @@ for remote APIs."
                         (user-error (format "%s" (cdr status)))
                       (goto-char (point-min))
                       (re-search-forward "\n\n")
-                      (let ((json-object-type 'alist)
-                            (json-array-type 'list))
-                        (gptel-make-openai backend-name
-                          :host host
-                          :protocol protocol
-                          :key (or pass-key (unless (stringp pass-entry) pass-entry))
-                          :stream t
-                          :models (cl-loop
-                                   for model in (alist-get 'data (json-read))
-                                   for id = (alist-get 'id model)
-                                   collect (intern id)))))))))
+                      (let* ((json-object-type 'alist)
+                             (json-array-type 'list)
+                             (backend (gptel-make-openai backend-name
+                                        :host host
+                                        :protocol protocol
+                                        :key (or pass-key (unless (stringp pass-entry) pass-entry))
+                                        :stream t
+                                        :models (cl-loop
+                                                 for model in (alist-get 'data (json-read))
+                                                 for id = (alist-get 'id model)
+                                                 ;; unless (string-match "dflash" id)
+                                                 ;; unless (string-match "Kokoro" id)
+                                                 ;; unless (string-match "VoxCPM2" id)
+                                                 ;; unless (string-match "fish-audio" id)
+                                                 ;; unless (string-match "Wan2.2" id)
+                                                 collect (intern id)))))
+                        (when set-as-backend (setopt gptel-backend backend))))))))
 #+end_src
 ** Agents
 *** init
@@ -1292,7 +1298,7 @@ For 'Mlx: uses :hf tag value as model symbol."
 #+end_src
 **** omlx server
 #+begin_src emacs-lisp :tangle yes
-(after! gptel (fanshi/gptel-make-openai "oMLX"  "127.0.0.1:8000" "omlx/1"))
+(after! gptel (fanshi/gptel-make-openai "oMLX"  "127.0.0.1:8000" "omlx/1" nil 'set-as-backend))
 #+end_src
 **** swiftlm server
 #+begin_src emacs-lisp :tangle no
@@ -1310,7 +1316,6 @@ For 'Mlx: uses :hf tag value as model symbol."
    gptel-track-media t
    gptel-org-validate-link #'gptel-org--link-standalone-p
    gptel-model 'Qwen3.6-35B-A3B
-   gptel-backend (gptel-get-backend "oMLX")
    gptel-max-tokens nil)
   (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* ")
   (gptel-highlight-mode t))
