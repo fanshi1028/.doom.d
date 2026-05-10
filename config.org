@@ -1156,8 +1156,10 @@ for remote APIs."
 #+begin_src emacs-lisp :tangle yes
 (defvar fanshi/models-hierarchy-list
   (list
-   (list '(Qwen3.6-27B-UD-MLX-4bit Qwen3.6-27B)
-         '(gemma-4-31b-it-UD-MLX-4bit gemma-4-31b-it))))
+   (list
+    '(Qwen3.6-35B-A3B MiniMax-M2.7-oQ2)
+    '(Qwen3.6-27B-UD-MLX-4bit Qwen3.6-27B)
+    '(gemma-4-31b-it-UD-MLX-4bit gemma-4-31b-it))))
 #+end_src
 **** Up
 #+begin_src emacs-lisp :tangle yes
