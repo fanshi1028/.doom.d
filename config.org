@@ -1927,8 +1927,7 @@ allow cloned subtrees to maintain their own history context."
 (after! org
   (defvar org-babel-default-header-args:draw
     '((:results . "file")
-      (:model . "baidu/ERNIE-Image-Turbo")
-      (:async . t))
+      (:model . "baidu/ERNIE-Image-Turbo"))
     "Default header args for draw blocks.")
   (defun org-babel-execute:draw (body params)
     "Execute a draw prompt block.
@@ -1946,7 +1945,6 @@ BODY is the prompt text. PARAMS is an alist of header arguments."
       out-file))
   (add-to-list 'org-src-lang-modes '("draw" . text))
   (add-to-list 'org-babel-load-languages '(draw . t))
-  ;; REQUIRED: prevent Doom from trying to load ob-draw.el in async subprocess
   (add-to-list 'ob-async-no-async-languages-alist "draw"))
 #+end_src
 
