@@ -1654,11 +1654,18 @@ associated, or a prefix arg was used, does nothing."
                  dir))
           (rename-buffer (file-name-nondirectory buffer-file-name) t))))))
 #+end_src
-*** fanshi/capped-buffer-substring
+*** fanshi/gptel-agent--extract-chat-content
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (defun fanshi/capped-buffer-substring (&optional max-prompt-length)
-    (buffer-substring-no-properties (point-min) (min (or max-prompt-length 500) (point-max)))))
+  (defun fanshi/gptel-agent--extract-chat-content (&optional max-prompt-length)
+    "Extract the first MAX-PROMPT-LENGTH chars of the buffer, stripping org property drawers.
+
+Returns text suitable for sending to an LLM (e.g. for filename suggestion).
+Default MAX-PROMPT-LENGTH is 5000."
+    (let ((content (buffer-substring-no-properties
+                    (point-min)
+                    (min (or max-prompt-length 5000) (point-max)))))
+      (replace-regexp-in-string "^:PROPERTIES:.*?:END:" "" content nil 'multiline))))
 #+end_src
 *** fanshi/gptel-agent--suggest-filename-prefix
 #+begin_src emacs-lisp :tangle yes :lexical t
@@ -1684,12 +1691,12 @@ replaces the old prefix with the new one."
                        collect (cons file
                                      (with-temp-buffer
                                        (insert-file-contents file)
-                                       (fanshi/capped-buffer-substring))))
+                                       (fanshi/gptel-agent--extract-chat-content))))
               (let ((file (dired-get-filename nil t)))
                 (if (null file) (user-error "No file at point and no marked files in Dired")
-                  (list (cons file (with-temp-buffer (insert-file-contents file) (fanshi/capped-buffer-substring))))))))
+                  (list (cons file (with-temp-buffer (insert-file-contents file) (fanshi/gptel-agent--extract-chat-content))))))))
             ;; Buffer visiting a file
-            (buffer-file-name (list (cons buffer-file-name (fanshi/capped-buffer-substring))))
+            (buffer-file-name (list (cons buffer-file-name (fanshi/gptel-agent--extract-chat-content))))
             ;; No valid context
             (t (user-error "No file context: not visiting a file and not in Dired")))))
       (cl-loop for res in resolved
