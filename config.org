@@ -1840,7 +1840,7 @@ ADVANCE controls the overlay boundary behavior."
             (let ((buf-entry (alist-get context-source-buffer gptel-context)))
               (setf (alist-get context-source-buffer gptel-context)
                     (plist-put buf-entry :overlays (cons overlay (plist-get buf-entry :overlays)))))))
-      overlay))
+      (funcall orig-f start end advance)))
   (advice-add 'gptel-context--make-overlay :around #'fanshi/gptel-context--make-overlay-a)
 
   (defun fanshi/gptel-context-remove-a (orig-f &optional context)
