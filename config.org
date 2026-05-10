@@ -1733,24 +1733,14 @@ replaces the old prefix with the new one."
 - No quotes, no code blocks, no explanations"
         :callback (lambda (response _)
                     (when (stringp response)
-                      (message response)
-                      (let* ((prefix (string-trim response))
-                             (prefix (replace-regexp-in-string
-                                      "^\\=\\=\\=[^a-z]*\\|\\=\\=\\=$\\|^[=\"']+\\|[=\"']+$"
-                                      "" prefix))
-                             (prefix (string-trim prefix))
-                             (prefix (downcase prefix))
-                             (prefix (replace-regexp-in-string "[^a-z0-9-]" "-" prefix))
-                             (prefix (replace-regexp-in-string "-\\+" "-" prefix))
-                             (prefix (string-trim prefix "-"))
-                             (new-base (if (> (length prefix) 1)
-                                           (concat prefix "-" suffix)
-                                         suffix))
-                             (new-file (expand-file-name
-                                        (concat new-base "." ext)
-                                        dir)))
-                        (when (and (> (length prefix) 1) (not (string= file new-file)))
-                          (rename-file file new-file)))))))))
+                      (if-let* ((prefix (downcase (string-trim response)))
+                                (prefix (replace-regexp-in-string "[^a-z0-9-]" "-" prefix))
+                                (prefix (replace-regexp-in-string "-\\+" "-" prefix))
+                                (prefix (string-trim prefix "-"))
+                                (new-base (when (> (length prefix) 1) (concat prefix "-" suffix)))
+                                (new-file (expand-file-name (concat new-base "." ext) dir)))
+                              (rename-file file new-file)
+                            (message "Failed to rename %s (file may have been moved or deleted)" file))))))))
 #+end_src
 *** set it all up
 #+begin_src elisp :tangle yes
