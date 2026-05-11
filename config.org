@@ -1976,15 +1976,23 @@ Optional MODEL (default \"qwen3-tts\") and VOICE can override defaults."
 ** org-babel-language:draw
 #+begin_src emacs-lisp :tangle yes
 (after! org
+  (defvar fanshi/org-babel-draw-models
+    '("baidu/ERNIE-Image-Turbo")
+    "List of image generation models for draw blocks.
+The :model header arg can be a number (index into this list) or a string (model name).")
+
   (defvar org-babel-default-header-args:draw
     '((:results . "file")
-      (:model . "baidu/ERNIE-Image-Turbo"))
+      (:model . 0))
     "Default header args for draw blocks.")
   (defun org-babel-execute:draw (body params)
     "Execute a draw prompt block.
 BODY is the prompt text. PARAMS is an alist of header arguments."
-    (let* ((model (or (cdr (assq :model params))
-                      (cdr (assq :model org-babel-default-header-args:draw))))
+    (let* ((model-raw (or (cdr (assq :model params))
+                          (cdr (assq :model org-babel-default-header-args:draw))))
+           (model (if (numberp model-raw)
+                      (nth model-raw fanshi/org-babel-draw-models)
+                    model-raw))
            (out-file (or (cdr (assq :file params))
                          (concat (make-temp-name "draw-") ".png")))
            (cmd (format "draw-things-cli generate --model %s --prompt %s --output %s"
@@ -1998,7 +2006,6 @@ BODY is the prompt text. PARAMS is an alist of header arguments."
   (add-to-list 'org-babel-load-languages '(draw . t))
   (add-to-list 'ob-async-no-async-languages-alist "draw"))
 #+end_src
-
 * TEMP FIX
 ** pass
 When copying pass
