@@ -2127,6 +2127,21 @@ BODY is the prompt text. PARAMS is an alist of header arguments."
   (add-to-list 'org-src-lang-modes '("draw" . text))
   (add-to-list 'ob-async-no-async-languages-alist "draw"))
 #+end_src
+* fanshi/omlx-unload-model
+#+begin_src elisp :tangle yes :lexical t
+(after! org
+  (defun fanshi/omlx-unload-model (model-id)
+    "Unload MODEL-ID from oMLX server."
+    (let ((url (format "http://127.0.0.1:8000/v1/models/%s/unload" model-id))
+          (url-request-method "POST")
+          (url-request-extra-headers `(("Authorization" . ,(concat "Bearer " (+pass-get-secret 'omlx/1)))
+                                       ,@url-request-extra-headers)))
+      (url-retrieve url
+                    (lambda (status)
+                      (if (eq (car status) :error)
+                          (message "omlx: failed to unload %s: %s" model-id (cdr status))
+                        (message "omlx: unloaded %s" model-id)))))))
+#+end_src
 * TEMP FIX
 ** pass
 When copying pass
