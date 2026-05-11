@@ -1920,6 +1920,37 @@ Optional MODEL (default \"qwen3-tts\") and VOICE can override defaults."
                         (start-process "afplay" nil "afplay" tmp-file)
                         (message "fanshi/speak: playing %s" tmp-file)))))))
 #+end_src
+** fanshi/speak-stream
+#+begin_src elisp :lexical t
+(defun fanshi/speak-stream (&optional text model voice)
+  "Speak TEXT using oMLX TTS endpoint.
+
+If the mark is active, speak the region.  Otherwise, prompt for text.
+Optional MODEL (default \"qwen3-tts\") and VOICE can override defaults."
+  (interactive)
+  (let ((text (or text
+                  (and (use-region-p) (buffer-substring-no-properties (region-beginning) (region-end)))
+                  (read-string "Speak: "))))
+    (unless (stringp text)
+      (user-error "No text to speak"))
+    (let* ((model (or model "Qwen3-TTS-12Hz-1.7B-CustomVoice"))
+           (pass-key (when-let ((key (+pass-get-secret "omlx/1")))
+                       key))
+           (json-body (json-encode `(("model" . ,model)
+                                     ("input" . ,(string-trim text))
+                                     ("voice" . ,(or voice "ono_anna"))
+                                     ("stream" . t))))
+           (url "http://127.0.0.1:8000/v1/audio/speech")
+           (cmd (concat "curl -s -X POST "
+                        "-H 'Content-Type: application/json' "
+                        (or (when pass-key
+                              (format "-H 'Authorization: Bearer %s' " pass-key))
+                            "")
+                        "-d " (shell-quote-argument json-body) " "
+                        (shell-quote-argument url)
+                        " | ffplay -nodisp -autoexit -f wav -i pipe:0")))
+      (start-process "tts-stream" nil "sh" "-c" cmd))))
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
