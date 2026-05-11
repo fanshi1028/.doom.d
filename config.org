@@ -2080,33 +2080,47 @@ Creates a fresh gptel (or gptel-agent) buffer, inserts the prompt, and sends."
 #+begin_src emacs-lisp :tangle yes
 (after! org
   (defvar fanshi/org-babel-draw-models
-    '("baidu/ERNIE-Image-Turbo")
+    '((z . "Tongyi-MAI/Z-Image")
+      (ernie . "baidu/ERNIE-Image")
+      (ltx . "Lightricks/LTX-2.3")
+      (qwen-edit . "Qwen/Qwen-Image-Edit-2511"))
     "List of image generation models for draw blocks.
 The :model header arg can be a number (index into this list) or a string (model name).")
 
   (defvar org-babel-default-header-args:draw
     '((:results . "file")
-      (:model . 0))
+      (:model . 0)
+      (:turbo . t))
     "Default header args for draw blocks.")
   (defun org-babel-execute:draw (body params)
     "Execute a draw prompt block.
 BODY is the prompt text. PARAMS is an alist of header arguments."
-    (let* ((model-raw (or (cdr (assq :model params))
-                          (cdr (assq :model org-babel-default-header-args:draw))))
-           (model (if (numberp model-raw)
-                      (nth model-raw fanshi/org-babel-draw-models)
-                    model-raw))
-           (out-file (or (cdr (assq :file params))
+    (let* ((model-raw (or (alist-get :model params)
+                          (alist-get :model org-babel-default-header-args:draw)))
+           (model (cond ((numberp model-raw) (cdr (nth model-raw fanshi/org-babel-draw-models)))
+                        ((and (symbolp model-raw) (alist-get model-raw fanshi/org-babel-draw-models)))
+                        ((and (stringp model-raw) (alist-get (intern model-raw) fanshi/org-babel-draw-models)))
+                        (t model-raw)))
+           (model (if (and (alist-get :turbo params) (member model '("Tongyi-MAI/Z-Image" "baidu/ERNIE-Image")))
+                      (concat model "-Turbo")
+                    model))
+           (out-file (or (alist-get :file params)
                          (concat (make-temp-name "draw-") ".png")))
+           (prompt (replace-regexp-in-string "\n" " " body))
            (cmd (format "draw-things-cli generate --model %s --prompt %s --output %s"
                         (shell-quote-argument model)
-                        (shell-quote-argument body)
+                        (shell-quote-argument prompt)
                         (shell-quote-argument out-file))))
       (message "draw: generating with %s → %s" model out-file)
       (call-process-shell-command cmd nil 0)
+      ;; (let* ((err-buf (get-buffer-create "*draw-things-err*"))
+      ;;        (status (call-process-shell-command cmd nil nil err-buf)))
+      ;;   (if (> status 0)
+      ;;       (with-current-buffer err-buf
+      ;;         (error "draw: command failed (exit %d), please check %s for details" status err-buf))
+      ;;     (kill-buffer err-buf)))
       out-file))
   (add-to-list 'org-src-lang-modes '("draw" . text))
-  (add-to-list 'org-babel-load-languages '(draw . t))
   (add-to-list 'ob-async-no-async-languages-alist "draw"))
 #+end_src
 * TEMP FIX
