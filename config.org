@@ -1997,14 +1997,14 @@ To avoid loading multiple main models into restricted RAM, we can queue requests
           (cond ("Use active model"
                  (let ((gptel-model active-model))
                    (message "Using currently active model %s" active-model)
-                   (funcall orig-f args)))
+                   (apply orig-f args)))
                 ("Schedule later"
                  (push (list (buffer-substring (point-min) (point)) :model model :backend backend)
                        fanshi/gptel--waiting-request-alist)
                  (message "Request scheduled. It will run when %s is taking a timeoff." active-model))
                 (t (error "Request cancelled"))))
       ;; No conflicting main model, proceed normally
-      (funcall orig-f args))))
+      (apply orig-f args))))
 
 (after! gptel
   (advice-add #'gptel-send :around #'fanshi/gptel-request-maybe-waiting-main-model-a)
