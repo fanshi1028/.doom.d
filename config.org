@@ -1958,7 +1958,44 @@ To avoid loading multiple main models into restricted RAM, we can queue requests
 
 (defvar fanshi/gptel--waiting-request-alist nil
   "List of requests waiting for a main model to be freed.
-  Each entry is a plist containing the request parameters.")
+  Each entry is a plist containing the request parameters.
+  Format: (PROMPT-STRING :model MODEL :backend BACKEND).
+  Persisted via savehist across Emacs sessions.")
+
+(setq savehist-additional-variables (add-to-list 'savehist-additional-variables fanshi/gptel--waiting-request-alist))
+
+(defun fanshi/gptel--replay-queued-request (queued-entry)
+  "Replay a single queued request from a persisted entry.
+QUEUED-ENTRY is (PROMPT-STRING :model MODEL :backend BACKEND).
+Creates a fresh gptel buffer, inserts the prompt, and sends the request."
+  (let* ((prompt (car queued-entry))
+         (model (plist-get queued-entry :model))
+         (backend (plist-get queued-entry :backend))
+         (buf-name (generate-new-buffer-name "*gptel-queued*")))
+    (with-current-buffer (get-buffer-create buf-name)
+      (funcall gptel-default-mode)
+      (gptel-mode 1)
+      (setq-local gptel-model model
+                  gptel-backend backend)
+      (goto-char (point-min))
+      (insert prompt)
+      (goto-char (point-max)))
+    (display-buffer (get-buffer buf-name))
+    (with-current-buffer buf-name
+      (gptel-send))))
+
+(defun fanshi/gptel--restore-queued-requests ()
+  "Restore and replay queued gptel requests from previous session."
+  (when fanshi/gptel--waiting-request-alist
+    (let ((count (length fanshi/gptel--waiting-request-alist)))
+      (message "Found %d queued request(s) from previous session" count)
+      (when (yes-or-no-p (format "Found %d queued gptel request(s) from last session. Replay them? "
+                                  count))
+        (dolist (entry (reverse fanshi/gptel--waiting-request-alist))
+          (fanshi/gptel--replay-queued-request entry))
+        (setq fanshi/gptel--waiting-request-alist nil)))))
+
+(add-hook 'emacs-startup-hook #'fanshi/gptel--restore-queued-requests)
 
 (defun fanshi/gptel--get-active-main-model ()
   "Return the main model currently running in any gptel request, if any."
@@ -1973,11 +2010,9 @@ To avoid loading multiple main models into restricted RAM, we can queue requests
   (with-mutex fanshi/gptel-send-mutex
     (when (and fanshi/gptel--waiting-request-alist
                (null (fanshi/gptel--get-active-main-model)))
-      (let* ((next-request (pop fanshi/gptel--waiting-request-alist))
-             (gptel-model (plist-get next-request :model))
-             (gptel-backend (plist-get next-request :backend)))
+      (let ((next-request (pop fanshi/gptel--waiting-request-alist)))
         (message "Processing queued gptel request...")
-        (gptel-request (car next-request))))))
+        (fanshi/gptel--replay-queued-request next-request)))))
 
 (defun fanshi/gptel-request-maybe-waiting-main-model-a (orig-f &rest args)
   "Advice for `gptel-send` to handle main model concurrency."
@@ -1996,7 +2031,9 @@ To avoid loading multiple main models into restricted RAM, we can queue requests
                    (message "Using currently active model %s" active-model)
                    (apply orig-f args)))
                 ("Schedule later"
-                 (push (list (buffer-substring (point-min) (point)) :model model :backend backend)
+                 (push (list (buffer-substring (point-min) (point))
+                             :model gptel-model
+                             :backend gptel-backend)
                        fanshi/gptel--waiting-request-alist)
                  (message "Request scheduled. It will run when %s is taking a timeoff." active-model))
                 (t (error "Request cancelled"))))
