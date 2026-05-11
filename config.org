@@ -1923,10 +1923,8 @@ Optional MODEL (default \"qwen3-tts\") and VOICE can override defaults."
 ** fanshi/speak-stream
 #+begin_src elisp :lexical t
 (defun fanshi/speak-stream (&optional text model voice)
-  "Speak TEXT using oMLX TTS endpoint.
-
-If the mark is active, speak the region.  Otherwise, prompt for text.
-Optional MODEL (default \"qwen3-tts\") and VOICE can override defaults."
+  "Speak TEXT using oMLX TTS endpoint. If the mark is active, speak the region. Otherwise, prompt for text.
+Optional MODEL and VOICE can override defaults."
   (interactive)
   (let ((text (or text
                   (and (use-region-p) (buffer-substring-no-properties (region-beginning) (region-end)))
@@ -1934,21 +1932,20 @@ Optional MODEL (default \"qwen3-tts\") and VOICE can override defaults."
     (unless (stringp text)
       (user-error "No text to speak"))
     (let* ((model (or model "Qwen3-TTS-12Hz-1.7B-CustomVoice"))
-           (pass-key (when-let ((key (+pass-get-secret "omlx/1")))
+           (pass-key (when-let ((key (+pass-get-secret "omlx/2")))
                        key))
            (json-body (json-encode `(("model" . ,model)
                                      ("input" . ,(string-trim text))
-                                     ("voice" . ,(or voice "ono_anna"))
+                                     ("voice" . ,(or voice "Ono_Anna" "Sohee"))
                                      ("stream" . t))))
            (url "http://127.0.0.1:8000/v1/audio/speech")
-           (cmd (concat "curl -s -X POST "
+           (cmd (concat "curl -s -X POST --no-buffer "
                         "-H 'Content-Type: application/json' "
                         (or (when pass-key
                               (format "-H 'Authorization: Bearer %s' " pass-key))
                             "")
-                        "-d " (shell-quote-argument json-body) " "
-                        (shell-quote-argument url)
-                        " | ffplay -nodisp -autoexit -f wav -i pipe:0")))
+                        (format "-d '%s' %s | ffplay -nodisp -autoexit -fflags nobuffer -probesize 64 -analyzeduration 0 -"
+                                json-body url))))
       (start-process "tts-stream" nil "sh" "-c" cmd))))
 #+end_src
 ** Local GPTEL request waiting for main models
