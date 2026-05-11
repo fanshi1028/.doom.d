@@ -1909,15 +1909,16 @@ Optional MODEL (default \"qwen3-tts\") and VOICE can override defaults."
                                             ;; NOTE: Qwen3-TTS's voice 'serena', 'vivian', 'uncle_fu', 'ryan', 'aiden', 'ono_anna', 'sohee', 'eric', 'dylan'
                                             ("voice" . ,(or voice "ono_anna")))))
            (tmp-file (make-temp-file "omlx-tts-" nil ".wav")))
-      (with-current-buffer
-          (url-retrieve-synchronously (concat "http://127.0.0.1:8000/v1/audio/speech"))
-        (if (not (buffer-string))
-            (user-error "fanshi/speak: failed to connect to oMLX")
-          (goto-char url-http-end-of-headers)
-          (while (looking-at "\r?\n") (delete-char (if (looking-at "\r\n") 2 1)))
-          (write-region (point) (point-max) tmp-file nil 'quiet)))
-      (start-process "afplay" nil "afplay" tmp-file)
-      (message "fanshi/speak: playing %s" tmp-file))))
+      (url-retrieve (concat "http://127.0.0.1:8000/v1/audio/speech")
+                    (lambda (status)
+                      (if (eq (car status) :error)
+                          (message "fanshi/speak: oMLX tts request failed")
+                        (goto-char url-http-end-of-headers)
+                        (while (looking-at "\r?\n")
+                          (delete-char (if (looking-at "\r\n") 2 1)))
+                        (write-region (point) (point-max) tmp-file nil 'quiet)
+                        (start-process "afplay" nil "afplay" tmp-file)
+                        (message "fanshi/speak: playing %s" tmp-file)))))))
 #+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
