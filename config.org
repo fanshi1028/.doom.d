@@ -1661,10 +1661,10 @@ associated, or a prefix arg was used, does nothing."
     "Extract the first MAX-PROMPT-LENGTH chars of the buffer, stripping org property drawers.
 
 Returns text suitable for sending to an LLM (e.g. for filename suggestion).
-Default MAX-PROMPT-LENGTH is 5000."
+Default MAX-PROMPT-LENGTH is 25000."
     (let ((content (buffer-substring-no-properties
                     (point-min)
-                    (min (or max-prompt-length 5000) (point-max)))))
+                    (min (or max-prompt-length 25000) (point-max)))))
       (replace-regexp-in-string "^:PROPERTIES:.*?:END:" "" content nil 'multiline))))
 #+end_src
 *** fanshi/gptel-agent--suggest-filename-prefix
