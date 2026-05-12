@@ -1217,6 +1217,13 @@ for remote APIs."
     :description "Preset to switch to a alternative model"
     :model '(:function fanshi/alt-model)))
 #+end_src
+*** Cloud
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (gptel-make-preset 'nvidia
+    :description "Preset for using the Nvidia(cloud) backend"
+    :backend "Nvidia"))
+#+end_src
 ** Backend
 *** Cloud
 **** NVIDIA NIM
