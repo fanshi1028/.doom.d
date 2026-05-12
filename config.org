@@ -2331,6 +2331,47 @@ The worktree is created as a new branch off the current HEAD."
       (message "Created worktree: %s" worktree-path)
       (agent-shell--new-shell :location worktree-path))))
 #+end_src
+** fanshi/gptel-agent-swtich-to-worktree
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-agent-swtich-to-worktree (branch)
+    "Create a git worktree under .trees/BRANCH and migrate this gptel-agent buffer to it.
+
+Unlike `fanshi/gptel-spawn-agent-shell-in-worktree' which spawns an agent-shell,
+this command is meant to be called interactively on an existing gptel-agent buffer.
+
+It does three things:
+1. Changes the buffer's default-directory to the new worktree.
+2. Remaps file paths in the buffer-local `gptel-context' that are inside
+   the project root, so they point to the corresponding paths in the worktree.
+3. Leaves context entries outside the project (e.g., external docs) unchanged.
+   Buffer-region entries (overlays) are also left unchanged."
+    (interactive (list (read-string "Branch name: ")))
+    (unless (derived-mode-p 'gptel-mode)
+      (user-error "This command must be called from a gptel buffer"))
+    (unless (eq 'Git (vc-responsible-backend default-directory t))
+      (user-error "Not in a Git repository"))
+    (let* ((project-root (projectile-project-root))
+           (worktree-path (expand-file-name (concat ".trees/" branch) project-root))
+           (remapped 0))
+      (make-directory (file-name-directory worktree-path) t)
+      (unless (zerop (call-process "git" nil nil nil "worktree" "add" "-b" branch worktree-path))
+        (user-error "Failed to create worktree"))
+      ;; Change default-directory in the current buffer
+      (setq default-directory worktree-path)
+      ;; Migrate buffer-local gptel-context: remap file paths inside the project root
+      (dolist (entry gptel-context)
+        (let ((source (car-safe entry)))
+          (when (and (stringp source)
+                     (file-in-directory-p (expand-file-name source) project-root))
+            (let* ((rel-path (file-relative-name source project-root))
+                   (new-path (expand-file-name rel-path worktree-path)))
+              (setf (car entry) new-path)
+              (cl-incf remapped)
+              (message "Context remapped: %s" rel-path)))))
+      (message "Migrated to worktree %s (%d context file%s remapped)"
+               branch remapped (if (= remapped 1) "" "s"))))))
+#+end_src
 ** Use it!
 #+begin_src emacs-lisp :tangle yes
 (use-package! agent-shell
