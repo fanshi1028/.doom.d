@@ -2287,7 +2287,7 @@ kill-new: Wrong type argument: stringp, nil
 (after! agent-shell
   (setopt agent-shell-pi-environment
         (agent-shell-make-environment-variables
-         "OMLX_API_KEY" (password-store-get "omlx/1"))))
+         "OMLX_API_KEY" (+pass-get-secret "omlx/2"))))
 #+end_src
 ** fanshi/agent-shell-command-prefix
 #+begin_src emacs-lisp :tangle yes
