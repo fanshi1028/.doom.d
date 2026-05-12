@@ -1721,7 +1721,7 @@ replaces the old prefix with the new one."
                              (match-string 1 base)))
                 (suffix (or timestamp base))
                 (content (cdr pair))
-                (gptel-model 'Qwen3.6-35B-A3B))
+                (gptel-model (or (fanshi/gptel--get-active-main-model) 'Qwen3.6-35B-A3B)))
       (gptel-request (format "%s" content)
         :context nil
         :system "You are a file naming assistant. Based on the following chat transcript, suggest a CONCISE filename prefix (2-4 words). Rules:
