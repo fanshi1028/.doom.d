@@ -1040,8 +1040,7 @@ for remote APIs."
                   (lambda (status)
                     (if (eq (car status) :error)
                         (user-error (format "%s" (cdr status)))
-                      (goto-char (point-min))
-                      (re-search-forward "\n\n")
+                      (goto-char url-http-end-of-headers)
                       (let* ((json-object-type 'alist)
                              (json-array-type 'list)
                              (backend (gptel-make-openai backend-name
