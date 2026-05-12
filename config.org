@@ -2068,7 +2068,7 @@ Creates a fresh gptel (or gptel-agent) buffer, inserts the prompt, and sends."
 CALLBACK is called with a result string when done.
 BRANCH is the worktree branch name."
     (let ((root (projectile-project-root))
-          (buf (fanshi/gptel-coding-spawn-worktree branch)))
+          (buf (fanshi/gptel-spawn-agent-shell-in-worktree branch)))
       (with-current-buffer buf
         (let ((start-pos (point-max)))
           (insert task "\n")
@@ -2313,10 +2313,10 @@ to append to the agent-shell command prefix.")
              (args (if root (append args `("--allow" ,root "--read" ,root)) args))
              (append args '("--read" "/Users/francischan/.agents" "--allow-cwd" "--"))))))
 #+end_src
-** fanshi/gptel-coding-spawn-worktree
+** fanshi/gptel-spawn-agent-shell-in-worktree
 #+begin_src emacs-lisp :tangle yes
 (after! agent-shell
-  (defun fanshi/gptel-coding-spawn-worktree (branch)
+  (defun fanshi/gptel-spawn-agent-shell-in-worktree (branch)
     "Create a git worktree under .trees/BRANCH and spawn agent-shell in it.
 The worktree is created as a new branch off the current HEAD."
     (interactive
