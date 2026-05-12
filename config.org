@@ -2127,7 +2127,8 @@ BODY is the prompt text. PARAMS is an alist of header arguments."
   (add-to-list 'org-src-lang-modes '("draw" . text))
   (add-to-list 'ob-async-no-async-languages-alist "draw"))
 #+end_src
-* fanshi/omlx-unload-model
+* oMLX
+** fanshi/omlx-unload-model
 #+begin_src elisp :tangle yes :lexical t
 (after! org
   (defun fanshi/omlx-unload-model (model-id)
@@ -2141,6 +2142,29 @@ BODY is the prompt text. PARAMS is an alist of header arguments."
                       (if (eq (car status) :error)
                           (message "omlx: failed to unload %s: %s" model-id (cdr status))
                         (message "omlx: unloaded %s" model-id)))))))
+#+end_src
+** fanshi/omlx-list-loaded-model
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! org
+   (defun fanshi/omlx-list-loaded-model (&optional unload-all)
+    "List currently loaded models from oMLX server. if UNLOAD-ALL unload all loaded models"
+    (interactive)
+    (let ((url "http://127.0.0.1:8000/api/status")
+          (url-request-method "GET")
+          (url-request-extra-headers `(("Authorization" . ,(concat "Bearer " (+pass-get-secret 'omlx/1)))
+                                       ,@url-request-extra-headers)))
+      (url-retrieve url
+                    (lambda (status)
+                      (if (eq (car status) :error)
+                          (message "omlx: failed to list loaded models: %s" (cdr status))
+                        (goto-char url-http-end-of-headers)
+                        (let* ((data (json-parse-string (buffer-substring-no-properties (point) (point-max))
+                                                       :object-type 'plist))
+                              (models (plist-get data :loaded_models)))
+                          (if (seq-empty-p models)
+                              (message "omlx: no models loaded")
+                            (message "omlx: loaded models: %s" (string-join models ", "))
+                            (when unload-all (seq-map #'fanshi/omlx-unload-model models)))))))))))
 #+end_src
 * TEMP FIX
 ** pass
