@@ -2256,6 +2256,24 @@ to append to the agent-shell command prefix.")
              (args (if root (append args `("--allow" ,root "--read" ,root)) args))
              (append args '("--read" "/Users/francischan/.agents" "--allow-cwd" "--"))))))
 #+end_src
+** fanshi/gptel-coding-spawn-worktree
+#+begin_src emacs-lisp :tangle yes
+(after! agent-shell
+  (defun fanshi/gptel-coding-spawn-worktree (branch)
+    "Create a git worktree under .trees/BRANCH and spawn agent-shell in it.
+The worktree is created as a new branch off the current HEAD."
+    (interactive
+     (list (read-string "Branch name: ")))
+    (unless (eq 'Git (vc-responsible-backend default-directory t))
+      (user-error "Not in a Git repository"))
+    (let* ((project-root (projectile-project-root))
+           (worktree-path (expand-file-name (concat ".trees/" branch) project-root)))
+      (make-directory (file-name-directory worktree-path) t)
+      (unless (zerop (call-process "git" nil nil nil "worktree" "add" "-b" branch worktree-path))
+        (user-error "Failed to create worktree"))
+      (message "Created worktree: %s" worktree-path)
+      (agent-shell--new-shell :location worktree-path))))
+#+end_src
 ** Use it!
 #+begin_src emacs-lisp :tangle yes
 (use-package! agent-shell
