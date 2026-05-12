@@ -2235,24 +2235,26 @@ kill-new: Wrong type argument: stringp, nil
 ** fanshi/agent-shell-command-prefix
 #+begin_src emacs-lisp :tangle yes
 (after! agent-shell
+  (defvar fanshi/agent-shell-command-prefix-by-project-type-alist
+    '((haskell-cabal . ("--read-file" "/Users/francischan/.config/cabal/config"
+                        "--allow" "/Users/francischan/.cache/cabal"
+                        "--allow" "/Users/francischan/.local/state/cabal/store"))
+      (python-uv . ("--allow" "/Users/francischan/.cache/uv")))
+    "A alist of default arguments for specific project types.
+Each element is of the form (TYPE . ARGS), where TYPE is a
+projectile project type symbol and ARGS is a list of arguments
+to append to the agent-shell command prefix.")
   (defun fanshi/agent-shell-command-prefix (buffer)
-    (let* ((config (agent-shell-get-config buffer))
-           (profile (map-elt config :identifier))
-           ;; HACK Have to hard code due to path problem.
-           (args `(,fanshi/nono "run" "-v"))
-           ;; NOTE: due to nono's bug(I guess): ~/.config/cabal/config & $HOME/.config/cabal/config don't work
-           (haskell-args '("--read-file" "/Users/francischan/.config/cabal/config"
-                           "--allow" "/Users/francischan/.cache/cabal"
-                           "--allow" "/Users/francischan/.local/state/cabal/store"))
-           (uv-args '("--allow" "/Users/francischan/.cache/uv"))
-           (args (append args `("--profile" ,(symbol-name profile))))
-           (args (if (equal (projectile-project-type) 'haskell-cabal)
-                     (append args haskell-args)
-                   args))
-           (args (if (eq (projectile-project-type) 'python-uv)
-                     (append args uv-args)
-                   args)))
-      (append args '("--allow-cwd" "--")))))
+    (with-current-buffer buffer
+      (let* ((config (agent-shell-get-config buffer))
+             (profile (map-elt config :identifier))
+             (args `(,fanshi/nono "run" "-v"))
+             (args (append args `("--profile" ,(symbol-name profile))))
+             (root (projectile-project-type))
+             (args (if root (append args (alist-get root fanshi/agent-shell-command-prefix-by-project-type-alist))
+                     args))
+             (args (if root (append args `("--allow" ,root "--read" ,root)) args))
+             (append args '("--read" "/Users/francischan/.agents" "--allow-cwd" "--"))))))
 #+end_src
 ** Use it!
 #+begin_src emacs-lisp :tangle yes
