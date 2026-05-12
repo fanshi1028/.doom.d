@@ -2060,6 +2060,63 @@ Creates a fresh gptel (or gptel-agent) buffer, inserts the prompt, and sends."
   ;; Hook into gptel's response completion to trigger the queue
   (add-hook 'gptel-post-response-functions #'fanshi/gptel--process-waiting-requests 80))
 #+end_src
+** Delegate to worktree
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/delegate-to-worktree (callback task branch)
+    "Delegate TASK to an agent-shell running in a new git worktree.
+CALLBACK is called with a result string when done.
+BRANCH is the worktree branch name."
+    (let ((root (projectile-project-root))
+          (buf (fanshi/gptel-coding-spawn-worktree branch)))
+      (with-current-buffer buf
+        (let ((start-pos (point-max)))
+          (insert task "\n")
+          (comint-send-input)
+          (agent-shell-subscribe-to
+           :shell-buffer buf
+           :event 'turn-complete
+           :on-event
+           (lambda (event)
+             (when (string= "end_turn" (map-nested-elt event '(:data :stop-reason)))
+               (if (not (buffer-live-p buf))
+                   (funcall callback "ERROR: Agent buffer was killed")
+                 (with-current-buffer buf
+                   (let ((agent-output (string-trim (buffer-substring-no-properties start-pos (point-max))))
+                         (result (concat "Agent finished on branch '" branch "'.\n\n"))
+                         (diff-stats ""))
+                     ;; Try to get git diff stats
+                     (with-temp-buffer
+                         (when (zerop (call-process "git" nil t nil "diff" "--stat" "HEAD..." branch))
+                           (setq diff-stats (buffer-string))))
+                     (when (string-blank-p diff-stats)
+                       (setq diff-stats "(no uncommitted changes)\n"))
+                     (setq result (concat result "Diff stats:\n" diff-stats))
+                     ;; NOTE FIXME maybe compile to check? but keep it minimal for now.
+                     ;; (when (projectile-compilation-command )
+                     ;;   (with-temp-buffer
+                     ;;     (let ((default-directory (expand-file-name (concat ".trees/" branch) project-root))
+                     ;;           (exit-code (call-process-shell-command eval-cmd nil t)))
+                     ;;       (setq result (concat result "\nEval output:\n"
+                     ;;                            (if (zerop exit-code)
+                     ;;                                (buffer-string)
+                     ;;                              (format "FAILED (exit %d): %s" exit-code (buffer-string))))))))
+                     (setq result (concat result "\nAgent output:\n" agent-output))
+                     (funcall callback result)))))))))))
+
+(gptel-make-tool
+ :name "Delegate"
+ :function #'fanshi/delegate-to-worktree
+ :description "Delegate a coding task to an agent-shell running in an isolated git worktree.
+When done, it returns a summary with git diff stats.
+Use this for independent tasks that should be isolated from the current working tree."
+ :args '((:name "task" :type string
+          :description "Detailed task description with file paths and expected behavior")
+         (:name "branch" :type string
+          :description "Descriptive but short branch name for the task for the work tree directory."))
+ :category "agents"
+ :async t)
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
