@@ -1648,11 +1648,19 @@ file.  Results are sorted by modification time."
     "Auto-assign a timestamped filename under ./gptel-agent/ for gptel-agent buffers.
 
 Intended for use in `before-save-hook'.  If the buffer already has a file
-associated, or a prefix arg was used, does nothing."
+associated, or a prefix arg was used, does nothing.
+
+When inside a git worktree (under .trees/), resolves the directory to the
+project root so that the file is saved under <project-root>/.gptel-agent/."
     (unless (or buffer-file-name current-prefix-arg)
       (when (string-prefix-p "*gptel-agent:" (buffer-name))
-        (let ((dir (expand-file-name ".gptel-agent/" default-directory))
-              (timestamp (format-time-string "%Y%m%d-%H%M%S")))
+        (let* ((dd (file-name-as-directory default-directory))
+               (trees-pos (string-search ".trees/" dd))
+               (base-dir (if trees-pos
+                             (substring dd 0 trees-pos)
+                           dd))
+               (dir (expand-file-name ".gptel-agent/" base-dir))
+               (timestamp (format-time-string "%Y%m%d-%H%M%S")))
           (make-directory dir t)
           (setq buffer-file-name
                 (expand-file-name
