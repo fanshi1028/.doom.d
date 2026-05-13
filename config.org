@@ -2376,18 +2376,18 @@ The worktree is created as a new branch off the current HEAD."
   (defun fanshi/gptel-agent-swtich-to-worktree (branch)
     "Switch this gptel-agent buffer to a git worktree or back to the project root.
 
-If BRANCH is \"main\", switch back to the project root (useful when
+If BRANCH is empty, switch back to the project root (useful when
 currently in a worktree).  Otherwise, create a worktree under
 .trees/BRANCH and switch to it.
 
-With a prefix arg, defaults to \"main\".
+With a prefix arg, defaults to switching to the project root.
 
 Context entries whose files are inside the current working directory
 (project root or worktree) are remapped to the corresponding paths in
 the target location.  Context entries outside the project are unchanged.
 Buffer-region entries (overlays) are also left unchanged."
-    (interactive (list (if current-prefix-arg "main" (read-string "Branch name: "))))
-    (unless (derived-mode-p 'gptel-mode)
+    (interactive (list (if current-prefix-arg "" (read-string "Branch name (RET for root): "))))
+    (unless (and (derived-mode-p 'org-mode) gptel-mode)
       (user-error "This command must be called from a gptel buffer"))
     (unless (eq 'Git (vc-responsible-backend default-directory t))
       (user-error "Not in a Git repository"))
@@ -2396,13 +2396,13 @@ Buffer-region entries (overlays) are also left unchanged."
                            (projectile-project-root)))
            (trees-dir (expand-file-name ".trees/" project-root))
            (in-worktree (string-prefix-p trees-dir default-directory))
-           (source-root (if in-worktree default-directory project-root))
-           (target-path (if (string= branch "main")
+           (to-root (string= branch ""))
+           (target-path (if to-root
                             project-root
                           (expand-file-name (concat ".trees/" branch) project-root)))
            (remapped 0))
       ;; Create worktree if needed (skip for project root)
-      (when (and (not (eq target-path project-root))
+      (when (and (not to-root)
                  (not (file-directory-p target-path)))
         (make-directory (file-name-directory target-path) t)
         (unless (zerop (call-process "git" nil nil nil "worktree" "add" "-b" branch target-path))
@@ -2410,13 +2410,13 @@ Buffer-region entries (overlays) are also left unchanged."
       ;; Check if already at target
       (when (equal default-directory target-path)
         (user-error "Already in %s"
-                    (if (eq target-path project-root) "project root" (format "worktree %s" branch))))
-      ;; Remap context: files under source-root -> target-path
+                    (if to-root "project root" (format "worktree %s" branch))))
+      ;; Remap context: files under default-directory -> target-path
       (dolist (entry gptel-context)
         (let ((source (car-safe entry)))
           (when (and (stringp source)
-                     (file-in-directory-p (expand-file-name source) source-root))
-            (let* ((rel-path (file-relative-name source source-root))
+                     (file-in-directory-p (expand-file-name source) default-directory))
+            (let* ((rel-path (file-relative-name source default-directory))
                    (new-path (expand-file-name rel-path target-path)))
               (setf (car entry) new-path)
               (cl-incf remapped)
@@ -2424,7 +2424,7 @@ Buffer-region entries (overlays) are also left unchanged."
       ;; Switch
       (setq default-directory target-path)
       (message "Switched to %s (%d context file%s remapped)"
-               (if (eq target-path project-root) "project root" (format "worktree %s" branch))
+               (if to-root "project root" (format "worktree %s" branch))
                remapped (if (= remapped 1) "" "s")))))
 #+end_src
 ** Use it!
