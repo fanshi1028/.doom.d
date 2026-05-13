@@ -2178,19 +2178,46 @@ BODY is the prompt text. PARAMS is an alist of header arguments."
                          (when (member model '("Lightricks/LTX-2.3")) "mp4")
                          (alist-get :file-ext org-babel-default-header-args:draw)))
            (prompt (replace-regexp-in-string "\n" " " body))
-           (cmd (format "draw-things-cli generate --model %s --prompt %s --output %s"
-                        (shell-quote-argument model)
-                        (shell-quote-argument prompt)
-                        (shell-quote-argument out-file))))
-      (message "draw: generating with %s → %s" model out-file)
-      (call-process-shell-command cmd nil 0)
-      ;; (let* ((err-buf (get-buffer-create "*draw-things-err*"))
-      ;;        (status (call-process-shell-command cmd nil nil err-buf)))
-      ;;   (if (> status 0)
-      ;;       (with-current-buffer err-buf
-      ;;         (error "draw: command failed (exit %d), please check %s for details" status err-buf))
-      ;;     (kill-buffer err-buf)))
-      (f-swap-ext out-file file-ext)))
+           ;; Round width/height to nearest multiple of 64
+           (width (let ((w (or (alist-get :width params) 768)))
+                    (* (round (/ (number-to-float w) 64)) 64)))
+           (height (let ((h (or (alist-get :height params) 768)))
+                     (* (round (/ (number-to-float h) 64)) 64)))
+           ;; Build optional CLI arguments
+           (cli-args (concat
+                      ;; Core args
+                      (format "--model %s --prompt %s --output %s"
+                              (shell-quote-argument model)
+                              (shell-quote-argument prompt)
+                              (shell-quote-argument out-file))
+                      ;; Optional: negative prompt (file path → --negative-prompt-file, else --negative-prompt)
+                      (when-let* ((neg (alist-get :neg params)))
+                        (format " --%s %s"
+                                (if (and (stringp neg) (file-readable-p neg))
+                                    "negative-prompt-file"
+                                  "negative-prompt")
+                                (shell-quote-argument neg)))
+                      ;; Optional: steps
+                      (when-let* ((steps (alist-get :steps params)))
+                        (format " --steps %s" (number-to-string steps)))
+                      ;; Optional: cfg scale
+                      (when-let* ((cfg (alist-get :cfg params)))
+                        (format " --cfg %s" (number-to-string cfg)))
+                      ;; Width & height (always passed, rounded to multiple of 64)
+                      (format " --width %s --height %s"
+                              (number-to-string width)
+                              (number-to-string height))
+                      ;; Optional: seed (-1 means random, omit the flag)
+                      (when-let* ((seed (alist-get :seed params))
+                                  ((> seed 0)))
+                        (format " --seed %s" (number-to-string seed)))
+                      ;; Optional: strength (img2img denoising strength 0...1)
+                      (when-let* ((strength (alist-get :strength params)))
+                        (format " --strength %s" (number-to-string strength))))))
+      (let ((cmd (format "draw-things-cli generate %s" cli-args)))
+        (message "draw: %s" cmd)
+        (call-process-shell-command cmd nil 0)
+        (f-swap-ext out-file file-ext))))
   (add-to-list 'org-src-lang-modes '("draw" . text))
   (add-to-list 'ob-async-no-async-languages-alist "draw"))
 #+end_src
