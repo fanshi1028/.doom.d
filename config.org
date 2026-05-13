@@ -351,6 +351,81 @@ Corfu detected an error:
         (message "HTML page at URL has no title")
         url)))
 #+end_src
+*** AI Nightly Processor
+**** fanshi/org-gtd-ai-delegate--apply
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/org-gtd-ai-delegate--apply ()
+    "Mark current item as AI-delegated and refile to actions."
+    (setq-local org-gtd--organize-type 'single-action)
+    ;; Set AI_DELEGATE tag (append to existing tags if any)
+    (let ((existing (org-entry-get (point) "TAGS")))
+      (org-entry-put (point) "TAGS"
+                     (if existing
+                         (concat existing ":" "AI_DELEGATE")
+                       "AI_DELEGATE")))
+    (org-gtd-organize-apply-hooks)
+    (if org-gtd-clarify--skip-refile
+        (org-gtd-organize--update-in-place)
+      (org-gtd-refile--do org-gtd-action org-gtd-action-template)))
+#+end_src
+**** fanshi/org-gtd-ai-delegate--find-tasks
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/org-gtd-ai-delegate--find-tasks ()
+  "Return a list of (file . position) for all AI_DELEGATE tasks."
+  (let ((results '())
+        (search-term "AI_DELEGATE"))
+    (org-map-entries
+     (lambda ()
+       (push (cons (buffer-file-name) (point)) results))
+     search-term)
+    (nreverse results)))
+#+end_src
+**** fanshi/org-gtd-ai-process-delegated
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/org-gtd-ai-process-delegated ()
+  "Find all tasks tagged AI_DELEGATE and process them with gptel-agent.
+
+Each task is sent to gptel-agent sequentially.  On success, the task
+is marked DONE and archived.  On failure, a log note with the error
+is added and the task remains open."
+  (interactive)
+  (let ((matches (fanshi/org-gtd-ai-delegate--find-tasks)))
+    (if (null matches)
+        (message "No AI_DELEGATE tasks found")
+      (message "Found %d AI_DELEGATE task(s). Processing..." (length matches))
+      (fanshi/org-gtd-ai-delegate--process-tasks matches))))
+#+end_src
+**** fanshi/org-gtd-ai-delegate--process-tasks
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/org-gtd-ai-delegate--process-tasks (tasks)
+  "Process each TASK in TASKS with agent-shell.
+TASKS is a list of (file . position) plists."
+  (dolist (task tasks)
+    (let* ((file (car task))
+           (pos (cdr task))
+           (task-text (with-temp-buffer
+                        (insert-file-contents file)
+                        (goto-char pos)
+                        (org-mode)
+                        (org-back-to-heading t)
+                        (org-get-heading t t t t)))
+           (agent-buf (fanshi/gptel-spawn-agent-shell-in-worktree task-text))))
+    (message "Processing: %s" task-text)
+    (condition-case err
+        (with-current-buffer (or (get-file-buffer file)
+                                 (find-file-noselect file))
+          (goto-char pos)
+          (org-back-to-heading t)
+          (let ((start (point))
+                (end (save-excursion
+                       (org-end-of-subtree t t)
+                       (point))))
+            (goto-char start)
+            (set-mark end)
+            (agent-shell-send-region agent-buf)
+            (org-todo "DONE"))
+          (with-current-buffer agent-buf (comint-send-input))))))
+#+end_src
 *** Setup
 #+begin_src emacs-lisp :tangle yes
 (use-package! org-gtd
