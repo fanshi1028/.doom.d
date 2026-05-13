@@ -521,6 +521,11 @@ Else call original evil-paste-after."
 #+begin_src emacs-lisp :tangle yes
 (after! projectile (projectile-register-project-type 'python-uv '("uv.lock") :project-file "uv.lock"))
 #+end_src
+#+begin_src emacs-lisp :tangle yes
+(after! projectile
+  (add-to-list 'projectile-globally-ignored-directories ".trees")
+  (add-to-list 'projectile-globally-ignored-directories ".gptel-agent"))
+#+end_src
 * Clone projects
 ** clonable project configs
 #+begin_src emacs-lisp :tangle yes
