@@ -2435,7 +2435,7 @@ to append to the agent-shell command prefix.")
              (args (if root (append args (alist-get root fanshi/agent-shell-command-prefix-by-project-type-alist))
                      args))
              (args (if root (append args `("--allow" ,root "--read" ,root)) args))
-             (append args '("--read" "/Users/francischan/.agents" "--allow-cwd" "--"))))))
+             (append args '("--read" "/Users/francischan/.agents" "--allow-cwd" "--")))))))
 #+end_src
 ** fanshi/gptel-spawn-agent-shell-in-worktree
 #+begin_src emacs-lisp :tangle yes
