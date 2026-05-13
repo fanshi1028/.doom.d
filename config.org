@@ -1738,6 +1738,10 @@ replaces the old prefix with the new one."
                                 (new-base (when (> (length prefix) 1) (concat prefix "-" suffix)))
                                 (new-file (expand-file-name (concat new-base "." ext) dir)))
                           (rename-file file new-file)
+                          (when-let* ((buf (get-file-buffer file)))
+                            (with-current-buffer buf
+                              (setq buffer-file-name new-file)
+                              (rename-buffer (file-name-nondirectory new-file) t)))
                         (message "Failed to rename %s (file may have been moved or deleted)" file))))))))
 #+end_src
 *** set it all up
