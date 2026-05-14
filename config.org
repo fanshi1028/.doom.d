@@ -448,7 +448,8 @@ TASKS is a list of (file . position) plists."
             (wait . "WAIT")
             (done . "DONE")
             (canceled . "KILL"))
-          org-agenda-files (list org-gtd-directory))
+          org-agenda-files (list org-gtd-directory)
+          org-gtd-archive-location #'org-gtd-archive-location-func)
   (org-edna-mode)
   (advice-add #'org-gtd--path :filter-return (lambda (return-gtd-path)
                                                "gtd file path .gpg appended when not inbox"
