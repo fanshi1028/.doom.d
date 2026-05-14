@@ -320,15 +320,16 @@ Corfu detected an error:
 ** Web Tool
 #+begin_src emacs-lisp :tangle yes
 (use-package! org-web-tools
-  ;; :after-call org-capture
+  :after-call org-capture
   :init (defun fanshi/org-web-tools--org-link-for-url ()
-          (let* ((url (current-kill 0))
-                 (html (org-web-tools--get-url url))
-                 (title (org-web-tools--html-title html)))
-            (if title (org-make-link-string url title)
-              (message "HTML page at URL has no title") url)))
-  :defer t
-  :commands (org-web-tools--org-link-for-url))
+          (let ((url (current-kill 0)))
+            (condition-case err
+                (let* ((html (org-web-tools--get-url url))
+                       (title (org-web-tools--html-title html)))
+                  (if title (org-make-link-string url title)
+                    (error "HTML page at URL has no title") url))
+              (error url))))
+  :defer t)
 #+end_src
 ** Journal
 *** Encrypt
@@ -460,6 +461,17 @@ TASKS is a list of (file . position) plists."
                                                  (concat return-gtd-path ".gpg"))))
   (setf (alist-get "l" org-gtd-capture-templates nil nil #'string=)
         `("link" entry (file ,(org-gtd-inbox-path)) ,(string-join '("* %(fanshi/org-web-tools--org-link-for-url)" "%U") "\n") :immediate-finish t))
+  (advice-add 'org-capture-goto-last-stored :after #'org-clock-in) ;; HACK NOTE: for auto clocking in Read Link Now! Cause unexpected clock-in for org-capture-goto-last-stored!
+  (setf (alist-get "L" org-gtd-capture-templates nil nil #'string=)
+        `("Read Link Now" entry
+          (file+olp ,(org-gtd--path org-gtd-default-file-name) "Actions")
+          ,(string-join '("* NEXT %(fanshi/org-web-tools--org-link-for-url)"
+                          ":PROPERTIES:"
+                          ":ORG_GTD: Actions"
+                          ":END:"
+                          "%U")
+                        "\n")
+          :jump-to-captured t :immediate-finish t))
   (map! :map doom-leader-map :desc "Capture" "X" #'org-gtd-capture)
   (map! :map doom-leader-map
         (:prefix ("D" . "org-gtd")
