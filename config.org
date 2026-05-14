@@ -2066,7 +2066,7 @@ Optional MODEL and VOICE can override defaults."
 #+end_src
 ** Local GPTEL request waiting for main models
 To avoid loading multiple main models into restricted RAM, we can queue requests.
-#+begin_src emacs-lisp :tangle no
+#+begin_src emacs-lisp :tangle yes
 (defvar fanshi/gptel-send-mutex (make-mutex "fanshi/gptel-send-mutex"))
 
 (defvar fanshi/main-models (flatten-list fanshi/models-hierarchy-list)
@@ -2119,51 +2119,52 @@ Creates a fresh gptel (or gptel-agent) buffer, inserts the prompt, and sends."
 
 (add-hook 'emacs-startup-hook #'fanshi/gptel--restore-queued-requests)
 
-(defun fanshi/gptel--get-active-main-model ()
-  "Return the main model currently running in any gptel request, if any."
-  (cl-loop for req in gptel--request-alist
-           for info = (gptel-fsm-info (cadr req))
-           for model = (plist-get info :model)
-           if (member model fanshi/main-models)
-           return model))
+(after! gptel
+  (defun fanshi/gptel--get-active-main-model ()
+    "Return the main model currently running in any gptel request, if any."
+    (cl-loop for req in gptel--request-alist
+             for info = (gptel-fsm-info (cadr req))
+             for model = (plist-get info :model)
+             if (member model fanshi/main-models)
+             return model))
 
-(defun fanshi/gptel--process-waiting-requests (_start _end)
-  "Process the next waiting request if no main model is currently active."
-  (with-mutex fanshi/gptel-send-mutex
-    (when (and fanshi/gptel--waiting-request-alist
-               (null (fanshi/gptel--get-active-main-model)))
-      (let ((next-request (pop fanshi/gptel--waiting-request-alist)))
-        (message "Processing queued gptel request...")
-        (fanshi/gptel--replay-queued-request next-request)))))
+  (defun fanshi/gptel--process-waiting-requests (_start _end)
+    "Process the next waiting request if no main model is currently active."
+    (with-mutex fanshi/gptel-send-mutex
+      (when (and fanshi/gptel--waiting-request-alist
+                 (null (fanshi/gptel--get-active-main-model)))
+        (let ((next-request (pop fanshi/gptel--waiting-request-alist)))
+          (message "Processing queued gptel request...")
+          (fanshi/gptel--replay-queued-request next-request)))))
 
-(defun fanshi/gptel-request-maybe-waiting-main-model-a (orig-f &rest args)
-  "Advice for `gptel-send` to handle main model concurrency."
-  (with-mutex fanshi/gptel-send-mutex
-    (if-let* (((and gptel-backend (not (plist-get gptel-backend :protocol "https"))))
-              ((member gptel-model fanshi/main-models))
-              (active-model (fanshi/gptel--get-active-main-model))
-              ((not (eq active-model gptel-model))))
-        (let ((choice (completing-read
-                       (format "Main model %s is already running. %s is requested. Choice: "
-                               active-model gptel-model)
-                       '("Use active model" "Schedule later" "Cancel")
-                       nil t)))
-          (cond ("Use active model"
-                 (let ((gptel-model active-model))
-                   (message "Using currently active model %s" active-model)
-                   (apply orig-f args)))
-                ("Schedule later"
-                 (let ((project-dir (and (string-prefix-p "*gptel-agent:" (buffer-name))
-                                         default-directory)))
-                   (push (list (buffer-substring (point-min) (point))
-                               :model gptel-model
-                               :backend gptel-backend
-                               :project-dir project-dir)
-                         fanshi/gptel--waiting-request-alist)
-                   (message "Request scheduled. It will run when %s is taking a timeoff." active-model)))
-                (t (error "Request cancelled"))))
-      ;; No conflicting main model, proceed normally
-      (apply orig-f args))))
+  (defun fanshi/gptel-request-maybe-waiting-main-model-a (orig-f &rest args)
+    "Advice for `gptel-send` to handle main model concurrency."
+    (with-mutex fanshi/gptel-send-mutex
+      (if-let* (((and gptel-backend (not (plist-get gptel-backend :protocol "https"))))
+                ((member gptel-model fanshi/main-models))
+                (active-model (fanshi/gptel--get-active-main-model))
+                ((not (eq active-model gptel-model))))
+          (let ((choice (completing-read
+                         (format "Main model %s is already running. %s is requested. Choice: "
+                                 active-model gptel-model)
+                         '("Use active model" "Schedule later" "Cancel")
+                         nil t)))
+            (cond ("Use active model"
+                   (let ((gptel-model active-model))
+                     (message "Using currently active model %s" active-model)
+                     (apply orig-f args)))
+                  ("Schedule later"
+                   (let ((project-dir (and (string-prefix-p "*gptel-agent:" (buffer-name))
+                                           default-directory)))
+                     (push (list (buffer-substring (point-min) (point))
+                                 :model gptel-model
+                                 :backend gptel-backend
+                                 :project-dir project-dir)
+                           fanshi/gptel--waiting-request-alist)
+                     (message "Request scheduled. It will run when %s is taking a timeoff." active-model)))
+                  (t (error "Request cancelled"))))
+        ;; No conflicting main model, proceed normally
+        (apply orig-f args)))))
 
 (after! gptel
   (advice-add #'gptel-send :around #'fanshi/gptel-request-maybe-waiting-main-model-a)
