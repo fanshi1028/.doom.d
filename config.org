@@ -343,16 +343,6 @@ Corfu detected an error:
   (setopt fanshi/org-private-agenda-file-regexp "\\`[^.].*\\.org\\\(\\.gpg\\\)?\\'")
   (setopt org-agenda-file-regexp fanshi/org-private-agenda-file-regexp))
 #+end_src
-*** fanshi/org-web-tools--org-link-for-url
-#+begin_src emacs-lisp :tangle yes
-(defun fanshi/org-web-tools--org-link-for-url ()
-    (let* ((html (org-web-tools--get-url (current-kill 0)))
-           (title (org-web-tools--html-title html)))
-      (if title
-          (org-make-link-string url title)
-        (message "HTML page at URL has no title")
-        url)))
-#+end_src
 *** AI Nightly Processor
 **** fanshi/org-gtd-ai-delegate--apply
 #+begin_src emacs-lisp :tangle yes
