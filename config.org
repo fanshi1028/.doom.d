@@ -2526,7 +2526,6 @@ Buffer-region entries (overlays) are also left unchanged."
       (setq default-directory target-path)
       ;; Clear auto-worktree tracking so cleanup won't remove a manually-chosen worktree
       (setq-local fanshi/gptel-agent--auto-worktree-branch nil)
-      (remove-hook 'kill-buffer-hook #'fanshi/gptel-agent--auto-worktree-cleanup t)
       (message "Switched to %s (%d context file%s remapped)"
                (if to-root "project root" (format "worktree %s" branch))
                remapped (if (= remapped 1) "" "s")))))
@@ -2548,25 +2547,22 @@ Set to nil to disable this behavior."
   (defvar-local fanshi/gptel-agent--auto-worktree-branch nil
     "Branch name of the auto-created worktree for this buffer.")
 
-  (defun fanshi/gptel-agent--auto-worktree-setup ()
+  (defun fanshi/gptel-agent--auto-worktree-setup-a (buf)
     "Automatically create and switch to a worktree for gptel-agent buffers.
 
 Only runs for buffers whose name starts with \"*gptel-agent:\".
 Creates a worktree under .trees/agent-YYYYMMDD-HHMMSS and switches to it.
 Stores the branch name in `fanshi/gptel-agent--auto-worktree-branch'."
     (when (and fanshi/gptel-agent-auto-worktree
-               (string-prefix-p "*gptel-agent:" (buffer-name))
-               (eq 'Git (vc-responsible-backend default-directory t))
+               ;; (string-prefix-p "*gptel-agent:" (buffer-name))
+               ;; (eq 'Git (vc-responsible-backend default-directory t))
                (not (string-match "/\\.trees/" default-directory)))
-      (let* ((project-root (projectile-project-root))
-             (branch (format "agent-%s" (format-time-string "%Y%m%d-%H%M%S")))
-             (target-path (expand-file-name (concat ".trees/" branch) project-root)))
-        (make-directory (file-name-directory target-path) t)
-        (when (zerop (call-process "git" nil nil nil "worktree" "add" "-b" branch target-path))
-          (setq default-directory target-path)
+      (with-current-buffer buf
+        (let ((branch (format "agent-%s" (format-time-string "%Y%m%d-%H%M%S"))))
+          (fanshi/gptel-agent-swtich-to-worktree branch)
           (setq-local fanshi/gptel-agent--auto-worktree-branch branch)
-          (message "Auto-created worktree %s" branch)
-          (add-hook 'kill-buffer-hook #'fanshi/gptel-agent--auto-worktree-cleanup nil t)))))
+          (add-hook 'kill-buffer-hook #'fanshi/gptel-agent--auto-worktree-cleanup nil t))))
+    buf)
 
   (defun fanshi/gptel-agent--auto-worktree-cleanup ()
     "Clean up auto-created worktree if there are no changes.
@@ -2582,9 +2578,9 @@ worktree and its branch.  If dirty, keeps it and notifies the user."
             (progn
               (call-process "git" nil nil nil "-C" project-root "worktree" "remove" target-path)
               (message "Auto-cleaned worktree %s (no changes)" branch))
-          (message "Worktree %s kept (has uncommitted changes)" branch))))))
+          (message "Worktree %s kept (has uncommitted changes)" branch)))))
 
-  (add-hook! 'gptel-mode-hook :append #'fanshi/gptel-agent--auto-worktree-setup))
+  (advice-add 'gptel-agent :filter-return #'fanshi/gptel-agent--auto-worktree-setup-a))
 #+end_src
 ** Use it!
 #+begin_src emacs-lisp :tangle yes
