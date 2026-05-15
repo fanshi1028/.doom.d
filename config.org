@@ -2293,6 +2293,10 @@ BODY is the prompt text. PARAMS is an alist of header arguments."
                                     "negative-prompt-file"
                                   "negative-prompt")
                                 (shell-quote-argument neg)))
+                      ;; Optional: input image (img2img / image-to-video)
+                      (when-let* ((img (alist-get :img params)))
+                        (format " --image %s"
+                                (shell-quote-argument (f-join default-directory img))))
                       ;; Optional: steps
                       (when-let* ((steps (alist-get :steps params)))
                         (format " --steps %s" (number-to-string steps)))
