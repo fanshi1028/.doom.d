@@ -2079,7 +2079,8 @@ To avoid loading multiple main models into restricted RAM, we can queue requests
   If :project-dir is non-nil, the request was from a gptel-agent buffer.
   Persisted via savehist across Emacs sessions.")
 
-(setq savehist-additional-variables (add-to-list 'savehist-additional-variables 'fanshi/gptel--waiting-request-alist))
+(after! projectile
+  (setq savehist-additional-variables (add-to-list 'savehist-additional-variables 'fanshi/gptel--waiting-request-alist)))
 
 (defun fanshi/gptel--replay-queued-request (queued-entry)
   "Replay a single queued request from a persisted entry.
@@ -2198,8 +2199,8 @@ BRANCH is the worktree branch name."
                          (diff-stats ""))
                      ;; Try to get git diff stats
                      (with-temp-buffer
-                         (when (zerop (call-process "git" nil t nil "diff" "--stat" "HEAD..." branch))
-                           (setq diff-stats (buffer-string))))
+                       (when (zerop (call-process "git" nil t nil "diff" "--stat" "HEAD..." branch))
+                         (setq diff-stats (buffer-string))))
                      (when (string-blank-p diff-stats)
                        (setq diff-stats "(no uncommitted changes)\n"))
                      (setq result (concat result "Diff stats:\n" diff-stats))
@@ -2215,18 +2216,18 @@ BRANCH is the worktree branch name."
                      (setq result (concat result "\nAgent output:\n" agent-output))
                      (funcall callback result)))))))))))
 
-(gptel-make-tool
- :name "Delegate"
- :function #'fanshi/delegate-to-worktree
- :description "Delegate a coding task to an agent-shell running in an isolated git worktree.
+  (gptel-make-tool
+   :name "Delegate"
+   :function #'fanshi/delegate-to-worktree
+   :description "Delegate a coding task to an agent-shell running in an isolated git worktree.
 When done, it returns a summary with git diff stats.
 Use this for independent tasks that should be isolated from the current working tree."
- :args '((:name "task" :type string
-          :description "Detailed task description with file paths and expected behavior")
-         (:name "branch" :type string
-          :description "Descriptive but short branch name for the task for the work tree directory."))
- :category "agents"
- :async t)
+   :args '((:name "task" :type string
+            :description "Detailed task description with file paths and expected behavior")
+           (:name "branch" :type string
+            :description "Descriptive but short branch name for the task for the work tree directory."))
+   :category "agents"
+   :async t))
 #+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
