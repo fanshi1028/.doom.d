@@ -2306,9 +2306,9 @@ BODY is the prompt text. PARAMS is an alist of header arguments."
                       ;; Optional: Width & height
                       ;; FIXME NOTE: need to be multiple of 64
                       (when-let* ((h (alist-get :height params)))
-                        (format " --height %s" height))
+                        (format " --height %s" (number-to-string h)))
                       (when-let* ((w (alist-get :width params)))
-                        (format " --width %s" width))
+                        (format " --width %s" (number-to-string w)))
                       ;; Optional: seed (-1 means random, omit the flag)
                       (when-let* ((seed (alist-get :seed params))
                                   ((> seed 0)))
