@@ -2242,86 +2242,8 @@ Use this for independent tasks that should be isolated from the current working 
 #+end_src
 * Draw things
 ** org-babel-language:draw
-#+begin_src emacs-lisp :tangle yes
-(after! org
-  (defvar fanshi/org-babel-draw-models
-    '((z . "Tongyi-MAI/Z-Image")
-      (ernie . "baidu/ERNIE-Image")
-      (qwen-edit . "Qwen/Qwen-Image-Edit-2511")
-      (ltx . "Lightricks/LTX-2.3"))
-    "List of image generation models for draw blocks.
-The :model header arg can be a number (index into this list) or a string (model name).")
-
-  (defvar org-babel-default-header-args:draw
-    '((:results . "file")
-      (:model . 0)
-      (:turbo . t)
-      (:file-ext . "png"))
-    "Default header args for draw blocks.")
-  (defun org-babel-execute:draw (body params)
-    "Execute a draw prompt block.
-BODY is the prompt text. PARAMS is an alist of header arguments."
-    (let* ((model-raw (or (alist-get :model params)
-                          (alist-get :model org-babel-default-header-args:draw)))
-           (model (cond ((numberp model-raw) (cdr (nth model-raw fanshi/org-babel-draw-models)))
-                        ((and (symbolp model-raw) (alist-get model-raw fanshi/org-babel-draw-models)))
-                        ((and (stringp model-raw) (alist-get (intern model-raw) fanshi/org-babel-draw-models)))
-                        (t model-raw)))
-           (model (if (and (alist-get :turbo params) (member model '("Tongyi-MAI/Z-Image" "baidu/ERNIE-Image")))
-                      (concat model "-Turbo")
-                    model))
-           (out-file (or (alist-get :file params) (make-temp-name "draw-")))
-           (file-ext (or (alist-get :file-ext params)
-                         (f-ext out-file)
-                         (when (member model '("Lightricks/LTX-2.3")) "mp4")
-                         (alist-get :file-ext org-babel-default-header-args:draw)))
-           (prompt (replace-regexp-in-string "\n" " " body))
-           ;; Round width/height to nearest multiple of 64
-           (width (alist-get :width params))
-           (height (alist-get :height params))
-           ;; Build optional CLI arguments
-           (cli-args (concat
-                      ;; Core args
-                      (format "--model %s --prompt %s --output %s"
-                              (shell-quote-argument model)
-                              (shell-quote-argument prompt)
-                              (shell-quote-argument out-file))
-                      ;; Optional: negative prompt (file path → --negative-prompt-file, else --negative-prompt)
-                      (when-let* ((neg (alist-get :neg params)))
-                        (format " --%s %s"
-                                (if (and (stringp neg) (file-readable-p neg))
-                                    "negative-prompt-file"
-                                  "negative-prompt")
-                                (shell-quote-argument neg)))
-                      ;; Optional: input image (img2img / image-to-video)
-                      (when-let* ((img (alist-get :img params)))
-                        (format " --image %s"
-                                (shell-quote-argument (f-join default-directory img))))
-                      ;; Optional: steps
-                      (when-let* ((steps (alist-get :steps params)))
-                        (format " --steps %s" (number-to-string steps)))
-                      ;; Optional: cfg scale
-                      (when-let* ((cfg (alist-get :cfg params)))
-                        (format " --cfg %s" (number-to-string cfg)))
-                      ;; Optional: Width & height
-                      ;; FIXME NOTE: need to be multiple of 64
-                      (when-let* ((h (alist-get :height params)))
-                        (format " --height %s" (number-to-string h)))
-                      (when-let* ((w (alist-get :width params)))
-                        (format " --width %s" (number-to-string w)))
-                      ;; Optional: seed (-1 means random, omit the flag)
-                      (when-let* ((seed (alist-get :seed params))
-                                  ((> seed 0)))
-                        (format " --seed %s" (number-to-string seed)))
-                      ;; Optional: strength (img2img denoising strength 0...1)
-                      (when-let* ((strength (alist-get :strength params)))
-                        (format " --strength %s" (number-to-string strength))))))
-      (let ((cmd (format "draw-things-cli generate %s" cli-args)))
-        (message "draw: %s" cmd)
-        (call-process-shell-command cmd nil 0)
-        (f-swap-ext out-file file-ext))))
-  (add-to-list 'org-src-lang-modes '("draw" . text))
-  (add-to-list 'ob-async-no-async-languages-alist "draw"))
+#+begin_src emacs-lisp :tangle yes :lexical yes
+(after! org (add-to-list 'org-src-lang-modes '("draw" . text)))
 #+end_src
 * oMLX
 ** fanshi/omlx-unload-model
