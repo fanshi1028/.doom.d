@@ -2243,7 +2243,9 @@ Use this for independent tasks that should be isolated from the current working 
 * Draw things
 ** org-babel-language:draw
 #+begin_src emacs-lisp :tangle yes :lexical yes
-(after! org (add-to-list 'org-src-lang-modes '("draw" . text)))
+(after! org
+  (add-to-list 'org-src-lang-modes '("draw" . text))
+  (add-to-list 'async-inject-variables-exclude-regexps "org-babel-hide-result-overlays\\'"))
 #+end_src
 * oMLX
 ** fanshi/omlx-unload-model

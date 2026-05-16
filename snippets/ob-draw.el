@@ -1,10 +1,11 @@
 ;;; lisp/ob-draw.el -*- lexical-binding: t; -*-
 
 (defvar fanshi/org-babel-draw-models
-  '((z . "z_image_1.0_f16.ckpt")        ;;  "Tongyi-MAI/Z-Image"
+  '((z . "z_image_1.0_f16.ckpt") ;;  "Tongyi-MAI/Z-Image"
     (ernie . "baidu/ERNIE-Image")
     (qwen-edit . "Qwen/Qwen-Image-Edit-2511")
-    (ltx . "Lightricks/LTX-2.3"))
+    (ltx . "Lightricks/LTX-2.3")
+    )
   "List of image generation models for draw blocks.
 The :model header arg can be a number (index into this list) or a string (model name)."
   )
