@@ -24,8 +24,7 @@ The :model header arg can be a number (index into this list) or a string (model 
   )
 
 (defvar org-babel-default-header-args:draw
-  '((:results . "file")
-    (:model . 0)
+  '((:model . 0)
     (:turbo . t)
     (:file-ext . "png"))
   "Default header args for draw blocks.")
@@ -33,16 +32,17 @@ The :model header arg can be a number (index into this list) or a string (model 
 (defun org-babel-execute:draw (body params)
   "Execute a draw prompt block.
 BODY is the prompt text. PARAMS is an alist of header arguments."
-  (let* ((model-raw (or (alist-get :model params)
-                        (alist-get :model org-babel-default-header-args:draw)))
+  (let* ((params (org-babel-merge-params org-babel-default-header-args:draw params))
+         (model-raw (alist-get :model params))
          (model (cond ((numberp model-raw) (cdr (nth model-raw fanshi/org-babel-draw-models)))
                       ((and (symbolp model-raw) (alist-get model-raw fanshi/org-babel-draw-models)))
                       ((and (stringp model-raw) (alist-get (intern model-raw) fanshi/org-babel-draw-models)))
                       (t model-raw)))
-         (model (when (assq :turbo params)
-                  (pcase model-raw
-                    ('z  "z_image_turbo_1.0_f16.ckpt")
-                    (_ model))))
+         (model (if (assq :turbo params)
+                    (pcase model-raw
+                      ('z  "z_image_turbo_1.0_f16.ckpt")
+                      (_ model))
+                  model))
          (out-file (or (alist-get :file params) (make-temp-name "draw-")))
          (prompt (replace-regexp-in-string "\n" " " body))
          ;; Build optional CLI arguments
@@ -54,19 +54,22 @@ BODY is the prompt text. PARAMS is an alist of header arguments."
       (when-let* ((header-arg (car arg))
                   (cli-arg (or (cdr arg) (string-remove-prefix ":" (symbol-name header-arg))))
                   (value (alist-get header-arg params)))
-        (concat cli-args
-                (cl-typecase cli-arg
-                  (string (format (concat " --" cli-arg " %s") value))
-                  (interpreted-function (cli-arg value))
-                  (symbol "")
-                  ;; (symbol (if (not (eq (symbol-name cli-arg) "special")) (error "fanshi/drawthings-cli-args-alist: only symbol special is supported for cli-arg") t))
-                  ;; (t (error "fanshi/drawthings-cli-args-alist: unsupported type of cli-arg(%s): %s" header-arg cli-arg))
-                  (t "")))))
+        (setq cli-args
+              (concat cli-args
+                      (cl-typecase cli-arg
+                        (string (format (concat " --" cli-arg " %s") value))
+                        (interpreted-function (cli-arg value))
+                        (symbol "")
+                        ;; (symbol (if (not (eq (symbol-name cli-arg) "special")) (error "fanshi/drawthings-cli-args-alist: only symbol special is supported for cli-arg") t))
+                        ;; (t (error "fanshi/drawthings-cli-args-alist: unsupported type of cli-arg(%s): %s" header-arg cli-arg))
+                        (t ""))))))
 
 
-    (let ((cmd (format "draw-things-cli generate %s" cli-args)))
-      (message "draw: %s" cmd)
-      (require 'ob-shell)
-      (org-babel-execute:shell cmd (seq-remove (lambda (arg) (member arg fanshi/drawthings-cli-args-alist)) params)))))
+    (let* ((cmd (format "draw-things-cli generate %s" cli-args))
+           (shell-result (progn
+                           (message "draw: %s" cmd)
+                           (require 'ob-shell)
+                           (org-babel-execute:shell cmd (seq-remove (lambda (arg) (member arg fanshi/drawthings-cli-args-alist)) params)))))
+      (concat "[[file:" out-file "]]\n" (or shell-result "")))))
 
 (provide 'ob-draw)
