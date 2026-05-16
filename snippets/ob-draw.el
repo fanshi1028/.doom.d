@@ -2,10 +2,9 @@
 
 (defvar fanshi/org-babel-draw-models
   '((z . "z_image_1.0_f16.ckpt") ;;  "Tongyi-MAI/Z-Image"
-    (ernie . "baidu/ERNIE-Image")
+    (ernie . "ernie_image_f16.ckpt")
     (qwen-edit . "Qwen/Qwen-Image-Edit-2511")
-    (ltx . "Lightricks/LTX-2.3")
-    )
+    (ltx . "Lightricks/LTX-2.3"))
   "List of image generation models for draw blocks.
 The :model header arg can be a number (index into this list) or a string (model name)."
   )
@@ -26,6 +25,7 @@ The :model header arg can be a number (index into this list) or a string (model 
 (defvar org-babel-default-header-args:draw
   '((:model . 0)
     (:turbo . t)
+    (:results . "file")
     (:file-ext . "png"))
   "Default header args for draw blocks.")
 
@@ -40,10 +40,12 @@ BODY is the prompt text. PARAMS is an alist of header arguments."
                       (t model-raw)))
          (model (if (assq :turbo params)
                     (pcase model-raw
-                      ('z  "z_image_turbo_1.0_f16.ckpt")
+                      (z  "z_image_turbo_1.0_f16.ckpt")
+                      (ernie "ernie_image_turbo_f16.ckpt")
                       (_ model))
                   model))
-         (out-file (or (alist-get :file params) (make-temp-name "draw-")))
+         (file-ext (alist-get :file-ext params))
+         (out-file (or (alist-get :file params) (concat (make-temp-name "draw-") "." file-ext)))
          (prompt (replace-regexp-in-string "\n" " " body))
          ;; Build optional CLI arguments
          (cli-args (format "--model %s --offline --disable-preview --prompt \"%s\" --output %s"
@@ -65,11 +67,12 @@ BODY is the prompt text. PARAMS is an alist of header arguments."
                         (t ""))))))
 
 
-    (let* ((cmd (format "draw-things-cli generate %s" cli-args))
-           (shell-result (progn
-                           (message "draw: %s" cmd)
-                           (require 'ob-shell)
-                           (org-babel-execute:shell cmd (seq-remove (lambda (arg) (member arg fanshi/drawthings-cli-args-alist)) params)))))
-      (concat "[[file:" out-file "]]\n" (or shell-result "")))))
+    ;; (let* ((cmd (format "draw-things-cli generate %s" cli-args))
+    ;;        (log-buf (get-buffer-create (concat "*" out-file "-output-buffer*"))))
+    ;;   (if (call-process-shell-command cmd nil log-buf)
+    ;;       (concat "[[file:" out-file "]]\n")
+    ;;     (with-current-buffer log-buf (buffer-string))))
+    (call-process-shell-command (format "draw-things-cli generate %s" cli-args) nil 0)
+    out-file))
 
 (provide 'ob-draw)
