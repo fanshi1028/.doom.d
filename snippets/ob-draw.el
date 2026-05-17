@@ -38,10 +38,10 @@ BODY is the prompt text. PARAMS is an alist of header arguments."
                       ((and (symbolp model-raw) (alist-get model-raw fanshi/org-babel-draw-models)))
                       ((and (stringp model-raw) (alist-get (intern model-raw) fanshi/org-babel-draw-models)))
                       (t model-raw)))
-         (model (if (assq :turbo params)
+         (model (if (alist-get :turbo params)
                     (pcase model-raw
-                      (z  "z_image_turbo_1.0_f16.ckpt")
-                      (ernie "ernie_image_turbo_f16.ckpt")
+                      ((or 'z "z") "z_image_turbo_1.0_f16.ckpt")
+                      ((or 'ernie "ernie") "ernie_image_turbo_f16.ckpt")
                       (_ model))
                   model))
          (file-ext (alist-get :file-ext params))
