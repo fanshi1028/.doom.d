@@ -9,6 +9,22 @@
 The :model header arg can be a number (index into this list) or a string (model name)."
   )
 
+(defvar fanshi/mflux-models
+  '((z-image . "z-image")
+    (z-image-turbo . "z-image-turbo")
+    (flux2 . "flux2")
+    (flux2-9b . "flux2")
+    (fibo . "fibo")
+    (qwen . "qwen"))
+  "List of mflux model presets.
+Each entry maps a symbol to the mflux CLI subcommand suffix.")
+
+(defvar fanshi/mlx-video-models
+  '((ltx . "ltx_2")
+    (wan . "wan_2"))
+  "List of mlx-video model families.
+Each entry maps a symbol to the mlx-video module name.")
+
 (defvar fanshi/drawthings-cli-args-alist
   '((:model . 'special)
     (:width) (:height) ;; NOTE: width & height need to be multiple of 64
@@ -22,18 +38,46 @@ The :model header arg can be a number (index into this list) or a string (model 
   ""
   )
 
+(defvar fanshi/mflux-cli-args-alist
+  '((:width) (:height)
+    (:seed) (:steps) (:cfg . "guidance") (:img . "image")
+    (:neg . "negative-prompt") (:q . "quantize"))
+  "CLI argument mapping for mflux backend.")
+
+(defvar fanshi/mlx-video-cli-args-alist
+  '((:width) (:height) (:seed) (:steps)
+    (:cfg . "cfg-scale") (:pipeline) (:model-repo)
+    (:num-frames) (:fps)
+    (:neg . "negative-prompt"))
+  "CLI argument mapping for mlx-video backend.")
+
 (defvar org-babel-default-header-args:draw
-  '((:model . 0)
+  '((:backend . "draw-things")
+    (:model . 0)
     (:turbo . t)
     (:file-ext . "png")
     (:dry-run . nil))
   "Default header args for draw blocks.")
 
-(defun org-babel-execute:draw (body params)
-  "Execute a draw prompt block.
-BODY is the prompt text. PARAMS is an alist of header arguments."
-  (let* ((params (org-babel-merge-params org-babel-default-header-args:draw params))
-         (model-raw (alist-get :model params))
+(defun fanshi/draw-build-cli-args (cli-args-alist params)
+  "Build CLI argument string from CLI-ARGS-ALIST and PARAMS."
+  (let ((args ""))
+    (dolist (arg cli-args-alist)
+      (when-let* ((header-arg (car arg))
+                  (cli-arg (or (cdr arg) (string-remove-prefix ":" (symbol-name header-arg))))
+                  (value (alist-get header-arg params)))
+        (setq args
+              (concat args
+                      (cl-typecase cli-arg
+                        (string (format (concat " --" cli-arg " %s") value))
+                        (interpreted-function (cli-arg value))
+                        (symbol "")
+                        (t ""))))))
+    args))
+
+(defun fanshi/draw-backend-draw-things (body params)
+  "Execute draw prompt via draw-things-cli backend."
+  (let* ((model-raw (alist-get :model params))
          (model (cond ((numberp model-raw) (cdr (nth model-raw fanshi/org-babel-draw-models)))
                       ((and (symbolp model-raw) (alist-get model-raw fanshi/org-babel-draw-models)))
                       ((and (stringp model-raw) (alist-get (intern model-raw) fanshi/org-babel-draw-models)))
@@ -47,44 +91,66 @@ BODY is the prompt text. PARAMS is an alist of header arguments."
          (file-ext (alist-get :file-ext params))
          (out-file (or (alist-get :file params) (concat (make-temp-name "draw-") "." file-ext)))
          (prompt (replace-regexp-in-string "\n" " " body))
-         ;; Build optional CLI arguments
          (cli-args (format "--model %s --offline --disable-preview --prompt \"%s\" --output %s"
                            (shell-quote-argument model)
                            (shell-quote-argument prompt)
                            (shell-quote-argument out-file))))
-    (let ((result-params (alist-get :result-params params)))
-      (if (alist-get :dry-run params)
-          (unless (and  (member "value" result-params)
-                        (or
-                         (member "scalar" result-params)
-                         (member "verbatim" result-params)))
-            (user-error "Draw aborted. for :dry-run, please set the :results to value + scalar/verbatim."))
-        (unless (and (member "file" result-params) (member "link" result-params))
-          (user-error "Draw aborted. Please set the :results to file + link."))))
-    (dolist (arg fanshi/drawthings-cli-args-alist)
-      (when-let* ((header-arg (car arg))
-                  (cli-arg (or (cdr arg) (string-remove-prefix ":" (symbol-name header-arg))))
-                  (value (alist-get header-arg params)))
-        (setq cli-args
-              (concat cli-args
-                      (cl-typecase cli-arg
-                        (string (format (concat " --" cli-arg " %s") value))
-                        (interpreted-function (cli-arg value))
-                        (symbol "")
-                        ;; (symbol (if (not (eq (symbol-name cli-arg) "special")) (error "fanshi/drawthings-cli-args-alist: only symbol special is supported for cli-arg") t))
-                        ;; (t (error "fanshi/drawthings-cli-args-alist: unsupported type of cli-arg(%s): %s" header-arg cli-arg))
-                        (t ""))))))
+    (setq cli-args (concat cli-args (fanshi/draw-build-cli-args fanshi/drawthings-cli-args-alist params)))
+    (fanshi/omlx-list-loaded-model 'unload-all)
+    (call-process-shell-command (format "draw-things-cli generate %s" cli-args) nil 0)
+    out-file))
 
+(defun fanshi/draw-backend-mflux (body params)
+  "Execute draw prompt via mflux backend."
+  (let* ((model-raw (alist-get :model params))
+         (model-suffix (cond ((symbolp model-raw) (alist-get model-raw fanshi/mflux-models))
+                             ((stringp model-raw) (alist-get (intern model-raw) fanshi/mflux-models))
+                             (t (error "mflux: unsupported :model value %s" model-raw))))
+         (file-ext (or (alist-get :file-ext params) "png"))
+         (out-file (or (alist-get :file params) (concat (make-temp-name "draw-") "." file-ext)))
+         (prompt (replace-regexp-in-string "\n" " " body))
+         (cli-args (format "--prompt \"%s\" --output %s"
+                           (shell-quote-argument prompt)
+                           (shell-quote-argument out-file))))
+    (setq cli-args (concat cli-args (fanshi/draw-build-cli-args fanshi/mflux-cli-args-alist params)))
+    (call-process-shell-command (format "mflux-generate-%s %s" model-suffix cli-args) nil 0)
+    out-file))
 
-    ;; (let* ((cmd (format "draw-things-cli generate %s" cli-args))
-    ;;        (log-buf (get-buffer-create (concat "*" out-file "-output-buffer*"))))
-    ;;   (if (call-process-shell-command cmd nil log-buf)
-    ;;       (concat "[[file:" out-file "]]\n")
-    ;;     (with-current-buffer log-buf (buffer-string))))
-    (let ((cmd (format "draw-things-cli generate %s" cli-args)))
-      (if (alist-get :dry-run params)
-          cmd
-        (fanshi/omlx-list-loaded-model 'unload-all)
-        (call-process-shell-command cmd nil 0)))))
+(defun fanshi/draw-backend-mlx-video (body params)
+  "Execute draw prompt via mlx-video backend."
+  (let* ((model-raw (alist-get :model params))
+         (module (cond ((symbolp model-raw) (alist-get model-raw fanshi/mlx-video-models))
+                       ((stringp model-raw) (alist-get (intern model-raw) fanshi/mlx-video-models))
+                       (t (error "mlx-video: unsupported :model value %s" model-raw))))
+         (output-flag (if (string-prefix-p "wan" module) "--output-path" "--output"))
+         (file-ext (or (alist-get :file-ext params) "mp4"))
+         (out-file (or (alist-get :file params) (concat (make-temp-name "draw-") "." file-ext)))
+         (prompt (replace-regexp-in-string "\n" " " body))
+         (cli-args (format "--prompt \"%s\" %s %s"
+                           (shell-quote-argument prompt)
+                           output-flag
+                           (shell-quote-argument out-file))))
+    (setq cli-args (concat cli-args (fanshi/draw-build-cli-args fanshi/mlx-video-cli-args-alist params)))
+    (call-process-shell-command (format "python -m mlx_video.%s.generate %s" module cli-args) nil 0)
+    out-file))
+
+(defun org-babel-execute:draw (body params)
+  "Execute a draw prompt block.
+BODY is the prompt text. PARAMS is an alist of header arguments."
+  (let* ((params (org-babel-merge-params org-babel-default-header-args:draw params))
+         (backend (alist-get :backend params)))
+    (if (alist-get :dry-run params)
+        (unless (and  (member "value" result-params)
+                      (or
+                       (member "scalar" result-params)
+                       (member "verbatim" result-params)))
+          (user-error "Draw aborted. for :dry-run, please set the :results to value + scalar/verbatim."))
+      (if (and (member "file" result-params) (member "link" result-params))
+          (fanshi/omlx-list-loaded-model 'unload-all)
+        (user-error "Draw aborted. Please set the :results to file + link.")))
+    (pcase backend
+      ("mflux" (fanshi/draw-backend-mflux body params))
+      ("mlx-video" (fanshi/draw-backend-mlx-video body params))
+      (_ (fanshi/draw-backend-draw-things body params)))))
 
 (provide 'ob-draw)
