@@ -74,8 +74,12 @@ Each entry maps a symbol to the mlx-video module name.")
                         (t ""))))))
     args))
 
-(defun fanshi/draw-backend-draw-things-build-command (out-file body params)
-  "Execute draw prompt via draw-things-cli backend."
+(defun fanshi/draw-backend-draw-things-build-command (out-file prompt params)
+  "Build the CLI command string for draw-things-cli backend generation.
+OUT-FILE is the output file path.  PROMPT is the prompt text.  PARAMS
+is an alist of header arguments.
+
+Returns the full command string."
   (let* ((model-raw (alist-get :model params))
          (model (cond ((numberp model-raw) (cdr (nth model-raw fanshi/org-babel-draw-models)))
                       ((and (symbolp model-raw) (alist-get model-raw fanshi/org-babel-draw-models)))
@@ -87,16 +91,18 @@ Each entry maps a symbol to the mlx-video module name.")
                       ((or 'ernie "ernie") "ernie_image_turbo_f16.ckpt")
                       (_ model))
                   model))
-         (prompt (replace-regexp-in-string "\n" " " body))
          (cli-args (format "--model %s --offline --disable-preview --prompt \"%s\" --output %s"
                            (shell-quote-argument model)
                            (shell-quote-argument prompt)
-                           (shell-quote-argument out-file)))
-         (cli-args (concat cli-args (fanshi/draw-build-cli-args fanshi/drawthings-cli-args-alist params))))
-    (format "draw-things-cli generate %s" cli-args)))
+                           (shell-quote-argument out-file))))
+    (format "draw-things-cli generate %s %s" cli-args (fanshi/draw-build-cli-args fanshi/drawthings-cli-args-alist params))))
 
-(defun fanshi/draw-backend-mflux-build-command (out-file body params)
-  "Execute draw prompt via mflux backend."
+(defun fanshi/draw-backend-mflux-build-command (out-file prompt params)
+  "Build the CLI command string for mflux backend generation.
+OUT-FILE is the output file path.  PROMPT is the prompt text.  PARAMS
+is an alist of header arguments.
+
+Returns the full command string."
   (let* ((model-raw (alist-get :model params))
          (model-suffix (cond ((symbolp model-raw) (alist-get model-raw fanshi/mflux-models))
                              ((stringp model-raw) (alist-get (intern model-raw) fanshi/mflux-models))
@@ -106,27 +112,28 @@ Each entry maps a symbol to the mlx-video module name.")
                                  (pcase model-raw
                                    ((or 'z "z") "-turbo")
                                    (_ nil)))))
-         (prompt (replace-regexp-in-string "\n" " " body))
+
          (cli-args (format "--prompt \"%s\" --output %s"
                            (shell-quote-argument prompt)
-                           (shell-quote-argument out-file)))
-         (cli-args (concat cli-args (fanshi/draw-build-cli-args fanshi/mflux-cli-args-alist params))))
-    (format "mflux-generate-%s %s" model-suffix cli-args)))
+                           (shell-quote-argument out-file))))
+    (format "mflux-generate-%s %s %s" model-suffix cli-args (fanshi/draw-build-cli-args fanshi/mflux-cli-args-alist params))))
 
-(defun fanshi/draw-backend-mlx-video-build-command (out-file body params)
-  "Execute draw prompt via mlx-video backend."
+(defun fanshi/draw-backend-mlx-video-build-command (out-file prompt params)
+  "Build the CLI command string for mlx-video backend generation.
+OUT-FILE is the output file path.  PROMPT is the prompt text.  PARAMS
+is an alist of header arguments.
+
+Returns the full command string."
   (let* ((model-raw (alist-get :model params))
          (module (cond ((symbolp model-raw) (alist-get model-raw fanshi/mlx-video-models))
                        ((stringp model-raw) (alist-get (intern model-raw) fanshi/mlx-video-models))
                        (t (error "mlx-video: unsupported :model value %s" model-raw))))
          (output-flag (if (string-prefix-p "wan" module) "--output-path" "--output"))
-         (prompt (replace-regexp-in-string "\n" " " body))
          (cli-args (format "--prompt \"%s\" %s %s"
                            (shell-quote-argument prompt)
                            output-flag
                            (shell-quote-argument out-file))))
-    (setq cli-args (concat cli-args (fanshi/draw-build-cli-args fanshi/mlx-video-cli-args-alist params)))
-    (format "python -m mlx_video.%s.generate %s" module cli-args)))
+    (format "python -m mlx_video.%s.generate %s %s" module cli-args (fanshi/draw-build-cli-args fanshi/mlx-video-cli-args-alist params))))
 
 (defun org-babel-execute:draw (body params)
   "Execute a draw prompt block.
