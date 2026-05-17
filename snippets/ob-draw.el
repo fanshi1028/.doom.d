@@ -53,7 +53,7 @@ Each entry maps a symbol to the mlx-video module name.")
 
 (defvar org-babel-default-header-args:draw
   '((:backend . "draw-things")
-    (:model . 0)
+    (:model . "z")
     (:turbo . t)
     (:dry-run . nil))
   "Default header args for draw blocks.")
@@ -81,10 +81,10 @@ is an alist of header arguments.
 
 Returns the full command string."
   (let* ((model-raw (alist-get :model params))
-         (model (cond ((numberp model-raw) (cdr (nth model-raw fanshi/org-babel-draw-models)))
-                      ((and (symbolp model-raw) (alist-get model-raw fanshi/org-babel-draw-models)))
-                      ((and (stringp model-raw) (alist-get (intern model-raw) fanshi/org-babel-draw-models)))
-                      (t model-raw)))
+         (model (cond
+                 ((and (symbolp model-raw) (alist-get model-raw fanshi/org-babel-draw-models)))
+                 ((and (stringp model-raw) (alist-get (intern model-raw) fanshi/org-babel-draw-models)))
+                 (t model-raw)))
          (model (if (alist-get :turbo params)
                     (pcase model-raw
                       ((or 'z "z") "z_image_turbo_1.0_f16.ckpt")
