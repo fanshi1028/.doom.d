@@ -11,8 +11,7 @@ The :model header arg can be a number (index into this list) or a string (model 
   )
 
 (defvar fanshi/mflux-models
-  '((z-image . "z-image")
-    (z-image-turbo . "z-image-turbo")
+  '((z . "z-image")
     (flux2 . "flux2")
     (flux2-9b . "flux2")
     (fibo . "fibo")
@@ -105,6 +104,11 @@ Each entry maps a symbol to the mlx-video module name.")
          (model-suffix (cond ((symbolp model-raw) (alist-get model-raw fanshi/mflux-models))
                              ((stringp model-raw) (alist-get (intern model-raw) fanshi/mflux-models))
                              (t (error "mflux: unsupported :model value %s" model-raw))))
+         (model-suffix (concat model-suffix
+                               (when (alist-get :turbo params)
+                                 (pcase model-raw
+                                   ((or 'z "z") "-turbo")
+                                   (_ nil)))))
          (file-ext (or (alist-get :file-ext params) "png"))
          (out-file (or (alist-get :file params) (concat (make-temp-name "draw-") "." file-ext)))
          (prompt (replace-regexp-in-string "\n" " " body))
