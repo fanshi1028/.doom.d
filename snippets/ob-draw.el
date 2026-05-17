@@ -72,6 +72,7 @@ BODY is the prompt text. PARAMS is an alist of header arguments."
     ;;   (if (call-process-shell-command cmd nil log-buf)
     ;;       (concat "[[file:" out-file "]]\n")
     ;;     (with-current-buffer log-buf (buffer-string))))
+    (fanshi/omlx-list-loaded-model 'unload-all)
     (call-process-shell-command (format "draw-things-cli generate %s" cli-args) nil 0)
     out-file))
 
