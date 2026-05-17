@@ -26,7 +26,8 @@ The :model header arg can be a number (index into this list) or a string (model 
   '((:model . 0)
     (:turbo . t)
     (:results . "file")
-    (:file-ext . "png"))
+    (:file-ext . "png")
+    (:dry-run . nil))
   "Default header args for draw blocks.")
 
 (defun org-babel-execute:draw (body params)
@@ -72,8 +73,11 @@ BODY is the prompt text. PARAMS is an alist of header arguments."
     ;;   (if (call-process-shell-command cmd nil log-buf)
     ;;       (concat "[[file:" out-file "]]\n")
     ;;     (with-current-buffer log-buf (buffer-string))))
-    (fanshi/omlx-list-loaded-model 'unload-all)
-    (call-process-shell-command (format "draw-things-cli generate %s" cli-args) nil 0)
-    out-file))
+    (let ((cmd (format "draw-things-cli generate %s" cli-args)))
+      (if (alist-get :dry-run params)
+          cmd
+        (fanshi/omlx-list-loaded-model 'unload-all)
+        (call-process-shell-command cmd nil 0)
+        out-file))))
 
 (provide 'ob-draw)
