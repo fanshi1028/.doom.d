@@ -1462,7 +1462,7 @@ COMMAND is the bash command string to execute."
           (make-process
            :name "gptel-agent-bash"
            :buffer output-buffer
-           :command (list fanshi/nono "run" "--allow" root "--" "bash" "-c" command)
+           :command (list fanshi/nono "run" "--allow" root "--allow" (expand-file-name "~/.cache/nix") "--" "bash" "-c" command)
            :connection-type 'pipe
            :sentinel
            (lambda (process _event)
