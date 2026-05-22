@@ -3,7 +3,7 @@
 (defvar fanshi/org-babel-draw-models
   '((z . "z_image_1.0_f16.ckpt")
     (ernie . "ernie_image_f16.ckpt")
-    (flux . "flux_2_dev_f16.ckpt")
+    ;; (flux . "flux_2_dev_f16.ckpt") ;; NOTE not work
     (qwen-edit . "Qwen/Qwen-Image-Edit-2511")
     (ltx . "Lightricks/LTX-2.3"))
   "List of image generation models for draw blocks.
