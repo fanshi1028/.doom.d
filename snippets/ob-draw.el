@@ -28,6 +28,7 @@ Each entry maps a symbol to the mlx-video module name.")
 (defvar fanshi/drawthings-cli-args-alist
   '((:model . 'special)
     (:width) (:height) ;; NOTE: width & height need to be multiple of 64
+    (:frames)
     (:strength) (:seed) (:steps) (:cfg) (:img . "image")
     (:neg . (lambda (neg)
               (format " --%s %s"
