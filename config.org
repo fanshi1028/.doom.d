@@ -2454,7 +2454,7 @@ Buffer-region entries (overlays) are also left unchanged."
 ** fanshi/gptel-agent-auto-worktree
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (defcustom fanshi/gptel-agent-auto-worktree t
+  (defcustom fanshi/gptel-agent-auto-worktree nil
     "If non-nil, automatically create a git worktree for new gptel-agent buffers.
 
 When a gptel-agent buffer is created, a new worktree is automatically
