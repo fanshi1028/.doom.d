@@ -1220,7 +1220,6 @@ for remote APIs."
                       :enable-thinking t :preserve-thinking t
                       :max_tokens :null)
     :description "Preset for writing code"
-    :model 'Qwen3.6-27B
     :tools '(:append ("TodoWrite" "Bash" "WebFetch"))
     :system (with-temp-buffer (insert-file-contents (expand-file-name "./gptel/coding.md" doom-user-dir)) (buffer-string))))
 #+end_src
@@ -1229,7 +1228,7 @@ for remote APIs."
 (after! gptel
   (gptel-make-preset 'heavy
     :description "Preset for heavy task"
-    :model 'Qwen3.6-27B))
+    :model 'Qwen3.6-27B-bf16))
 #+end_src
 *** Fast
 #+begin_src emacs-lisp :tangle yes
@@ -1244,9 +1243,9 @@ for remote APIs."
 (defvar fanshi/models-hierarchy-list
   (list
    (list
-    '(Qwen3.6-35B-A3B MiniMax-M2.7-oQ2)
-    '(Qwen3.6-27B-UD-MLX-4bit Qwen3.6-27B)
-    '(gemma-4-31b-it-UD-MLX-4bit gemma-4-31b-it))))
+    '(Qwen3.6-35B-A3B-bf16 MiniMax-M2.7-oQ2)
+    '(Qwen3.6-27B-bf16)
+    '(gemma-4-31b-it-bf16))))
 #+end_src
 **** Up
 #+begin_src emacs-lisp :tangle yes
@@ -1411,7 +1410,7 @@ For 'Mlx: uses :hf tag value as model symbol."
    gptel-log-level 'info
    gptel-track-media t
    gptel-org-validate-link #'gptel-org--link-standalone-p
-   gptel-model 'Qwen3.6-35B-A3B
+   gptel-model 'Qwen3.6-35B-A3B-bf16
    gptel-max-tokens nil)
   (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* ")
   (gptel-highlight-mode t))
