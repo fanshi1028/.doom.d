@@ -1553,12 +1553,9 @@ file.  Results are sorted by modification time."
       (error "Error: File or directory %s is not readable" path))
 
     (let ((root (projectile-project-root))
-          (nono (executable-find "nono"))
           (grepper (or (executable-find "rg") (executable-find "grep"))))
       (unless root
         (error "Error: project root not found, this tool cannot be used"))
-      (unless nono
-        (error "Error: nono not available, this tool cannot be used"))
       (unless grepper
         (error "Error: ripgrep/grep not available, this tool cannot be used"))
       (with-temp-buffer
@@ -1584,7 +1581,7 @@ file.  Results are sorted by modification time."
                                   (expand-file-name (substitute-in-file-name path)))))
                  (t (error "Error: failed to identify grepper"))))
                (args (append (list "run" "--allow" root "--" grepper) args))
-               (exit-code (apply #'call-process nono nil '(t t) nil args)))
+               (exit-code (apply #'call-process fanshi/nono nil '(t t) nil args)))
           (goto-char (point-min))
           (if (/= exit-code 0)
               (insert (format "Error: search failed with exit-code %d.  Tool output:\n\n" exit-code))
