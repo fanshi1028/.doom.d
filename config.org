@@ -1623,7 +1623,7 @@ file.  Results are sorted by modification time."
 *** liberate restricted tools!
 #+begin_src emacs-lisp :tangle yes
 ;; NOTE TEMP FIXME: "Bash" is nono warped and should be safe-enough? But for now I am keeping it out of this whitelist
-(defvar fanshi/safe-tool '("Write" "Edit" "Insert" "Mkdir"))
+(defvar fanshi/safe-tool '("Write" "Edit" "Insert" "Mkdir" "Bash"))
 #+end_src
 ** Prompt rewrite for gptel-mode
 *** fanshi/gptel--rewrite-directive-default
