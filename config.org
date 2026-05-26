@@ -2350,7 +2350,7 @@ kill-new: Wrong type argument: stringp, nil
 #+begin_src emacs-lisp :tangle yes
 (after! agent-shell
   (defvar fanshi/agent-shell-command-prefix-by-project-type-alist
-    '((haskell-cabal . ("--read-file" "/Users/francischan/.config/cabal/config"
+    '((haskell-cabal . ("--allow-file" "/Users/francischan/.config/cabal/config"
                         "--allow" "/Users/francischan/.cache/cabal"
                         "--allow" "/Users/francischan/.local/state/cabal/store"))
       (python-uv . ("--allow" "/Users/francischan/.cache/uv")))
