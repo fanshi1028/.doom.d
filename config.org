@@ -1980,7 +1980,7 @@ allow cloned subtrees to maintain their own history context."
     (org-clone-subtree-with-time-shift ARG)
     (cl-loop repeat (1+ (if (numberp ARG) ARG 1))
              do (progn
-                  (end-of-line)
+                  (org-end-of-subtree)
                   (gptel-send)
                   (org-next-visible-heading 1)))))
 #+end_src
