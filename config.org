@@ -344,83 +344,296 @@ Corfu detected an error:
   (setopt org-agenda-file-regexp fanshi/org-private-agenda-file-regexp))
 #+end_src
 *** AI Nightly Processor
-**** fanshi/org-gtd-ai-delegate--apply
-#+begin_src emacs-lisp :tangle yes
-(after! org-gtd
-  (defun fanshi/org-gtd-ai-delegate--apply ()
-    "Mark current item as AI-delegated and refile to actions."
-    (setq-local org-gtd--organize-type 'single-action)
-    ;; Set AI_DELEGATE tag (append to existing tags if any)
-    (let ((existing (org-entry-get (point) "TAGS")))
-      (org-entry-put (point) "TAGS"
-                     (if existing
-                         (concat existing ":" "AI_DELEGATE")
-                       "AI_DELEGATE")))
-    (org-gtd-organize-apply-hooks)
-    (if org-gtd-clarify--skip-refile
-        (org-gtd-organize--update-in-place)
-      (org-gtd-refile--do org-gtd-action org-gtd-action-template))))
-#+end_src
-**** fanshi/org-gtd-ai-delegate--find-tasks
-#+begin_src emacs-lisp :tangle yes
-(after! org-gtd
-  (defun fanshi/org-gtd-ai-delegate--find-tasks ()
-    "Return a list of (file . position) for all AI_DELEGATE tasks."
-    (let ((results '())
-          (search-term "AI_DELEGATE"))
-      (org-map-entries
-       (lambda ()
-         (push (cons (buffer-file-name) (point)) results))
-       search-term)
-      (nreverse results))))
-#+end_src
-**** fanshi/org-gtd-ai-process-delegated
-#+begin_src emacs-lisp :tangle yes
-(after! org-gtd
-  (defun fanshi/org-gtd-ai-process-delegated ()
-    "Find all tasks tagged AI_DELEGATE and process them with gptel-agent.
+**** Config
+#+begin_src emacs-lisp :tangle yes :lexical t
+(defvar fanshi/breeding-ground-dir "~/BreedingGround/"
+  "Directory for auto-created projects.")
 
-Each task is sent to gptel-agent sequentially.  On success, the task
-is marked DONE and archived.  On failure, a log note with the error
-is added and the task remains open."
-    (interactive)
-    (let ((matches (fanshi/org-gtd-ai-delegate--find-tasks)))
-      (if (null matches)
-          (message "No AI_DELEGATE tasks found")
-        (message "Found %d AI_DELEGATE task(s). Processing..." (length matches))
-        (fanshi/org-gtd-ai-delegate--process-tasks matches)))))
+(defvar fanshi/ai-task-time-limit 1800
+  "Seconds to spend on each task (default 30min).")
 #+end_src
-**** fanshi/org-gtd-ai-delegate--process-tasks
+**** fanshi/delegated-to-ai-p
 #+begin_src emacs-lisp :tangle yes
 (after! org-gtd
-  (defun fanshi/org-gtd-ai-delegate--process-tasks (tasks)
-    "Process each TASK in TASKS with agent-shell.
-TASKS is a list of (file . position) plists."
-    (dolist (task tasks)
-      (let* ((file (car task))
-             (pos (cdr task))
-             (task-text (with-temp-buffer
-                          (insert-file-contents file)
-                          (goto-char pos)
-                          (org-mode)
-                          (org-back-to-heading t)
-                          (org-get-heading t t t t)))
-             (agent-buf (fanshi/gptel-spawn-agent-shell-in-worktree task-text))))
-      (message "Processing: %s" task-text)
-      (condition-case err
-          (with-current-buffer (or (get-file-buffer file)
-                                   (find-file-noselect file))
-            (goto-char pos)
-            (org-back-to-heading t)
-            (let ((start (point))
-                  (end (save-excursion
-                         (org-end-of-subtree t t)
-                         (point))))
-              (goto-char start)
-              (set-mark end)
-              (agent-shell-send-region agent-buf)
-              (org-todo "DONE"))
-            (with-current-buffer agent-buf (comint-send-input)))))))
+  (defun fanshi/delegated-to-ai-p ()
+    (when (derived-mode-p 'org-mode)
+      (string=
+       (org-entry-get (point) (org-gtd-type-property 'delegated :who))
+       "ai"))))
+#+end_src
+**** fanshi/org-gtd-delegate--finalize-a
+#+begin_src emacs-lisp :tangle yes :lexical t
+(defun fanshi/org-gtd-delegate--finalize-a (f &rests args)
+  (if (fanshi/delegated-to-ai-p)
+      (let ((org-gtd-default-file-name "org-gtd-ai-tasks"))
+        (funcall f args)))
+  (funcall f args))
+(advice-add 'org-gtd-delegate--finalize :around #'fanshi/org-gtd-delegate--finalize-a)
+#+end_src
+**** fanshi/org-gtd-ai-delegate-project-scope
+#+begin_src emacs-lisp :tangle yes
+(after! org-gtd
+  (defun fanshi/org-gtd-ai-delegate-project-scope (&optional prompt)
+    (when (fanshi/delegated-to-ai-p)
+      (let ((project (completing-read (or prompt "Select project: ")
+                                      (projectile-known-projects)
+                                      (lambda (project) (not (string-match "/\\.trees" project))))))
+        (if (projectile-project-p project)
+            (progn (message "Scoped to project: %s" project) project)
+          (let* ((task-heading (org-get-heading t t t t))
+                 (project-name (replace-regexp-in-string "^-+\\|-+$" ""
+                                       (format "ai-%s" (replace-regexp-in-string
+                                                       "[^a-z0-9-]+" "-"
+                                                       (downcase (string-trim task-heading))))))
+                 (project-dir (expand-file-name project-name fanshi/breeding-ground-dir)))
+            (make-directory project-dir t)
+            (magit-init project-dir)
+            (projectile-add-known-project project-dir)
+            (org-entry-put (point) "SCOPED_PROJECT" project-dir)
+            (message "Created project: %s" project-dir)
+            project-dir))))))
+#+end_src
+**** fanshi/ai-delegate--update-task
+#+begin_src emacs-lisp :tangle yes :lexical t
+(defvar-local fanshi/ai-delegate--current-task-file nil
+  "File path of the current AI-delegated task (set by nightly processor).")
+
+(defvar-local fanshi/ai-delegate--current-task-pos nil
+  "Buffer position of the current AI-delegated task (set by nightly processor).")
+
+(defun fanshi/ai-delegate--update-task (file pos summary status)
+  "Update the task at POS in FILE with SUMMARY and STATUS.
+STATUS is a TODO keyword like \"DONE\" or \"TODO\".
+Appends the summary as a note and sets the TODO state."
+  (with-current-buffer (get-file-buffer file)
+    (or (buffer-modified-p)
+        (setq buffer-auto-save-file-format nil))
+    (goto-char pos)
+    (org-back-to-heading t)
+    (org-todo status)
+    (org-end-of-subtree t t)
+    (insert (format "\n- %s: %s" (format-time-string "%Y-%m-%d %H:%M") summary))
+    (save-buffer))
+  (unless (get-file-buffer file)
+    (with-temp-buffer
+      (insert-file-contents file)
+      (org-mode)
+      (goto-char pos)
+      (org-back-to-heading t)
+      (org-todo status)
+      (org-end-of-subtree t t)
+      (insert (format "\n- %s: %s" (format-time-string "%Y-%m-%d %H:%M") summary))
+      (write-file file))))
+
+(defun fanshi/ai-delegate--tool-finish-task (summary status)
+  "Tool for the gptel-agent to signal task completion.
+SUMMARY is a brief description of what was accomplished.
+STATUS is a TODO keyword, typically \"DONE\" or \"TODO\".
+The file and position are auto-filled from the current task context."
+  (unless fanshi/ai-delegate--current-task-file
+    (error "No task context set. This tool can only be called from an AI nightly agent buffer."))
+  (unless fanshi/ai-delegate--current-task-pos
+    (error "No task position set."))
+  (setq-local fanshi/ai-nightly--task-done t)
+  (setq-local fanshi/ai-nightly--task-summary summary)
+  (fanshi/ai-nightly--post-process
+   fanshi/ai-delegate--current-task-file
+   fanshi/ai-delegate--current-task-pos)
+  (format "Task updated to %s: %s" status summary))
+
+(gptel-make-tool
+ :name "FinishTask"
+ :function #'fanshi/ai-delegate--tool-finish-task
+ :description "Call this tool when the task is complete.
+SUMMARY: brief description of what was accomplished."
+ :args '((:name "summary" :type string
+         :description "Brief summary of what was accomplished"))
+ :category "task"
+ :async nil)
+
+(gptel-make-tool
+ :name "AbortTask"
+ :function #'fanshi/ai-delegate--tool-finish-task
+ :description "Call this tool when the task has to be abort.
+SUMMARY: brief description of what was accomplished and tell us why"
+ :args '((:name "summary" :type string
+         :description "Brief summary of what was accomplished"))
+ :category "task"
+ :async nil)
+#+end_src
+**** fanshi/ai-nightly--process-one-task
+The core loop: worktree -> gptel-agent -> clock -> summary.
+#+begin_src emacs-lisp :tangle yes :lexical t
+(defvar-local fanshi/ai-nightly--task-done nil
+  "Non-nil when the agent has signaled task completion.")
+
+(defvar-local fanshi/ai-nightly--task-summary nil
+  "Summary string from the agent when task is done.")
+
+(defvar-local fanshi/ai-nightly--self-heal-count 0
+  "Number of self-healing retries for the current task.")
+
+(defvar-local fanshi/ai-nightly--time-limit-timer nil
+  "Timer object for the time-limit abort of the current task.")
+
+(defun fanshi/ai-nightly--process-one-task (file pos)
+  "Process a single 'delegated to AI' task at POS in FILE.
+Returns immediately; post-processing is triggered by the agent's
+FinishTask tool call or the post-response handler on DONE.
+Time-limited via `fanshi/ai-task-time-limit'."
+  (pcase-let ((`(,project-dir ,task-heading)
+               (with-current-buffer (find-file-noselect file)
+                 (cons (org-entry-get pos "SCOPED_PROJECT") (org-get-heading t t t t)))))
+    (unless project-dir
+      (user-error "AI Nightly: Task '%s' has no SCOPED_PROJECT property" task-heading))
+    (message "AI Nightly: Processing task '%s' in project %s" task-heading project-dir)
+
+    (with-current-buffer (gptel-agent project-dir 'gptel-agent)
+      (setq-local gptel-agent 'gptel-agent-nightshift)
+      (setq-local gptel-model 'Qwen3.6-27B-uncensored-heretic-v2-Native-MTP-Preserved)
+      (unless (string-prefix-p (expand-file-name fanshi/breeding-ground-dir)
+                               (expand-file-name project-dir))
+        (fanshi/gptel-agent-swtich-to-worktree
+         (format "ai-%s" (replace-regexp-in-string "[^a-z0-9-]+" "-"
+                                                   (downcase (string-trim task-heading))))))
+
+      ;; Set up self-healing
+      (setq-local fanshi/ai-nightly--task-done nil)
+      (setq-local fanshi/ai-nightly--task-summary nil)
+      (setq-local fanshi/ai-nightly--self-heal-count 0)
+      (add-hook 'gptel-post-response-functions
+                #'fanshi/ai-nightly--post-response-handler nil t)
+
+      ;; Set up task context for the FinishTask tool
+      (setq-local fanshi/ai-delegate--current-task-file file)
+      (setq-local fanshi/ai-delegate--current-task-pos pos)
+
+      ;; 4. Clock in on the task file
+      (with-current-buffer (get-file-buffer file)
+        (goto-char pos) (org-clock-in))
+
+      ;; 5. Send the task to the agent
+      (goto-char (point-max))
+      (let ((task-subtree (with-current-buffer (get-file-buffer file)
+                            (save-excursion
+                              (goto-char pos)
+                              (org-back-to-heading t)
+                              (buffer-substring-no-properties
+                               (point)
+                               (save-excursion (org-end-of-subtree t t) (point)))))))
+        (insert (format "\n\n%s\n\nDo the below task completely. When done/give up, call the FinishTask/AbortTask tool with a summary/reasonings. Don't give up easily:\n"
+                        task-subtree)))
+      (goto-char (point-max))
+      (gptel-send)
+
+      ;; 6. Set a timer to abort if the time limit is reached
+      (let ((agent-buf (current-buffer)))
+        (setq-local fanshi/ai-nightly--time-limit-timer
+                    (run-with-timer fanshi/ai-task-time-limit nil
+                                    (lambda ()
+                                      (with-current-buffer agent-buf
+                                        (unless fanshi/ai-nightly--task-done
+                                          (message "AI Nightly: Time limit reached for task '%s'" task-heading)
+                                          (gptel-abort)
+                                          (fanshi/ai-nightly--post-process file pos))))))))))
+#+end_src
+**** fanshi/ai-nightly--post-response-handler
+Self-healing: detect done/error and resume if needed.
+#+begin_src emacs-lisp :tangle yes :lexical t
+(defun fanshi/ai-nightly--post-process (file pos)
+  "Finalize the current task: clock out, save, and update task status."
+  (when fanshi/ai-nightly--time-limit-timer
+    (cancel-timer fanshi/ai-nightly--time-limit-timer)
+    (setq-local fanshi/ai-nightly--time-limit-timer nil))
+
+  (with-current-buffer (get-file-buffer file) (org-clock-out))
+
+  ;; Auto-save chat buffer
+  (when (buffer-file-name) (save-buffer))
+
+  ;; Update task in ai-tasks file
+  (fanshi/ai-delegate--update-task file pos
+                                   (or fanshi/ai-nightly--task-summary
+                                       "Task interrupted by time limit")
+                                   (if fanshi/ai-nightly--task-done "DONE" "KILL")))
+
+(defun fanshi/ai-nightly--post-response-handler (_start _end)
+  "Handle post-response for AI nightly agent.
+Self-heals by resending if the response indicates an error or incomplete state."
+  (when (and (string-prefix-p "*gptel-agent:" (buffer-name))
+             (not fanshi/ai-nightly--task-done))
+    (let ((body-start (save-excursion
+                        (text-property-search-backward 'gptel nil t)
+                        (point)))
+          (body-end (point-max))
+          text)
+      (when (> body-end body-start)
+        (setq text (buffer-substring-no-properties body-start body-end)))
+
+      (when text
+        ;; Check if this looks like an error or incomplete response
+        (let ((error-p (or (string-match-p "\\(tool call err\\|error\\|failed\\|blocked\\)"
+                                           (downcase text))
+                           (< (length (string-trim text)) 20))))
+          (when (and error-p (< fanshi/ai-nightly--self-heal-count 5))
+            (cl-incf fanshi/ai-nightly--self-heal-count)
+            (message "AI Nightly: Self-healing attempt %d" fanshi/ai-nightly--self-heal-count)
+            (goto-char (point-max))
+            (insert "\n\nThe previous response was incomplete or errored. Please continue where you left off.\n")
+            (goto-char (point-max))
+            (gptel-send))))))))
+#+end_src
+**** fanshi/ai-nightly--run
+#+begin_src emacs-lisp :tangle yes :lexical t
+(defun fanshi/ai-nightly--run ()
+  "Run the AI nightly processor on all delegated tasks."
+  (interactive)
+  (let* ((ai-tasks-file (org-gtd--path "org-gtd-ai-tasks"))
+         (tasks '()))
+    (when (not (file-exists-p ai-tasks-file))
+        (message "AI Nightly: No AI tasks file found at %s" ai-tasks-file)
+      (with-current-buffer (find-file-noselect ai-tasks-file)
+        (org-map-entries
+         (lambda ()
+           (push (cons (buffer-file-name) (point)) tasks))
+         "DELEGATED_TO=\"ai\"")))
+      (setq tasks (nreverse tasks))
+      (if (null tasks)
+          (message "AI Nightly: No delegated tasks found")
+        (message "AI Nightly: Processing %d delegated task(s)..." (length tasks))
+        (dolist (task tasks)
+          (condition-case err
+              (fanshi/ai-nightly--process-one-task (car task) (cdr task))
+            (error (message "AI Nightly: Error processing task: %s" err)))))))))
+#+end_src
+**** fanshi/ai-nightly--schedule)
+#+begin_src emacs-lisp :tangle yes :lexical t
+(defvar fanshi/ai-nightly-start-time "23:00"
+  "Time of day to auto-trigger the nightly processor.")
+
+(defvar fanshi/ai-nightly-idle-start-time 900
+  "Idle time to auto-trigger the nightly processor after `fanshi/ai-nightly-start-time'.")
+
+(defvar fanshi/ai-nightly-timer nil
+  "Timer object for the nightly processor.")
+
+(defvar fanshi/ai-nightly-idle-timer nil
+  "Timer object for the nightly processor.")
+
+(defun fanshi/ai-nightly--schedule ()
+  "Schedule the AI nightly processor to run after idle for 15mins at the configured time."
+  (when fanshi/ai-nightly-timer
+    (cancel-timer fanshi/ai-nightly-timer))
+  (when fanshi/ai-nightly-idle-timer
+    (cancel-timer fanshi/ai-nightly-idle-timer))
+  (setq fanshi/ai-nightly-timer
+        (run-at-time fanshi/ai-nightly-start-time 86400
+                     (lambda ()
+                       (when fanshi/ai-nightly-idle-timer (cancel-timer fanshi/ai-nightly-idle-timer))
+                       (setq fanshi/ai-nightly-idle-timer (run-with-idle-timer fanshi/ai-nightly-idle-start-time nil #'fanshi/ai-nightly--run)))))
+  (message "AI Nightly: Scheduled to run at %s" fanshi/ai-nightly-start-time))
+
+(fanshi/ai-nightly--schedule)
 #+end_src
 *** Setup
 #+begin_src emacs-lisp :tangle yes
@@ -442,11 +655,13 @@ TASKS is a list of (file . position) plists."
           org-agenda-files (list org-gtd-directory)
           org-gtd-archive-location #'org-gtd-archive-location-func)
   (org-edna-mode)
+  (setopt org-gtd-user-types '((delegated :properties
+                                ((:project :org-property "SCOPED_PROJECT" :type text :required t :input-fn #'fanshi/org-gtd-ai-delegate-project-scope
+                                  :prompt "Select project: " )))))
   (advice-add #'org-gtd--path :filter-return (lambda (return-gtd-path)
                                                "gtd file path .gpg appended when not inbox"
-                                               (if (string-match
-                                                    org-gtd-inbox
-                                                    return-gtd-path)
+                                               (if (or (string-match org-gtd-inbox return-gtd-path) ;; inbox
+                                                       (string-match "ai" return-gtd-path)) ;; for ai
                                                    return-gtd-path
                                                  (concat return-gtd-path ".gpg"))))
   (setf (alist-get "l" org-gtd-capture-templates nil nil #'string=)
@@ -1186,8 +1401,11 @@ for remote APIs."
   (gptel-make-preset 'gptel-agent
     :parents 'research
     :description "Preset for general plan"
-    :tools '(:append ("Agent" "TodoWrite"))
-    :use-context 'system))
+    :tools '(:append ("TodoWrite")))
+  (gptel-make-preset 'gptel-agent-nightshift
+    :parents 'gptel-agent
+    :description "Preset for general agent to run tasks at night"
+    :tools '(:append ("Agent" "FinishTask" "AbortTask"))))
 #+end_src
 *** Research
 #+begin_src emacs-lisp :tangle yes
