@@ -1020,6 +1020,49 @@ return nil if the validation suceeded else return a string describing the errors
   (advice-add 'gptel--accept-tool-calls :before #'fanshi/gptel-agent--clear-tool-calls-confirmation-timer)
   (advice-add 'gptel--reject-tool-calls :before #'fanshi/gptel-agent--clear-tool-calls-confirmation-timer))
 #+end_src
+** Inject TOOLS and TOOL_USAGE into Agent specification dynamically
+*** fanshi/gptel-agent--tool-system
+#+begin_src emacs-lisp :tangle yes
+(after! gptel-agent
+  (defun fanshi/gptel-agent--tool-system (agent-tools)
+    "Return detailed usage instructions for AGENT-TOOLS.
+
+Each tool struct produces a dedicated usage block with its name,
+description, arguments (name, type, description, optionality) and
+any :enum values.
+
+Meant to be used as a template for {{TOOL_USAGE}} in the agent's
+markdown system prompt."
+    (let ((blocks))
+      (dolist (tool agent-tools)
+        (when-let* ((tool (gptel-get-tool tool))
+                    (name (gptel-tool-name tool))
+                    (desc (gptel-tool-description tool))
+                    (args (gptel-tool-args tool)))
+          (let ((arg-lines
+                 (mapconcat
+                  (lambda (arg-plist)
+                    (let* ((arg-name (plist-get arg-plist :name))
+                           (arg-type (or (plist-get arg-plist :type) "string"))
+                           (arg-desc (plist-get arg-plist :description))
+                           (optional-p (plist-get arg-plist :optional))
+                           (enum (plist-get arg-plist :enum)))
+                      (format "  - %s%s(%s): %s%s"
+                              arg-name
+                              (if optional-p "[optional]" "")
+                              arg-type
+                              (if enum (format " | Allowed: %s" (string-join enum ", ")) "")
+                              arg-desc)))
+                  args "\n")))
+            (push (format "<tool name=\"%s\">\n%s\n%s\n%s</tool>"
+                          name
+                          (string-trim desc)
+                          (unless (string-empty-p arg-lines)
+                            (concat "\nArguments:\n" arg-lines))
+                          "")
+                  blocks))))
+      (apply #'concat (nreverse blocks)))))
+#+end_src
 ** fanshi/gptel-make-openai
 #+begin_src emacs-lisp :tangle yes :lexical t
 (defun fanshi/gptel-make-openai (backend-name host &optional pass-entry protocol set-as-backend)
@@ -1073,35 +1116,24 @@ for remote APIs."
 #+end_src
 ** Agents
 *** init
-#+begin_src emacs-lisp :tangle no
-(use-package! gptel-agent :after gptel)
-
-(after! gptel-agent
-  (defvar fanshi/gptel-agent-dir "~/.gptel-agents")
-  (defun fanshi/my-gptel-agent-update ()
-    (interactive)
-    (dolist (path (f-entries fanshi/gptel-agent-dir
-                             (lambda (f) (and (file-regular-p f)
-                                              (string= "md" (f-ext f))))))
-      (pcase (gptel-agent-read-file path '(()))
-        (`(,agent-name . ,agent-plist)
-         (apply #'gptel-make-preset (intern agent-name) agent-plist)))))
-  (gptel-agent-update)
-  (fanshi/my-gptel-agent-update))
-#+end_src
 #+begin_src emacs-lisp :tangle yes
 (use-package! gptel-agent
   :init (setopt gptel-agent-dirs '())
   :after gptel)
 #+end_src
-*** with-file-read/write-tools
+*** Ignore gptel-agent-update
+We load our own presets
 #+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (gptel-make-preset 'with-file-read-tools
-    :tools '(:append ("Glob" "Grep" "Read")))
-  (gptel-make-preset 'with-file-write-tools
-    :parents 'with-file-read-tools
-    :tools '(:append ("Insert" "Edit" "Write" "Bash"))))
+(after! gptel-agent (advice-add 'gptel-agent-update :ignore))
+#+end_src
+*** Tool Groups
+#+begin_src emacs-lisp :tangle yes
+(defvar fanshi/file-read-tools '("Glob" "Grep" "Read"))
+(defvar fanshi/file-write-tools '("Insert" "Edit" "Write" "Bash"))
+(defvar fanshi/research-tools (append fanshi/file-read-tools '("WebSearch" "WebFetch" "YouTube")))
+(defvar fanshi/coding-tools (append fanshi/file-write-tools '("WebFetch")))
+(defvar fanshi/gptel-agent-tools (append fanshi/research-tools '("TodoWrite")))
+(defvar fanshi/gptel-agent-nightshift-tools (append fanshi/gptel-agent-tools '("Agent" "FinishTask" "AbortTask")))
 #+end_src
 *** General tasks
 #+begin_src emacs-lisp :tangle yes
@@ -1110,45 +1142,52 @@ for remote APIs."
   (gptel-make-preset 'gptel-agent
     :parents 'research
     :description "Preset for general plan"
-    :tools '(:append ("TodoWrite")))
+    :tools fanshi/gptel-agent-tools
+    :system "FIXME")
   (gptel-make-preset 'gptel-agent-nightshift
     :parents 'gptel-agent
     :description "Preset for general agent to run tasks at night"
-    :tools '(:append ("Agent" "FinishTask" "AbortTask"))))
+    :tools fanshi/gptel-agent-nightshift-tools
+    :system "FIXME"))
 #+end_src
 *** Research
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (gptel-make-preset 'research
-    :parents 'with-file-read-tools
     :request-params '(:enable-thinking t :preserve-thinking t
                       :temperature 1.0 :top-p 0.95 :top-k 20 :min-p 0.0 :presence-penalty 1.5 :repetition-penalty 1.0)
     :description "Preset for research"
-    :tools '(:append ("WebSearch" "WebFetch" "YouTube"))
-    :system (with-temp-buffer (insert-file-contents (expand-file-name "./gptel/research.md" doom-user-dir)) (buffer-string))))
+    :tools fanshi/research-tools
+    :system '(:eval (with-temp-buffer
+                      (insert-file-contents (expand-file-name "./gptel/research.md" doom-user-dir))
+                      (gptel-agent--expand-templates (point-min)  `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/research-tools))
+                                                                    ("DATE" . ,(format-time-string "%Y-%m-%d"))
+                                                                    ("CWD" . ,default-directory)))))))
 #+end_src
 *** Instruct
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! gptel
   (gptel-make-preset 'do
     :request-params '(:enable-thinking :json-false
                       :temperature 0.7 :top-p 0.80 :top-k 20 :min-p 0.0 :presence-penalty 1.5 :repetition-penalty 1.0)
     :description "Preset for execute instruction"
-    :tools nil
-    :use-context 'system))
+    :tools nil))
 #+end_src
 *** Coding
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (gptel-make-preset 'coding
-    :parents 'with-file-write-tools
     :request-params '(:temperature 0.6 :top-p 0.95 :top-k 20 :min-p 0.0
                       :presence-penalty 0.0 :repetition-penalty 1.0
                       :enable-thinking t :preserve-thinking t
                       :max_tokens :null)
     :description "Preset for writing code"
-    :tools '(:append ("TodoWrite" "Bash" "WebFetch"))
-    :system (with-temp-buffer (insert-file-contents (expand-file-name "./gptel/coding.md" doom-user-dir)) (buffer-string))))
+    :tools fanshi/coding-tools
+    :system '(:eval (with-temp-buffer
+                      (insert-file-contents (expand-file-name "./gptel/coding.md" doom-user-dir))
+                      (gptel-agent--expand-templates (point-min)  `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/coding-tools))
+                                                                    ("DATE" . ,(format-time-string "%Y-%m-%d"))
+                                                                    ("CWD" . ,default-directory)))))))
 #+end_src
 *** Heavy
 #+begin_src emacs-lisp :tangle yes

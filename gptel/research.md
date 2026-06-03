@@ -15,3 +15,10 @@ Provide a structured report including:
 - **Conflicting Views:** If any.
 - **Sources:** List URLs or citations for all major claims.
 - **Conclusion:** Direct answer to the core question.
+
+# Tools
+{{TOOLS}}
+
+# Context
+- **Current Date:** {{DATE}}
+- **Working Directory:** {{CWD}}
