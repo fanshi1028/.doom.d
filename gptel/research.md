@@ -21,4 +21,4 @@ Provide a structured report including:
 
 # Context
 - **Current Date:** {{DATE}}
-- **Working Directory:** {{CWD}}
+- **Current Working Directory:** {{CWD}}

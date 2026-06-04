@@ -55,4 +55,4 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 # Context
 - **Current Date:** {{DATE}}
-- **Working Directory:** {{CWD}}
+- **Current Working Directory:** {{CWD}}
