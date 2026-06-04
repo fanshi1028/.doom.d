@@ -1124,7 +1124,7 @@ for remote APIs."
 *** Ignore gptel-agent-update
 We load our own presets
 #+begin_src emacs-lisp :tangle yes
-(after! gptel-agent (advice-add 'gptel-agent-update :ignore))
+(after! gptel-agent (advice-add 'gptel-agent-update :before-while (lambda (&rest _r) nil)))
 #+end_src
 *** Tool Groups
 #+begin_src emacs-lisp :tangle yes
