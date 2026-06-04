@@ -2168,7 +2168,7 @@ BRANCH is the worktree branch name."
                      (setq result (concat result "\nAgent output:\n" agent-output))
                      (funcall callback result)))))))))))
 
-  (gptel-make-tool
+  (gptel--make-tool
    :name "Delegate"
    :function #'fanshi/delegate-to-worktree
    :description "Delegate a coding task to an agent-shell running in an isolated git worktree.
@@ -2310,65 +2310,66 @@ Use this for independent tasks that should be isolated from the current working 
 (defvar-local fanshi/ai-delegate--current-task-pos nil
   "Buffer position of the current AI-delegated task (set by nightly processor).")
 
-(defun fanshi/ai-delegate--update-task (file pos summary status)
-  "Update the task at POS in FILE with SUMMARY and STATUS.
+(after! gptel-agent
+  (defun fanshi/ai-delegate--update-task (file pos summary status)
+    "Update the task at POS in FILE with SUMMARY and STATUS.
 STATUS is a TODO keyword like \"DONE\" or \"TODO\".
 Appends the summary as a note and sets the TODO state."
-  (with-current-buffer (get-file-buffer file)
-    (or (buffer-modified-p)
-        (setq buffer-auto-save-file-format nil))
-    (goto-char pos)
-    (org-back-to-heading t)
-    (org-todo status)
-    (org-end-of-subtree t t)
-    (insert (format "\n- %s: %s" (format-time-string "%Y-%m-%d %H:%M") summary))
-    (save-buffer))
-  (unless (get-file-buffer file)
-    (with-temp-buffer
-      (insert-file-contents file)
-      (org-mode)
+    (with-current-buffer (get-file-buffer file)
+      (or (buffer-modified-p)
+          (setq buffer-auto-save-file-format nil))
       (goto-char pos)
       (org-back-to-heading t)
       (org-todo status)
       (org-end-of-subtree t t)
       (insert (format "\n- %s: %s" (format-time-string "%Y-%m-%d %H:%M") summary))
-      (write-file file))))
+      (save-buffer))
+    (unless (get-file-buffer file)
+      (with-temp-buffer
+        (insert-file-contents file)
+        (org-mode)
+        (goto-char pos)
+        (org-back-to-heading t)
+        (org-todo status)
+        (org-end-of-subtree t t)
+        (insert (format "\n- %s: %s" (format-time-string "%Y-%m-%d %H:%M") summary))
+        (write-file file))))
 
-(defun fanshi/ai-delegate--tool-finish-task (summary status)
-  "Tool for the gptel-agent to signal task completion.
+  (defun fanshi/ai-delegate--tool-finish-task (summary status)
+    "Tool for the gptel-agent to signal task completion.
 SUMMARY is a brief description of what was accomplished.
 STATUS is a TODO keyword, typically \"DONE\" or \"TODO\".
 The file and position are auto-filled from the current task context."
-  (unless fanshi/ai-delegate--current-task-file
-    (error "No task context set. This tool can only be called from an AI nightly agent buffer."))
-  (unless fanshi/ai-delegate--current-task-pos
-    (error "No task position set."))
-  (setq-local fanshi/ai-nightly--task-done t)
-  (setq-local fanshi/ai-nightly--task-summary summary)
-  (fanshi/ai-nightly--post-process
-   fanshi/ai-delegate--current-task-file
-   fanshi/ai-delegate--current-task-pos)
-  (format "Task updated to %s: %s" status summary))
+    (unless fanshi/ai-delegate--current-task-file
+      (error "No task context set. This tool can only be called from an AI nightly agent buffer."))
+    (unless fanshi/ai-delegate--current-task-pos
+      (error "No task position set."))
+    (setq-local fanshi/ai-nightly--task-done t)
+    (setq-local fanshi/ai-nightly--task-summary summary)
+    (fanshi/ai-nightly--post-process
+     fanshi/ai-delegate--current-task-file
+     fanshi/ai-delegate--current-task-pos)
+    (format "Task updated to %s: %s" status summary))
 
-(gptel-make-tool
- :name "FinishTask"
- :function #'fanshi/ai-delegate--tool-finish-task
- :description "Call this tool when the task is complete.
+  (gptel--make-tool
+   :name "FinishTask"
+   :function #'fanshi/ai-delegate--tool-finish-task
+   :description "Call this tool when the task is complete.
 SUMMARY: brief description of what was accomplished."
- :args '((:name "summary" :type string
-         :description "Brief summary of what was accomplished"))
- :category "task"
- :async nil)
+   :args '((:name "summary" :type string
+            :description "Brief summary of what was accomplished"))
+   :category "task"
+   :async nil)
 
-(gptel-make-tool
- :name "AbortTask"
- :function #'fanshi/ai-delegate--tool-finish-task
- :description "Call this tool when the task has to be abort.
+  (gptel--make-tool
+   :name "AbortTask"
+   :function #'fanshi/ai-delegate--tool-finish-task
+   :description "Call this tool when the task has to be abort.
 SUMMARY: brief description of what was accomplished and tell us why"
- :args '((:name "summary" :type string
-         :description "Brief summary of what was accomplished"))
- :category "task"
- :async nil)
+   :args '((:name "summary" :type string
+            :description "Brief summary of what was accomplished"))
+   :category "task"
+   :async nil))
 #+end_src
 ** fanshi/ai-nightly--process-one-task
 The core loop: worktree -> gptel-agent -> clock -> summary.
