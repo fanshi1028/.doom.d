@@ -89,7 +89,8 @@
 
 (package! org-gtd :recipe (:host github :repo "Trevoke/org-gtd.el") :pin "1b93028024f587b3da133b4bcae473f92bb60bb6")
 
-(package! gptel :recipe (:host github :repo "karthink/gptel") :pin "a0adf16a3c9f1aadcb3ed92b76be371f2e5b5219")
+(package! gptel :recipe (:host github :repo "karthink/gptel") :pin "f5ad4eb812920fba3fcfbe32042ef89f979a7e17")
+
 
 (package! gptel-agent :recipe (:host github :repo "fanshi1028/gptel-agent"))
 
