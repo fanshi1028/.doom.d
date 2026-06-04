@@ -1129,7 +1129,7 @@ We load our own presets
 *** Tool Groups
 #+begin_src emacs-lisp :tangle yes
 (defvar fanshi/file-read-tools '("Glob" "Grep" "Read"))
-(defvar fanshi/file-write-tools '("Insert" "Edit" "Write" "Bash"))
+(defvar fanshi/file-write-tools (append fanshi/file-read-tools '("Edit" "Write" "Bash")))
 (defvar fanshi/research-tools (append fanshi/file-read-tools '("WebSearch" "WebFetch" "YouTube")))
 (defvar fanshi/coding-tools (append fanshi/file-write-tools '("WebFetch")))
 (defvar fanshi/gptel-agent-tools (append fanshi/research-tools '("TodoWrite")))
@@ -1588,8 +1588,7 @@ file.  Results are sorted by modification time."
 #+end_src
 *** liberate restricted tools!
 #+begin_src emacs-lisp :tangle yes
-;; NOTE TEMP FIXME: "Bash" is nono warped and should be safe-enough? But for now I am keeping it out of this whitelist
-(defvar fanshi/safe-tool '("Write" "Edit" "Insert" "Mkdir" "Bash"))
+(defvar fanshi/safe-tool '("Write" "Edit" "Bash"))
 #+end_src
 ** Prompt rewrite for gptel-mode
 *** fanshi/gptel--rewrite-directive-default
