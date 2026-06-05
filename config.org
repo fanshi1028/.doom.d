@@ -2776,6 +2776,10 @@ worktree and its branch.  If dirty, keeps it and notifies the user."
   :config
   (setopt spatial-window-expert-mode t))
 #+end_src
+* EWW
+#+begin_src emacs-lisp :tangle yes
+(setq browse-url-browser-function 'eww-browse-url)
+#+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
 ;; Here are some additional functions/macros that could help you configure Doom:
