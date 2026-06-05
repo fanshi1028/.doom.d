@@ -1027,40 +1027,48 @@ return nil if the validation suceeded else return a string describing the errors
   (defun fanshi/gptel-agent--tool-system (agent-tools)
     "Return detailed usage instructions for AGENT-TOOLS.
 
-Each tool struct produces a dedicated usage block with its name,
+AGENT-TOOLS is a list of tool specifications (each as input to `gptel-get-tool'):
+
+Each resulting tool struct produces a dedicated usage block with its name,
 description, arguments (name, type, description, optionality) and
 any :enum values.
 
-Meant to be used as a template for {{TOOL_USAGE}} in the agent's
+Meant to be used as a template for {{TOOLS}} in the agent's
 markdown system prompt."
     (let ((blocks))
-      (dolist (tool agent-tools)
-        (when-let* ((tool (gptel-get-tool tool))
-                    (name (gptel-tool-name tool))
-                    (desc (gptel-tool-description tool))
-                    (args (gptel-tool-args tool)))
-          (let ((arg-lines
-                 (mapconcat
-                  (lambda (arg-plist)
-                    (let* ((arg-name (plist-get arg-plist :name))
-                           (arg-type (or (plist-get arg-plist :type) "string"))
-                           (arg-desc (plist-get arg-plist :description))
-                           (optional-p (plist-get arg-plist :optional))
-                           (enum (plist-get arg-plist :enum)))
-                      (format "  - %s%s(%s): %s%s"
-                              arg-name
-                              (if optional-p "[optional]" "")
-                              arg-type
-                              (if enum (format " | Allowed: %s" (string-join enum ", ")) "")
-                              arg-desc)))
-                  args "\n")))
-            (push (format "<tool name=\"%s\">\n%s\n%s\n%s</tool>"
-                          name
-                          (string-trim desc)
-                          (unless (string-empty-p arg-lines)
-                            (concat "\nArguments:\n" arg-lines))
-                          "")
-                  blocks))))
+      (dolist (tool-spec agent-tools)
+        (let ((tools (gptel-get-tool tool-spec))
+              (blocks-in))
+          ;; Normalize: if a single tool struct was returned, wrap it in a list.
+          (when (and (consp tools) (not (stringp (car tools))))
+            (setq tools (list tools)))
+          (dolist (tool tools)
+            (when-let* ((name (gptel-tool-name tool))
+                        (desc (gptel-tool-description tool))
+                        (args (gptel-tool-args tool)))
+              (let ((arg-lines
+                     (mapconcat
+                      (lambda (arg-plist)
+                        (let* ((arg-name (plist-get arg-plist :name))
+                               (arg-type (or (plist-get arg-plist :type) "string"))
+                               (arg-desc (plist-get arg-plist :description))
+                               (optional-p (plist-get arg-plist :optional))
+                               (enum (plist-get arg-plist :enum)))
+                          (format "  - %s%s(%s): %s%s"
+                                  arg-name
+                                  (if optional-p "[optional]" "")
+                                  arg-type
+                                  (if enum (format " | Allowed: %s" (string-join enum ", ")) "")
+                                  arg-desc)))
+                      args "\n")))
+                (push (format "<tool name=\"%s\">\n%s\n%s\n%s</tool>"
+                              name
+                              (string-trim desc)
+                              (unless (string-empty-p arg-lines)
+                                (concat "\nArguments:\n" arg-lines))
+                              "")
+                      blocks-in)))
+          (setq blocks (nconc blocks-in blocks))))
       (apply #'concat (nreverse blocks)))))
 #+end_src
 ** fanshi/gptel-make-openai
@@ -1133,7 +1141,7 @@ We load our own presets
 (defvar fanshi/research-tools (append fanshi/file-read-tools '("WebSearch" "WebFetch" "YouTube")))
 (defvar fanshi/coding-tools (append fanshi/file-write-tools '("WebFetch")))
 (defvar fanshi/gptel-agent-tools (append fanshi/research-tools '("TodoWrite")))
-(defvar fanshi/gptel-agent-nightshift-tools (append fanshi/gptel-agent-tools '("Agent" "FinishTask" "AbortTask")))
+(defvar fanshi/gptel-agent-nightshift-tools (append fanshi/gptel-agent-tools '("Agent" "task")))
 #+end_src
 *** General tasks
 #+begin_src emacs-lisp :tangle yes
