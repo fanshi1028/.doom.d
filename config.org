@@ -1259,10 +1259,9 @@ return nil if the validation suceeded else return a string describing the errors
                          (when blockp
                            (plist-put tool-call :error t)
                            (setq result
-                                 (concat "<tool_call_error>\n"
+                                 (concat "## Tool Error\n\n"
                                          (if (stringp blockp) blockp
-                                           (format "Tool %s blocked by user" name))
-                                         "\n</tool_call_error>")))
+                                           (format "Tool %s blocked by user" name)))))
                          (when result
                            (cl-loop     ; Update results sent to callback
                             for call in (plist-get info :tool-result)
@@ -1317,51 +1316,41 @@ return nil if the validation suceeded else return a string describing the errors
 #+begin_src emacs-lisp :tangle yes
 (after! gptel-agent
   (defun fanshi/gptel-agent--tool-system (agent-tools)
-    "Return detailed usage instructions for AGENT-TOOLS.
-
-AGENT-TOOLS is a list of tool specifications (each as input to `gptel-get-tool'):
-
-Each resulting tool struct produces a dedicated usage block with its name,
-description, arguments (name, type, description, optionality) and
-any :enum values.
-
-Meant to be used as a template for {{TOOLS}} in the agent's
-markdown system prompt."
+    "Return detailed usage instructions for AGENT-TOOLS in Markdown format."
     (let ((blocks))
       (dolist (tool-spec agent-tools)
-        (let ((tools (gptel-get-tool tool-spec))
-              (blocks-in))
+        (let ((tools (gptel-get-tool tool-spec)))
           ;; Normalize: if a single tool struct was returned, wrap it in a list.
-          (when (and (consp tools) (not (stringp (car tools))))
+          (unless (listp tools)
             (setq tools (list tools)))
-          (dolist (tool tools)
-            (when-let* ((name (gptel-tool-name tool))
-                        (desc (gptel-tool-description tool))
-                        (args (gptel-tool-args tool)))
-              (let ((arg-lines
-                     (mapconcat
-                      (lambda (arg-plist)
-                        (let* ((arg-name (plist-get arg-plist :name))
-                               (arg-type (or (plist-get arg-plist :type) "string"))
-                               (arg-desc (plist-get arg-plist :description))
-                               (optional-p (plist-get arg-plist :optional))
-                               (enum (plist-get arg-plist :enum)))
-                          (format "  - %s%s(%s): %s%s"
-                                  arg-name
-                                  (if optional-p "[optional]" "")
-                                  arg-type
-                                  (if enum (format " | Allowed: %s" (string-join enum ", ")) "")
-                                  arg-desc)))
-                      args "\n")))
-                (push (format "<tool name=\"%s\">\n%s\n%s\n%s</tool>"
-                              name
-                              (string-trim desc)
-                              (unless (string-empty-p arg-lines)
-                                (concat "\nArguments:\n" arg-lines))
-                              "")
-                      blocks-in)))
-          (setq blocks (nconc blocks-in blocks))))
-      (apply #'concat (nreverse blocks))))))
+          (let ((blocks-in))
+            (dolist (tool tools)
+              (when-let* ((name (gptel-tool-name tool))
+                          (desc (gptel-tool-description tool))
+                          (args (gptel-tool-args tool)))
+                (let ((arg-lines
+                       (mapconcat
+                        (lambda (arg-plist)
+                          (let* ((arg-name (plist-get arg-plist :name))
+                                 (arg-type (or (plist-get arg-plist :type) "string"))
+                                 (arg-desc (plist-get arg-plist :description))
+                                 (optional-p (plist-get arg-plist :optional))
+                                 (enum (plist-get arg-plist :enum)))
+                            (format "- `%s`%s (**%s**): %s%s"
+                                    arg-name
+                                    (if optional-p " [optional]" "")
+                                    arg-type
+                                    (if enum (format "Allowed: %s" (string-join enum ", ")) "")
+                                    arg-desc)))
+                        args "\n")))
+                  (push (format "## Tool: %s\n\n%s\n\n%s"
+                                name
+                                (string-trim desc)
+                                (unless (string-empty-p arg-lines)
+                                  (concat "**Arguments:**\n" arg-lines)))
+                        blocks-in))))
+            (setq blocks (nconc blocks blocks-in)))))
+      (apply #'concat (nreverse blocks)))))
 #+end_src
 ** fanshi/gptel-make-openai
 #+begin_src emacs-lisp :tangle yes :lexical t
@@ -1479,11 +1468,12 @@ We load our own presets
                       :temperature 1.0 :top-p 0.95 :top-k 20 :min-p 0.0 :presence-penalty 1.5 :repetition-penalty 1.0)
     :description "Preset for research"
     :tools fanshi/research-tools
-    :system '(:eval (with-temp-buffer
-                      (insert-file-contents (expand-file-name "./gptel/research.md" doom-user-dir))
-                      (gptel-agent--expand-templates (point-min)  `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/research-tools))
-                                                                    ("DATE" . ,(format-time-string "%Y-%m-%d"))
-                                                                    ("CWD" . ,default-directory)))))))
+    :system (lambda () (with-temp-buffer
+                         (insert-file-contents (expand-file-name "./gptel/research.md" doom-user-dir))
+                         (gptel-agent--expand-templates (point-min)  '((cons "TOOLS" (fanshi/gptel-agent--tool-system fanshi/research-tools))
+                                                                       (cons "DATE" (format-time-string "%Y-%m-%d"))
+                                                                       (cons "CWD" default-directory)))
+                         (buffer-string)))))
 #+end_src
 *** Instruct
 #+begin_src emacs-lisp :tangle no
