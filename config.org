@@ -1135,11 +1135,32 @@ We load our own presets
 (after! gptel-agent (advice-add 'gptel-agent-update :before-while (lambda (&rest _r) nil)))
 #+end_src
 *** Tool Groups
-#+begin_src emacs-lisp :tangle yes
-(defvar fanshi/file-read-tools '("Glob" "Grep" "Read"))
-(defvar fanshi/file-write-tools (append fanshi/file-read-tools '("Edit" "Write" "Bash")))
-(defvar fanshi/research-tools (append fanshi/file-read-tools '("WebSearch" "WebFetch" "YouTube")))
-(defvar fanshi/coding-tools (append fanshi/file-write-tools '("WebFetch")))
+#+begin_src emacs-lisp :tangle yes :lexical t
+(defun fanshi/update-tools-category (new-category toolnames-list)
+  "Move TOOLNAMES-LIST from their current categories to NEW-CATEGORY."
+  (dolist (toolname toolnames-list)
+    (let* ((tool (gptel-get-tool toolname))
+           (old-category (gptel-tool-category tool)))
+      (unless (string= old-category new-category)
+        ;; 1. Update the tool's internal category
+        (setf (gptel-tool-category tool) new-category)
+        ;; Get the updated tool (with new internal category)
+        (setq tool (gptel-get-tool toolname))
+
+        ;; 2. Add to new category's inner alist
+        (push (cons toolname tool) (alist-get new-category gptel--known-tools nil nil #'equal))
+        ;; 3. Remove from old category's inner alist
+        (let ((old-alist (alist-get old-category gptel--known-tools nil nil #'equal)))
+          (when old-alist
+            ;; Remove (name . tool) pair where name is toolname
+            (setf (alist-get old-category gptel--known-tools nil nil #'equal)
+                  (assoc-delete-all toolname old-alist #'equal))))))))
+
+(fanshi/update-tools-category "read-tools" '("Glob" "Grep" "Read"))
+(fanshi/update-tools-category "write-tools" '("Edit" "Write" "Bash"))
+(fanshi/update-tools-category "web-read-tools" '("WebSearch" "WebFetch" "YouTube"))
+(defvar fanshi/research-tools '("read-tools" "web-read-tools"))
+(defvar fanshi/coding-tools '("write-tools" "WebFetch"))
 (defvar fanshi/gptel-agent-tools (append fanshi/research-tools '("TodoWrite")))
 (defvar fanshi/gptel-agent-nightshift-tools (append fanshi/gptel-agent-tools '("Agent" "task")))
 #+end_src
