@@ -2791,7 +2791,12 @@ worktree and its branch.  If dirty, keeps it and notifies the user."
 #+end_src
 * EWW
 #+begin_src emacs-lisp :tangle yes
-(setq browse-url-browser-function 'eww-browse-url)
+(defun fanshi/browse-url (url &optional _new-window)
+  "Browse URL using the default browser for YouTube, eww otherwise."
+  (if (string-match-p "youtube\\.com\\|youtu\\.be" url)
+      (browse-url-default-browser url)
+    (eww-browse-url url _new-window)))
+(setq browse-url-browser-function #'fanshi/browse-url)
 #+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
