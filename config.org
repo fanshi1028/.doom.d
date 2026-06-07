@@ -2789,14 +2789,42 @@ worktree and its branch.  If dirty, keeps it and notifies the user."
   :config
   (setopt spatial-window-expert-mode t))
 #+end_src
-* EWW
+* Browse Url
+** Browse Url handlers
 #+begin_src emacs-lisp :tangle yes
-(defun fanshi/browse-url (url &optional _new-window)
-  "Browse URL using the default browser for YouTube, eww otherwise."
-  (if (string-match-p "youtube\\.com\\|youtu\\.be" url)
-      (browse-url-default-browser url)
-    (eww-browse-url url _new-window)))
-(setq browse-url-browser-function #'fanshi/browse-url)
+(defun fanshi/clock-in-when-at-org-link ()
+  (save-excursion
+    (when (and (derived-mode-p 'org-mode) (eq 'link (org-element-type (org-element-context))))
+      (org-clock-in))))
+(defun fanshi/mpv-youtube (url &optional _new-window)
+  "Browse URL using mpv for YouTube."
+  (fanshi/clock-in-when-at-org-link)
+  (call-process "mpv" nil 0 nil url
+                "--ytdl-format=bestvideo[height<=?1080]+bestaudio/best"
+                "--ontop"))
+(defun fanshi/eww-browse-url-with-clock-in (url &optional new-window)
+  (fanshi/clock-in-when-at-org-link)
+  (eww-browse-url url new-window))
+(setq browse-url-handlers
+      '(("youtube\\.com\\|youtu\\.be" . #'fanshi/mpv-youtube)))
+(setq browse-url-browser-function #'fanshi/eww-browse-url-with-clock-in)
+#+end_src
+** fanshi/link-hint--action-a
+- Auto clock-in when opening a link in an org heading via link-hint
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/link-hint--action-a (action link)
+  (when (eq action :open)
+    (let* ((pos (plist-get link :pos))
+           (win (plist-get link :win))
+           (buf (window-buffer win)))
+      (save-excursion
+        (with-current-buffer buf
+          (goto-char pos)
+          (when (derived-mode-p 'org-agenda-mode) (org-agenda-switch-to))
+          (when (derived-mode-p 'org-mode)
+            (let ((inhibit-read-only t))
+              (org-clock-in))))))))
+(advice-add 'link-hint--action :after #'fanshi/link-hint--action-a)
 #+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
