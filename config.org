@@ -374,7 +374,6 @@ Corfu detected an error:
                                                  (concat return-gtd-path ".gpg"))))
   (setf (alist-get "l" org-gtd-capture-templates nil nil #'string=)
         `("link" entry (file ,(org-gtd-inbox-path)) ,(string-join '("* %(fanshi/org-web-tools--org-link-for-url)" "%U") "\n") :immediate-finish t))
-  (advice-add 'org-capture-goto-last-stored :after #'org-clock-in) ;; HACK NOTE: for auto clocking in Read Link Now! Cause unexpected clock-in for org-capture-goto-last-stored!
   (setf (alist-get "L" org-gtd-capture-templates nil nil #'string=)
         `("Read Link Now" entry
           (file+olp ,(org-gtd--path org-gtd-default-file-name) "Actions")
@@ -384,7 +383,7 @@ Corfu detected an error:
                           ":END:"
                           "%U")
                         "\n")
-          :jump-to-captured t :immediate-finish t))
+          :jump-to-captured t :immediate-finish t :clock-in t :clock-keep t))
   (map! :map doom-leader-map :desc "Capture" "X" #'org-gtd-capture)
   (map! :map doom-leader-map
         (:prefix ("D" . "org-gtd")
