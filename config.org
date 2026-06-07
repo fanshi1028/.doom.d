@@ -1387,15 +1387,12 @@ For 'Mlx: uses :hf tag value as model symbol."
 (after! gptel
   (setopt
    gptel-display-buffer-action '(nil (body-function . select-window))
-   gptel-default-mode 'org-mode
    gptel-highlight-methods '(margin face)
-   gptel-log-level 'info
    gptel-track-media t
    gptel-org-validate-link #'gptel-org--link-standalone-p
    gptel-model 'Qwen3.6-35B-A3B-bf16
    gptel-max-tokens nil)
-  (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* ")
-  (gptel-highlight-mode t))
+  (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* "))
 #+end_src
 ** Restrict tools
 *** restrict-to-projectile-files
