@@ -1200,6 +1200,7 @@ We load our own presets
 #+begin_src emacs-lisp :tangle yes :lexical t
 (defvar fanshi/research-tools '("read-tools" "web-read-tools"))
 (defvar fanshi/coding-tools '("write-tools" "WebFetch"))
+(defvar fanshi/scrum-tools (append fanshi/research-tools '("TodoWrite" "Agent")))
 (defvar fanshi/gptel-agent-tools (append fanshi/research-tools '("TodoWrite")))
 (defvar fanshi/gptel-agent-nightshift-tools (append fanshi/gptel-agent-tools '("Agent" "task")))
 (after! gptel-agent
@@ -1238,6 +1239,22 @@ We load our own presets
     :description "Preset for general agent to run tasks at night"
     :tools fanshi/gptel-agent-nightshift-tools
     :system "FIXME"))
+#+end_src
+*** Scrum master
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (gptel-make-preset 'scrum
+    :request-params '(:enable-thinking t :preserve-thinking t
+                      :temperature 0.7 :top-p 0.95 :top-k 20 :min-p 0.0
+                      :presence-penalty 0.5 :repetition-penalty 1.0)
+    :description "Scrum Master - orchestrates process flow, delegates to agents, does NOT code"
+    :tools fanshi/scrum-tools
+    :system (lambda () (with-temp-buffer
+                         (insert-file-contents (expand-file-name "./gptel/scrum.md" doom-user-dir))
+                         (gptel-agent--expand-templates (point-min)  `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/scrum-tools))
+                                                                       ("DATE" . ,(format-time-string "%Y-%m-%d"))
+                                                                       ("CWD" . ,default-directory)))
+                         (buffer-string)))))
 #+end_src
 *** Research
 #+begin_src emacs-lisp :tangle yes
