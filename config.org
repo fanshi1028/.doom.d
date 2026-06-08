@@ -778,6 +778,80 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+begin_src emacs-lisp :tangle yes
 (after! gptel (setopt gptel-post-response-functions '(fanshi/notify)))
 #+end_src
+** auto continue on not finished responses
+*** Config
+#+begin_src emacs-lisp :tangle yes
+(defcustom fanshi/gptel-auto-continue-enabled t
+  "If non-nil, automatically detect and continue truncated responses."
+  :type 'boolean
+  :group 'gptel)
+#+end_src
+*** fanshi/response-not-done-p for gptel-send--transitions
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defun fanshi/response-not-done-p (info)
+    "Return non-nil to keep the FSM in WAIT state for auto-continue.
+When the response appears truncated, return t to prevent the DONE transition,
+causing the FSM to loop back to WAIT and send a continuation request automatically."
+    (when (and fanshi/gptel-auto-continue-enabled
+               (not (eq (plist-get info :state) 'ABRT)))
+      (with-current-buffer (plist-get info :buffer)
+        (let* ((start-marker (plist-get info :position))
+               (tracking-marker (or (plist-get info :tracking-marker) start-marker))
+               (response-text (buffer-substring start-marker tracking-marker)))
+          (when (and response-text (> (length response-text) 0))
+            (let ((gptel-backend (plist-get info :backend))
+                  (prompt (format
+                           "You are a classifier. Given the END of an AI assistant's response, determine if the response appears COMPLETE or TRUNCATED (cut off mid-thought, mid-sentence, or mid-structure).
+
+Respond with EXACTLY one word: either \"complete\" or \"truncated\". No other text.
+
+Response ending:
+---
+%s
+---
+
+Your answer (one word):"
+                           (substring response-text (max 0 (- (length response-text) 500)))))
+                  (result nil)
+                  (done nil)
+                  (retry-quota 3))
+              (while (and (not done) (> retry-quota 0))
+                (cl-decf retry-quota)
+                (setq result nil)
+                (condition-case err
+                    (progn
+                      (gptel-request prompt
+                        :callback (lambda (resp info)
+                                    (setq result resp)
+                                    (setq done t)))
+                      (while (not done)
+                        (sleep-for 0 100))
+                      (when (stringp result)
+                        (let ((normalized (downcase (string-trim result))))
+                          (cond
+                           ((string= normalized "truncated")
+                            (message "gptel: Response appears not done, continuing..."))
+                           ((string= normalized "complete")
+                            (message "gptel: Response appears complete"))
+                           (t
+                            (message "gptel: Unexpected response '%s' (retry quota left %d)"
+                                     result retry-quota)
+                            (setq done nil))))))
+                  (t
+                   (message "gptel: fanshi/response-not-done-p check attempt failed (retry quota left %d): %s"
+                            retry-quota err)
+                   (setq result nil))))
+
+              (and (stringp result) (string= result "truncated"))))))))
+  (let* ((type-transition (alist-get 'TYPE gptel-send--transitions))
+         (len (length type-transition))
+         (last-idx (- len 1)))
+    (when (and (>= last-idx 0) (not (assoc #'fanshi/response-not-done-p type-transition)))
+      (setf (alist-get 'TYPE gptel-send--transitions)
+            (pcase-let* ((`(,l1 ,l2) (-split-at last-idx type-transition)))
+              (append l1 `(,(cons #'fanshi/response-not-done-p 'WAIT)) l2)))))))
+#+end_src
 ** Token Escape
 - ref :: https://github.com/ggml-org/llama.cpp/issues/19947#issuecomment-3971115828
 - escape <__something__>. Do we have any other tokens we want to escape?
