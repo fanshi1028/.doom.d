@@ -1482,7 +1482,8 @@ For 'Mlx: uses :hf tag value as model symbol."
    gptel-track-media t
    gptel-org-validate-link #'gptel-org--link-standalone-p
    gptel-model 'Qwen3.6-35B-A3B-bf16
-   gptel-max-tokens nil)
+   gptel-max-tokens nil
+   gptel-log-level 'info)
   (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* "))
 #+end_src
 ** Restrict tools
@@ -2092,7 +2093,7 @@ Optional MODEL (default \"qwen3-tts\") and VOICE can override defaults."
                         (message "fanshi/speak: playing %s" tmp-file)))))))
 #+end_src
 ** fanshi/speak-stream
-#+begin_src elisp :lexical t
+#+begin_src elisp :tangle yes :lexical t
 (defun fanshi/speak-stream (&optional text model voice)
   "Speak TEXT using oMLX TTS endpoint. If the mark is active, speak the region. Otherwise, prompt for text.
 Optional MODEL and VOICE can override defaults."
@@ -2102,7 +2103,7 @@ Optional MODEL and VOICE can override defaults."
                   (read-string "Speak: "))))
     (unless (stringp text)
       (user-error "No text to speak"))
-    (let* ((model (or model "Qwen3-TTS-12Hz-1.7B-CustomVoice"))
+    (let* ((model (or model "Qwen3-TTS-12Hz-1.7B-Base-bf16"))
            (pass-key (when-let ((key (+pass-get-secret "omlx/2")))
                        key))
            (json-body (json-encode `(("model" . ,model)
