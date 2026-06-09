@@ -2894,7 +2894,11 @@ worktree and its branch.  If dirty, keeps it and notifies the user."
 (after! org
   (defun fanshi/clock-in-when-at-link-in-gtd-actions ()
     (save-excursion
-      (when (and (derived-mode-p 'org-mode) (eq 'link (org-element-type (org-element-context))))
+      (when (derived-mode-p 'org-agenda-mode) (org-agenda-switch-to))
+      (when (and (derived-mode-p 'org-mode)
+                 (eq buffer-file-name (org-gtd--path org-gtd-default-file-name))
+                 (eq 'link (org-element-type (org-element-context))))
+        (org-back-to-heading)
         (let ((props (org-entry-properties)))
           (when (and (string= (alist-get "ORG_GTD" props nil nil #'equal) "Actions")
                      (string= (alist-get "TODO" props nil nil #'equal) "NEXT"))
@@ -2920,17 +2924,10 @@ worktree and its branch.  If dirty, keeps it and notifies the user."
 - Auto clock-in when opening a link in an org heading via link-hint
 #+begin_src emacs-lisp :tangle yes
 (after! link-hint
-  (defun fanshi/link-hint--action-a (action link)
-    (when (eq action :open)
-      (let* ((pos (plist-get link :pos))
-             (win (plist-get link :win))
-             (buf (window-buffer win)))
-        (save-excursion
-          (with-current-buffer buf
-            (goto-char pos)
-            (when (derived-mode-p 'org-agenda-mode) (org-agenda-switch-to))
-            (fanshi/clock-in-when-at-link-in-gtd-actions))))))
-  (advice-add 'link-hint--action :after #'fanshi/link-hint--action-a))
+  (defun fanshi/link-hint--apply-a (func _args &optional _parser action)
+    (when (and (eq action :open) (eq (get'link-hint-org-link action) func))
+      (fanshi/clock-in-when-at-link-in-gtd-actions)))
+  (advice-add 'link-hint--apply :before #'fanshi/link-hint--apply-a))
 #+end_src
 * Avy
 #+begin_src emacs-lisp :tangle yes
