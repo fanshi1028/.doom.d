@@ -1303,6 +1303,21 @@ We load our own presets
                                                  ("CWD" . ,default-directory)))
                 (buffer-string))))
 #+end_src
+*** Problem Solve
+#+begin_src emacs-lisp :tangle yes
+(gptel-make-preset 'problem-solve
+  :parents 'gptel-agent
+  :description "Preset for structured problem solving"
+  :tools fanshi/research-tools
+  :system (lambda ()
+            (with-temp-buffer
+              (insert-file-contents (expand-file-name "./gptel/problem-solve.md" doom-user-dir))
+              (gptel-agent--expand-templates (point-min)
+                                             `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/research-tools))
+                                               ("DATE" . ,(format-time-string "%Y-%m-%d"))
+                                               ("CWD" . ,default-directory)))
+              (buffer-string))))
+#+end_src
 *** Heavy
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
