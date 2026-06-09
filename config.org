@@ -850,7 +850,7 @@ Your answer (one word):"
     (when (and (>= last-idx 0) (not (assoc #'fanshi/response-not-done-p type-transition)))
       (setf (alist-get 'TYPE gptel-send--transitions)
             (pcase-let* ((`(,l1 ,l2) (-split-at last-idx type-transition)))
-              (append l1 `(,(cons #'fanshi/response-not-done-p 'WAIT)) l2)))))))
+              (append l1 `(,(cons #'fanshi/response-not-done-p 'WAIT)) l2))))))
 #+end_src
 ** Token Escape
 - ref :: https://github.com/ggml-org/llama.cpp/issues/19947#issuecomment-3971115828
