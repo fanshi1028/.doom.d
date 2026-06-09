@@ -1249,12 +1249,14 @@ We load our own presets
                       :presence-penalty 0.5 :repetition-penalty 1.0)
     :description "Scrum Master - orchestrates process flow, delegates to agents, does NOT code"
     :tools fanshi/scrum-tools
-    :system (lambda () (with-temp-buffer
-                         (insert-file-contents (expand-file-name "./gptel/scrum.md" doom-user-dir))
-                         (gptel-agent--expand-templates (point-min)  `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/scrum-tools))
-                                                                       ("DATE" . ,(format-time-string "%Y-%m-%d"))
-                                                                       ("CWD" . ,default-directory)))
-                         (buffer-string)))))
+    :system (lambda ()
+              (with-temp-buffer
+                (insert-file-contents (expand-file-name "./gptel/scrum.md" doom-user-dir))
+                (gptel-agent--expand-templates (point-min)
+                                               `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/scrum-tools))
+                                                 ("DATE" . ,(format-time-string "%Y-%m-%d"))
+                                                 ("CWD" . ,default-directory)))
+                (buffer-string)))))
 #+end_src
 *** Research
 #+begin_src emacs-lisp :tangle yes
@@ -1264,12 +1266,14 @@ We load our own presets
                       :temperature 1.0 :top-p 0.95 :top-k 20 :min-p 0.0 :presence-penalty 1.5 :repetition-penalty 1.0)
     :description "Preset for research"
     :tools fanshi/research-tools
-    :system (lambda () (with-temp-buffer
-                         (insert-file-contents (expand-file-name "./gptel/research.md" doom-user-dir))
-                         (gptel-agent--expand-templates (point-min)  '((cons "TOOLS" (fanshi/gptel-agent--tool-system fanshi/research-tools))
-                                                                       (cons "DATE" (format-time-string "%Y-%m-%d"))
-                                                                       (cons "CWD" default-directory)))
-                         (buffer-string)))))
+    :system (lambda ()
+              (with-temp-buffer
+                (insert-file-contents (expand-file-name "./gptel/research.md" doom-user-dir))
+                (gptel-agent--expand-templates (point-min)
+                                               `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/research-tools))
+                                                 ("DATE" . ,(format-time-string "%Y-%m-%d"))
+                                                 ("CWD" . ,default-directory)))
+                (buffer-string)))))
 #+end_src
 *** Instruct
 #+begin_src emacs-lisp :tangle no
@@ -1290,11 +1294,14 @@ We load our own presets
                       :max_tokens :null)
     :description "Preset for writing code"
     :tools fanshi/coding-tools
-    :system '(:eval (with-temp-buffer
-                      (insert-file-contents (expand-file-name "./gptel/coding.md" doom-user-dir))
-                      (gptel-agent--expand-templates (point-min)  `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/coding-tools))
-                                                                    ("DATE" . ,(format-time-string "%Y-%m-%d"))
-                                                                    ("CWD" . ,default-directory)))))))
+    :system (lambda ()
+              (with-temp-buffer
+                (insert-file-contents (expand-file-name "./gptel/coding.md" doom-user-dir))
+                (gptel-agent--expand-templates (point-min)
+                                               `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/coding-tools))
+                                                 ("DATE" . ,(format-time-string "%Y-%m-%d"))
+                                                 ("CWD" . ,default-directory)))
+                (buffer-string))))
 #+end_src
 *** Heavy
 #+begin_src emacs-lisp :tangle yes
