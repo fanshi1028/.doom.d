@@ -2307,6 +2307,177 @@ Use this for independent tasks that should be isolated from the current working 
    :category "agents"
    :async t))
 #+end_src
+** Agent chain
+Orchestrate multiple gptel presets sequentially, with fan-out for parallel exploration.
+Each step uses a preset + prompt template with {{key}} substitution from prior results.
+Uses gptel-request directly (no tool access — suitable for analysis/planning chains).
+*** fanshi/gptel-chain
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defun fanshi/gptel-chain--substitute (template context)
+    "Replace {{KEY}} in TEMPLATE with values from CONTEXT (an alist)."
+    (let ((result template))
+      (dolist (pair context)
+        (let* ((key (car pair))
+               (placeholder (format "{{%s}}" key)))
+          (setq result (replace-regexp-in-string
+                        (regexp-quote placeholder)
+                        (or (cdr pair) "")
+                        result t t))))
+      result))
+
+  (cl-defun fanshi/gptel-chain (steps &key context callback on-step)
+    "Execute STEPS as a sequential chain of gptel requests.
+
+STEPS is a list of step plists.  Each step has:
+  :name       — string key for storing the result
+  :preset     — preset symbol (e.g. 'research 'product)
+  :prompt     — prompt template with {{key}} placeholders
+  :fan-out    — (optional) integer N for parallel requests
+  :consolidate — (optional) prompt to merge fan-out results;
+                 uses {{responses}} for all results joined by ---
+  :model      — (optional) override model
+  :backend    — (optional) override backend
+  :system     — (optional) override system prompt
+  :request-params — (optional) override request params
+
+CONTEXT is an initial alist of (KEY . VALUE) for template substitution.
+CALLBACK is called with (FINAL-CONTEXT) when the chain completes.
+ON-STEP is called with (STEP-INDEX STEP-NAME RESULT) after each step."
+    (let ((ctx (or context '()))
+          (remaining steps)
+          (idx 0)
+          (cb callback)
+          (on-step-fn on-step))
+
+      (cl-labels ((log (msg) (message "gptel-chain: %s" msg))
+
+                  (resolve-preset-info (step)
+                    "Extract model/backend/system/params from STEP's preset."
+                    (let* ((pname (plist-get step :preset))
+                           (preset (gptel-get-preset pname)))
+                      (unless preset
+                        (error "gptel-chain: Unknown preset '%s'" pname))
+                      (let ((pp (gptel--preset-plist preset)))
+                        (list :model (or (plist-get step :model)
+                                         (and pp (plist-get pp :model))
+                                         gptel-model)
+                              :backend (or (plist-get step :backend)
+                                           (and pp (plist-get pp :backend))
+                                           gptel-backend)
+                              :system (or (plist-get step :system)
+                                          (and pp
+                                               (let ((s (plist-get pp :system)))
+                                                 (if (functionp s) (funcall s) s))))
+                              :params (or (plist-get step :request-params)
+                                          (and pp (plist-get pp :request-params)))))))
+
+                  (advance (result)
+                    "Store RESULT and move to next step."
+                    (let ((sname (plist-get (car remaining) :name)))
+                      (push (cons sname result) ctx)
+                      (log (format "Step '%s' complete" sname))
+                      (when on-step-fn
+                        (funcall on-step-fn idx sname result)))
+                    (setq remaining (cdr remaining)
+                          idx (1+ idx))
+                    (if remaining
+                        (exec-step (car remaining))
+                      (when cb (funcall cb ctx))))
+
+                  (fan-out-done (responses)
+                    "Handle fan-out completion: consolidate or concatenate."
+                    (let* ((step (car remaining))
+                           (consolidate (plist-get step :consolidate))
+                           (info (resolve-preset-info step)))
+                      (if consolidate
+                          (let ((prompt (fanshi/gptel-chain--substitute
+                                         consolidate
+                                         `(("responses" . ,(string-join responses "\n\n---\n\n"))))))
+                            (log "Consolidating fan-out results...")
+                            (gptel-request prompt
+                              :model (plist-get info :model)
+                              :backend (plist-get info :backend)
+                              :system (plist-get info :system)
+                              :request-params (plist-get info :params)
+                              :callback (lambda (resp)
+                                          (if (stringp resp)
+                                              (advance resp)
+                                            (log "Consolidation returned non-string")
+                                            (advance "")))))
+                        (advance (string-join responses "\n\n---\n\n")))))
+
+                  (exec-step (step)
+                    "Execute a single STEP."
+                    (let* ((name (plist-get step :name))
+                           (info (resolve-preset-info step))
+                           (prompt (fanshi/gptel-chain--substitute
+                                    (plist-get step :prompt) ctx))
+                           (fan-out (plist-get step :fan-out)))
+                      (log (format "Step %d: %s" idx name))
+                      (if (and fan-out (> fan-out 1))
+                          ;; Fan-out: send N parallel requests
+                          (let ((responses '())
+                                (done 0)
+                                (total fan-out))
+                            (dotimes (_ fan-out)
+                              (gptel-request prompt
+                                :model (plist-get info :model)
+                                :backend (plist-get info :backend)
+                                :system (plist-get info :system)
+                                :request-params (plist-get info :params)
+                                :callback (lambda (resp)
+                                            (when (stringp resp)
+                                              (push resp responses))
+                                            (cl-incf done)
+                                            (when (>= done total)
+                                              (fan-out-done (nreverse responses))))))
+                            ;; Timeout fallback: proceed with partial results after 3 min
+                            (run-at-time 180 nil
+                                         (lambda ()
+                                           (when (< done total)
+                                             (log (format "Fan-out timeout, %d/%d responses" done total))
+                                             (fan-out-done (nreverse responses))))))
+                        ;; Single request
+                        (gptel-request prompt
+                          :model (plist-get info :model)
+                          :backend (plist-get info :backend)
+                          :system (plist-get info :system)
+                          :request-params (plist-get info :params)
+                          :callback (lambda (resp)
+                                      (if (stringp resp)
+                                          (advance resp)
+                                        (log (format "Step '%s' returned non-string: %s" name resp))
+                                        (advance "")))))))
+
+                  (when remaining
+                    (exec-step (car remaining)))))))
+
+  ;; Convenience: run a pre-defined chain variable
+  (defun fanshi/gptel-chain-run (chain-var &rest context)
+    "Run a pre-defined CHAIN-VAR with CONTEXT.
+CHAIN-VAR is a variable holding a chain definition.
+CONTEXT is an alist of (KEY . VALUE) for template substitution."
+    (interactive)
+    (fanshi/gptel-chain (symbol-value chain-var) :context context))
+
+  ;; Pre-defined chain recipes
+  (defvar fanshi/chain-research-to-plan
+    '((:name "research" :preset research
+       :prompt "Research the following topic thoroughly. Provide key findings, trends, and open questions.\n\nTopic: {{topic}}"
+       :fan-out 3
+       :consolidate "You received 3 independent research reports on the same topic. Synthesize them into a single comprehensive summary. Highlight areas of agreement, disagreement, and unique insights from each.\n\nReports:\n{{responses}}")
+      (:name "plan" :preset product
+       :prompt "Based on the research findings below, decompose this into a structured project plan with user stories and acceptance criteria.\n\nResearch:\n{{research}}"))
+    "Chain: fan-out research → consolidate → project plan.")
+
+  (defvar fanshi/chain-problem-to-design
+    '((:name "analysis" :preset problem-solve
+       :prompt "Analyze the following problem. Identify root causes, constraints, and propose 2-3 solution approaches with tradeoffs.\n\nProblem: {{problem}}")
+      (:name "design" :preset coding
+       :prompt "Based on this problem analysis, design a technical solution. Include architecture overview, key components, and implementation plan.\n\nAnalysis:\n{{analysis}}"))
+    "Chain: problem analysis → technical design."))
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
