@@ -3,3 +3,4 @@
 config.el
 .aider*
 /.agent-shell/
+/.gptel-agent/
