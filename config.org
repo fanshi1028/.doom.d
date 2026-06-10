@@ -820,8 +820,8 @@ Your answer (one word):"
                 (ns-do-applescript
                  (format "display notification \"%s\" with title \"%s\" sound name \"Submerge\""
                          "Response complete" "GPTel"))
-                (message "gptel: Response appears truncated, continuing...")
-              (save-excursion (goto-char (point-max)) (let ((fanshi/prevent-duplicate-gptel-send nil)) (gptel-send)))))))))
+              (message "gptel: Response appears truncated, continuing...")
+              (let ((fanshi/prevent-duplicate-gptel-send nil)) (gptel-send))))))))
 
   (add-hook 'gptel-post-response-functions #'fanshi/gptel--not-done-auto-continue-or-notify))
 #+end_src
