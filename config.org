@@ -812,7 +812,7 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
   :type 'boolean
   :group 'gptel)
 #+end_src
-*** fanshi/response-not-done-p for gptel-send--transitions
+*** fanshi/gptel--not-done-auto-continue-or-notify
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
   (defun fanshi/gptel--not-done-auto-continue-or-notify (beg end)
