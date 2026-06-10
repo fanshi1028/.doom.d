@@ -766,7 +766,45 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+end_src
 
 * Gptel
-** auto continue on not finished responses
+** Fix response org heading level
+- ref :: https://github.com/karthink/gptel/issues/1226#issuecomment-3828162897
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun gptel-fix-response-levels (beg end)
+    "Correctly shifts heading levels ONLY within the gptel response."
+    (save-excursion
+      (let ((parent-level
+             ;; 1. Find the parent level by looking BEFORE the response (beg)
+             (save-excursion
+               (goto-char beg)
+               (if (re-search-backward org-heading-regexp nil t)
+                   (org-current-level)
+                 0)))) ;; Default to 0 if at top of file
+
+        (save-restriction
+          ;; 2. CRITICAL: Lock operations to ONLY the response text
+          (narrow-to-region beg end)
+          (goto-char (point-min))
+
+          ;; 3. Check if the response actually has headings
+          (when (re-search-forward org-heading-regexp nil t)
+            (let* ((current-level (org-current-level))
+                   ;; We want the response to be 1 level deeper than parent
+                   (target-level (1+ parent-level))
+                   (diff (- target-level current-level)))
+
+              (unless (zerop diff)
+                ;; Apply shift to ALL headings in the narrowed response
+                (goto-char (point-min))
+                (while (re-search-forward "^\\(\\*+\\) " nil t)
+                  (let* ((stars (match-string 1))
+                         (new-level (max 1 (+ (length stars) diff))))
+                    (replace-match (concat (make-string new-level ?*) " ") t t)))
+                (message "Gptel: Adjusted response depth by %d." diff))))))))
+
+  (add-hook 'gptel-post-response-functions #'gptel-fix-response-levels))
+#+end_src
+** Auto continue on not finished responses
 *** Config
 #+begin_src emacs-lisp :tangle yes
 (defcustom fanshi/gptel-auto-continue-enabled t
