@@ -2287,7 +2287,7 @@ Orchestrate multiple gptel presets sequentially, with fan-out for parallel explo
 Each step uses a preset + prompt template with {{key}} substitution from prior results.
 Uses gptel-request directly (no tool access — suitable for analysis/planning chains).
 *** fanshi/gptel-chain
-#+begin_src emacs-lisp :tangle yes :lexical t
+#+begin_src emacs-lisp :tangle no :lexical t
 (after! gptel
   (defun fanshi/gptel-chain--substitute (template context)
     "Replace {{KEY}} in TEMPLATE with values from CONTEXT (an alist)."
