@@ -1212,7 +1212,7 @@ We load our own presets
 *** Tool Groups
 #+begin_src emacs-lisp :tangle yes :lexical t
 (defvar fanshi/research-tools '("read-tools" "web-read-tools"))
-(defvar fanshi/coding-tools '("write-tools" "WebFetch"))
+(defvar fanshi/coding-tools '("read-tools" "write-tools" "WebFetch"))
 (defvar fanshi/scrum-tools (append fanshi/research-tools '("TodoWrite" "DelegateAgent")))
 (defvar fanshi/gptel-agent-tools (append fanshi/research-tools '("TodoWrite" "DelegateAgent")))
 (defvar fanshi/gptel-agent-nightshift-tools (append fanshi/gptel-agent-tools '("Agent" "task")))
