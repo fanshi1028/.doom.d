@@ -815,16 +815,19 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 *** fanshi/gptel--not-done-auto-continue-or-notify
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
+  (defun fanshi/notify () (ns-do-applescript
+                           (format "display notification \"%s\" with title \"%s\" sound name \"Submerge\""
+                                   "Response complete" "GPTel")))
   (defun fanshi/gptel--not-done-auto-continue-or-notify (beg end)
     "Check if the just-inserted response appears truncated and auto-continue.
 Runs as a post-response hook, so the FSM is fully done and no
 re-entrancy corruption occurs. Uses run-at-time to avoid blocking."
-    (when fanshi/gptel-auto-continue-enabled
-      (let ((response-text (buffer-substring-no-properties beg end)))
-        (when (and response-text (> (length response-text) 0))
-          (let ((classifier-prompt
-                 (format
-                  "Below is the END of an AI assistant's response, determine if it appears COMPLETE or TRUNCATED.
+    (if fanshi/gptel-auto-continue-enabled
+        (let ((response-text (buffer-substring-no-properties beg end)))
+          (when (and response-text (> (length response-text) 0))
+            (let ((classifier-prompt
+                   (format
+                    "Below is the END of an AI assistant's response, determine if it appears COMPLETE or TRUNCATED.
 
 Respond with EXACTLY one word: \"complete\" or \"truncated\".
 
@@ -834,32 +837,31 @@ Response ending:
 ---
 
 Your answer (one word):"
-                  (substring response-text (max 0 (- (length response-text) 500)))))
-                (classification nil)
-                (done nil)
-                (retry-quota 3))
-            (while (and (not done) (> retry-quota 0))
-              (cl-decf retry-quota)
-              (condition-case err
-                  (let ((inner-fsm (gptel-make-fsm)))
-                    (gptel-request classifier-prompt
-                      :callback (lambda (resp _info)
-                                  (setq classification resp)
-                                  (setq done t))
-                      :fsm inner-fsm)
-                    (while (and (not done) (> retry-quota 0))
-                      (sleep-for 0 200)))
-                (error
-                 (message "gptel: truncation check failed (retry %d): %s"
-                          retry-quota err)
-                 (setq classification nil))))
-            (if (or (not (stringp classification))
-                    (string= (downcase (string-trim classification)) "complete"))
-                (ns-do-applescript
-                 (format "display notification \"%s\" with title \"%s\" sound name \"Submerge\""
-                         "Response complete" "GPTel"))
-              (message "gptel: Response appears truncated, continuing...")
-              (let ((fanshi/prevent-duplicate-gptel-send nil)) (gptel-send))))))))
+                    (substring response-text (max 0 (- (length response-text) 500)))))
+                  (classification nil)
+                  (done nil)
+                  (retry-quota 3))
+              (while (and (not done) (> retry-quota 0))
+                (cl-decf retry-quota)
+                (condition-case err
+                    (let ((inner-fsm (gptel-make-fsm)))
+                      (gptel-request classifier-prompt
+                        :callback (lambda (resp _info)
+                                    (setq classification resp)
+                                    (setq done t))
+                        :fsm inner-fsm)
+                      (while (and (not done) (> retry-quota 0))
+                        (sleep-for 0 200)))
+                  (error
+                   (message "gptel: truncation check failed (retry %d): %s"
+                            retry-quota err)
+                   (setq classification nil))))
+              (if (or (not (stringp classification))
+                      (string= (downcase (string-trim classification)) "complete"))
+                  (fanshi/notify)
+                (message "gptel: Response appears truncated, continuing...")
+                (let ((fanshi/prevent-duplicate-gptel-send nil)) (gptel-send))))))
+      (fanshi/notify)))
 
   (add-hook 'gptel-post-response-functions #'fanshi/gptel--not-done-auto-continue-or-notify))
 #+end_src
