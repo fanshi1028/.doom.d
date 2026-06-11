@@ -1211,8 +1211,8 @@ We load our own presets
 #+begin_src emacs-lisp :tangle yes :lexical t
 (defvar fanshi/research-tools '("read-tools" "web-read-tools"))
 (defvar fanshi/coding-tools '("write-tools" "WebFetch"))
-(defvar fanshi/scrum-tools (append fanshi/research-tools '("TodoWrite" "Agent")))
-(defvar fanshi/gptel-agent-tools (append fanshi/research-tools '("TodoWrite")))
+(defvar fanshi/scrum-tools (append fanshi/research-tools '("TodoWrite" "DelegateAgent")))
+(defvar fanshi/gptel-agent-tools (append fanshi/research-tools '("TodoWrite" "DelegateAgent")))
 (defvar fanshi/gptel-agent-nightshift-tools (append fanshi/gptel-agent-tools '("Agent" "task")))
 (after! gptel-agent
   (defun fanshi/update-tools-category (new-category toolnames-list)
@@ -2619,7 +2619,6 @@ CONTEXT is an alist of (KEY . VALUE) for template substitution."
 
 (defvar-local fanshi/ai-delegate--current-task-pos nil
   "Buffer position of the current AI-delegated task (set by nightly processor).")
-
 (after! gptel
   (defun fanshi/ai-delegate--update-task (file pos summary status)
     "Update the task at POS in FILE with SUMMARY and STATUS.
@@ -2649,16 +2648,24 @@ Appends the summary as a note and sets the TODO state."
     "Tool for the gptel-agent to signal task completion.
 SUMMARY is a brief description of what was accomplished.
 STATUS is a TODO keyword, typically \"DONE\" or \"TODO\".
-The file and position are auto-filled from the current task context."
-    (unless fanshi/ai-delegate--current-task-file
-      (error "No task context set. This tool can only be called from an AI nightly agent buffer."))
-    (unless fanshi/ai-delegate--current-task-pos
-      (error "No task position set."))
-    (setq-local fanshi/ai-nightly--task-done t)
-    (setq-local fanshi/ai-nightly--task-summary summary)
-    (fanshi/ai-nightly--post-process
-     fanshi/ai-delegate--current-task-file
-     fanshi/ai-delegate--current-task-pos)
+The file and position are auto-filled from the current task context.
+Also writes a .task-status file for parent agent IPC."
+    ;; Write .task-status file for parent agent IPC (works for both nightly and delegated agents)
+    (when-let* ((branch fanshi/agent--child-branch)
+                (project-root (projectile-project-root))
+                (worktree-dir (expand-file-name (concat ".trees/" branch) project-root))
+                (status-file (expand-file-name ".task-status" worktree-dir)))
+      (with-temp-file status-file
+        (insert (format "%s: %s" status summary))))
+    ;; For nightly processor: update the org task entry
+    (when fanshi/ai-delegate--current-task-file
+      (unless fanshi/ai-delegate--current-task-pos
+        (error "No task position set."))
+      (setq-local fanshi/ai-nightly--task-done t)
+      (setq-local fanshi/ai-nightly--task-summary summary)
+      (fanshi/ai-nightly--post-process
+       fanshi/ai-delegate--current-task-file
+       fanshi/ai-delegate--current-task-pos))
     (format "Task updated to %s: %s" status summary))
 
   (gptel-make-tool
@@ -2680,6 +2687,67 @@ SUMMARY: brief description of what was accomplished and tell us why"
             :description "Brief summary of what was accomplished"))
    :category "task"
    :async nil))
+#+end_src
+** fanshi/delegate-agent
+Spawn a dedicated gptel-agent buffer in an isolated worktree for a delegated task.
+Provides observability: the user can switch to the child buffer to watch progress.
+Communication via .task-status file for parent agent to poll.
+#+begin_src emacs-lisp :tangle yes :lexical t
+(defvar-local fanshi/agent--child-branch nil
+  "Branch name of the delegated agent's worktree.")
+
+(defvar-local fanshi/agent--parent-buffer nil
+  "The parent gptel buffer that delegated this task.")
+
+(defun fanshi/spawn-delegated-agent (task branch)
+  "Spawn a new gptel-agent buffer for TASK in worktree BRANCH.
+Returns the branch name for tracking."
+  (let* ((project-root (projectile-project-root))
+         (branch-name (or branch (format "task-%s" (format-time-string "%Y%m%d-%H%M%S"))))
+         (target-dir (expand-file-name (concat ".trees/" branch-name) project-root))
+         (parent-buf (current-buffer)))
+    ;; 1. Create worktree if needed
+    (unless (file-directory-p target-dir)
+      (make-directory (file-name-directory target-dir) t)
+      (unless (zerop (call-process "git" nil nil nil "worktree" "add" "-b" branch-name target-dir))
+        (error "Failed to create worktree for branch '%s'" branch-name)))
+    ;; 2. Create and configure the child agent buffer using gptel-agent
+    (let* ((child-buf-name (format "*gptel-agent: %s*" (substring branch-name 0 30)))
+           (child-buf (get-buffer-create child-buf-name)))
+      (with-current-buffer child-buf
+        (let ((inhibit-read-only t))
+          ;; Initialize as a gptel-agent buffer with the worktree as its directory
+          (gptel-agent target-dir 'gptel-agent)
+          ;; Disable auto-worktree to prevent double worktree creation
+          (setq-local fanshi/gptel-agent-auto-worktree nil
+                      fanshi/agent--child-branch branch-name
+                      fanshi/agent--parent-buffer parent-buf)
+          ;; Insert the task prompt
+          (goto-char (point-max))
+          (insert (format "# Delegated Task\n\n%s\n\nYou are working in an isolated worktree branch '%s'.\nWhen you complete the task, call the FinishTask tool with a summary.\nIf you cannot complete it, call AbortTask with a reason.\n"
+                          task branch-name))
+          ;; Display the buffer for observability
+          (display-buffer child-buf '((display-buffer-in-side-window) (side . bottom))))
+      ;; 3. Start the agent
+      (with-current-buffer child-buf
+        (gptel-send))
+      ;; 4. Return the branch name for tracking
+      (format "Task delegated to agent buffer '%s' in worktree branch '%s'.\nYou can observe progress by visiting that buffer.\nWhen done, the agent will write a .task-status file in .trees/%s/."
+              child-buf-name branch-name branch-name))))
+
+(gptel-make-tool
+ :name "DelegateAgent"
+ :function #'fanshi/spawn-delegated-agent
+ :description "Spawn a new, isolated gptel-agent buffer to perform a task in a git worktree.
+The child agent has its own buffer for observability.
+Returns the branch name for tracking. The parent agent can check progress by reading
+.trees/<branch>/.task-status. The child agent should call FinishTask when done."
+ :args '((:name "task" :type string
+          :description "Detailed task description for the delegated agent")
+         (:name "branch" :type string
+          :description "Branch name for the worktree. If empty, a timestamp-based name is generated."))
+ :category "agents"
+ :async t)
 #+end_src
 ** fanshi/ai-nightly--process-one-task
 The core loop: worktree -> gptel-agent -> clock -> summary.
