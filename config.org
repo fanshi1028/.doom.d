@@ -3115,8 +3115,7 @@ worktree and its branch.  If dirty, keeps it and notifies the user."
   (defun fanshi/eww-browse-url-with-clock-in (url &optional new-window)
     (fanshi/clock-in-when-at-link-in-gtd-actions)
     (eww-browse-url url new-window))
-  (setq browse-url-handlers
-        '(("youtube\\.com\\|youtu\\.be" . #'fanshi/mpv-youtube)))
+  (setq browse-url-handlers '(("youtube\\.com\\|youtu\\.be" . fanshi/mpv-youtube)))
   (setq browse-url-browser-function #'fanshi/eww-browse-url-with-clock-in))
 #+end_src
 ** fanshi/link-hint--action-a
