@@ -1337,7 +1337,7 @@ We load our own presets
 (after! gptel
   (gptel-make-preset 'heavy
     :description "Preset for heavy task"
-    :model 'Qwen3.6-27B-bf16))
+    :model 'mlx-community--Qwen3.6-27B-bf16))
 #+end_src
 *** Fast
 #+begin_src emacs-lisp :tangle yes
@@ -1352,9 +1352,9 @@ We load our own presets
 (defvar fanshi/models-hierarchy-list
   (list
    (list
-    '(Qwen3.6-35B-A3B-bf16 MiniMax-M2.7-oQ2)
-    '(Qwen3.6-27B-bf16)
-    '(gemma-4-31b-it-bf16))))
+    '(mlx-community--Qwen3.6-35B-A3B-bf16 Jundot--MiniMax-M2.7-oQ2)
+    '(mlx-community--Qwen3.6-27B-bf16)
+    '(mlx-community--gemma-4-31b-it-bf16))))
 #+end_src
 **** Up
 #+begin_src emacs-lisp :tangle yes
@@ -1517,7 +1517,7 @@ For 'Mlx: uses :hf tag value as model symbol."
    gptel-highlight-methods '(margin face)
    gptel-track-media t
    gptel-org-validate-link #'gptel-org--link-standalone-p
-   gptel-model 'Qwen3.6-35B-A3B-bf16
+   gptel-model 'mlx-community--Qwen3.6-35B-A3B-bf16
    gptel-max-tokens nil
    gptel-log-level 'info)
   (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* "))
@@ -1790,7 +1790,7 @@ file.  Results are sorted by modification time."
           (text-property-search-backward 'gptel nil t)
           (let ((prompt (buffer-substring-no-properties (point) (point-max))))
             (condition-case err
-                (let ((gptel-model 'Qwen3.6-35B-A3B))
+                (let ((gptel-model 'mlx-community--Qwen3.6-35B-A3B-bf16))
                   (gptel-request
                       (format
                        "classify the below prompt into one of the classes in %s,
@@ -1919,7 +1919,7 @@ replaces the old prefix with the new one."
                              (match-string 1 base)))
                 (suffix (or timestamp base))
                 (content (cdr pair))
-                (gptel-model (or (fanshi/gptel--get-active-main-model) 'Qwen3.6-35B-A3B)))
+                (gptel-model (or (fanshi/gptel--get-active-main-model) 'mlx-community--Qwen3.6-35B-A3B-bf16)))
       (gptel-request (format "%s" content)
         :context nil
         :system "You are a file naming assistant. Based on the following chat transcript, suggest a CONCISE filename prefix (2-4 words). Rules:
