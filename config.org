@@ -2265,63 +2265,6 @@ Creates a fresh gptel (or gptel-agent) buffer, inserts the prompt, and sends."
   ;; Hook into gptel's response completion to trigger the queue
   (add-hook 'gptel-post-response-functions #'fanshi/gptel--process-waiting-requests 80))
 #+end_src
-** Delegate to worktree
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defun fanshi/delegate-to-worktree (callback task branch)
-    "Delegate TASK to an agent-shell running in a new git worktree.
-CALLBACK is called with a result string when done.
-BRANCH is the worktree branch name."
-    (let ((root (projectile-project-root))
-          (buf (fanshi/gptel-spawn-agent-shell-in-worktree branch)))
-      (with-current-buffer buf
-        (let ((start-pos (point-max)))
-          (insert task "\n")
-          (comint-send-input)
-          (agent-shell-subscribe-to
-           :shell-buffer buf
-           :event 'turn-complete
-           :on-event
-           (lambda (event)
-             (when (string= "end_turn" (map-nested-elt event '(:data :stop-reason)))
-               (if (not (buffer-live-p buf))
-                   (funcall callback "ERROR: Agent buffer was killed")
-                 (with-current-buffer buf
-                   (let ((agent-output (string-trim (buffer-substring-no-properties start-pos (point-max))))
-                         (result (concat "Agent finished on branch '" branch "'.\n\n"))
-                         (diff-stats ""))
-                     ;; Try to get git diff stats
-                     (with-temp-buffer
-                       (when (zerop (call-process "git" nil t nil "diff" "--stat" "HEAD..." branch))
-                         (setq diff-stats (buffer-string))))
-                     (when (string-blank-p diff-stats)
-                       (setq diff-stats "(no uncommitted changes)\n"))
-                     (setq result (concat result "Diff stats:\n" diff-stats))
-                     ;; NOTE FIXME maybe compile to check? but keep it minimal for now.
-                     ;; (when (projectile-compilation-command )
-                     ;;   (with-temp-buffer
-                     ;;     (let ((default-directory (expand-file-name (concat ".trees/" branch) project-root))
-                     ;;           (exit-code (call-process-shell-command eval-cmd nil t)))
-                     ;;       (setq result (concat result "\nEval output:\n"
-                     ;;                            (if (zerop exit-code)
-                     ;;                                (buffer-string)
-                     ;;                              (format "FAILED (exit %d): %s" exit-code (buffer-string))))))))
-                     (setq result (concat result "\nAgent output:\n" agent-output))
-                     (funcall callback result)))))))))))
-
-  (gptel-make-tool
-   :name "Delegate"
-   :function #'fanshi/delegate-to-worktree
-   :description "Delegate a coding task to an agent-shell running in an isolated git worktree.
-When done, it returns a summary with git diff stats.
-Use this for independent tasks that should be isolated from the current working tree."
-   :args '((:name "task" :type string
-            :description "Detailed task description with file paths and expected behavior")
-           (:name "branch" :type string
-            :description "Descriptive but short branch name for the task for the work tree directory."))
-   :category "agents"
-   :async t))
-#+end_src
 ** Agent chain
 Orchestrate multiple gptel presets sequentially, with fan-out for parallel exploration.
 Each step uses a preset + prompt template with {{key}} substitution from prior results.
@@ -2614,61 +2557,89 @@ CONTEXT is an alist of (KEY . VALUE) for template substitution."
             (message "Created project: %s" project-dir)
             project-dir))))))
 #+end_src
-** fanshi/ai-delegate--update-task
+** fanshi/ai-task-state-machine
+Define the TODO keyword sequence and properties for AI-delegated tasks.
+This is the single source of truth for task state management.
 #+begin_src emacs-lisp :tangle yes :lexical t
-(defvar-local fanshi/ai-delegate--current-task-file nil
-  "File path of the current AI-delegated task (set by nightly processor).")
+(after! org
+  ;; Add custom TODO keywords for AI delegation workflow
+  ;; State machine: TODO → DELEGATED → DONE / KILL / WAIT
+  (add-to-list 'org-todo-keywords
+               '(sequence "TODO" "DELEGATED" "WAIT" "|" "DONE" "KILL"))
 
-(defvar-local fanshi/ai-delegate--current-task-pos nil
-  "Buffer position of the current AI-delegated task (set by nightly processor).")
+  (defconst fanshi/ai-task-properties
+    '("WORKTREE_DIR" "AGENT_BUF" "DELEGATED_AT" "SCOPED_PROJECT")
+    "List of properties used to track AI-delegated tasks in org entries.
+WORKTREE_DIR: Path to the git worktree for this task.
+AGENT_BUF: Name of the gptel-agent buffer handling this task.
+TASK_ID: The org-id of this task entry (used for robust tracking).
+DELEGATED_AT: Timestamp when the task was delegated.
+SCOPED_PROJECT: The project directory this task belongs to.")
+
+  (defun fanshi/scrum-todo-change-handler ()
+    "Handler for org-todo-keyword-change-hook.
+Logs messages and triggers actions based on AI task state transitions.
+Only fires for entries that have a WORKTREE_DIR property."
+    (when (org-entry-get (point) "WORKTREE_DIR")
+      (let* ((task-id (org-entry-get (point) "ID"))
+             (worktree (org-entry-get (point) "WORKTREE_DIR"))
+             (heading (org-get-heading t t t t)))
+        (pcase org-state
+          ("DELEGATED"
+           (message "AI Task delegated: '%s' → worktree %s" heading worktree))
+          ("DONE"
+           (message "AI Task completed: '%s'" heading)
+           (when task-id
+             (message "Task ID: %s" task-id)))
+          ("KILL"
+           (message "AI Task killed: '%s'" heading)
+           ;; (when (and worktree (file-directory-p worktree))
+           ;;   (when (y-or-n-p (format "Clean up worktree %s? " worktree))
+           ;;     (message "Cleaning up worktree...")
+           ;;     (call-process "git" nil nil nil "worktree" "prune")))
+           )
+          ("WAIT" (message "AI Task waiting for input: '%s'" heading))
+          (_ nil)))))
+  ;; FIXME local hook?
+  (add-hook 'org-after-todo-state-change-hook #'fanshi/scrum-todo-change-handler))
+#+end_src
+** fanshi/ai-delegate--update-task-by-id
+Org-ID based task update: the primary mechanism for task state transitions.
+#+begin_src emacs-lisp :tangle yes :lexical t
+(defvar-local fanshi/ai-delegate--current-task-id nil
+  "The org-id of the current AI-delegated task.")
+
 (after! gptel
-  (defun fanshi/ai-delegate--update-task (file pos summary status)
-    "Update the task at POS in FILE with SUMMARY and STATUS.
-STATUS is a TODO keyword like \"DONE\" or \"TODO\".
-Appends the summary as a note and sets the TODO state."
-    (with-current-buffer (get-file-buffer file)
-      (or (buffer-modified-p)
-          (setq buffer-auto-save-file-format nil))
-      (goto-char pos)
-      (org-back-to-heading t)
-      (org-todo status)
-      (org-end-of-subtree t t)
-      (insert (format "\n- %s: %s" (format-time-string "%Y-%m-%d %H:%M") summary))
-      (save-buffer))
-    (unless (get-file-buffer file)
-      (with-temp-buffer
-        (insert-file-contents file)
-        (org-mode)
-        (goto-char pos)
-        (org-back-to-heading t)
-        (org-todo status)
-        (org-end-of-subtree t t)
-        (insert (format "\n- %s: %s" (format-time-string "%Y-%m-%d %H:%M") summary))
-        (write-file file))))
+  (defun fanshi/ai-delegate--update-task-by-id (task-id status summary)
+    "Update the task identified by TASK-ID with STATUS and SUMMARY.
+STATUS is a TODO keyword like \"DONE\", \"KILL\", or \"WAIT\".
+Appends the summary as a timestamped note and sets the TODO state.
+Works even if the org file is not currently visited in a buffer."
+    (unless task-id
+      (error "No task-id provided"))
+    (org-id-goto task-id)
+    (org-todo status)
+    (org-end-of-subtree t t)
+    (insert (format "\n- %s [%s]: %s"
+                    (format-time-string "%Y-%m-%d %H:%M")
+                    status
+                    summary))
+    (save-buffer)
+    (message "Task %s: %s — %s" task-id status summary))
 
-  (defun fanshi/ai-delegate--tool-finish-task (summary status)
+  (defun fanshi/ai-delegate--tool-finish-task (summary)
     "Tool for the gptel-agent to signal task completion.
-SUMMARY is a brief description of what was accomplished.
-STATUS is a TODO keyword, typically \"DONE\" or \"TODO\".
-The file and position are auto-filled from the current task context.
-Also writes a .task-status file for parent agent IPC."
-    ;; Write .task-status file for parent agent IPC (works for both nightly and delegated agents)
-    (when-let* ((branch fanshi/agent--child-branch)
-                (project-root (projectile-project-root))
-                (worktree-dir (expand-file-name (concat ".trees/" branch) project-root))
-                (status-file (expand-file-name ".task-status" worktree-dir)))
-      (with-temp-file status-file
-        (insert (format "%s: %s" status summary))))
-    ;; For nightly processor: update the org task entry
-    (when fanshi/ai-delegate--current-task-file
-      (unless fanshi/ai-delegate--current-task-pos
-        (error "No task position set."))
-      (setq-local fanshi/ai-nightly--task-done t)
-      (setq-local fanshi/ai-nightly--task-summary summary)
-      (fanshi/ai-nightly--post-process
-       fanshi/ai-delegate--current-task-file
-       fanshi/ai-delegate--current-task-pos))
-    (format "Task updated to %s: %s" status summary))
+SUMMARY is a brief description of what was accomplished."
+    (when fanshi/ai-delegate--current-task-id
+      (fanshi/ai-delegate--update-task-by-id fanshi/ai-delegate--current-task-id "DONE" summary)
+      (format "Task finished: %s" summary)))
+
+  (defun fanshi/ai-delegate--tool-abort-task (summary)
+    "Tool for the gptel-agent to signal task abortion.
+SUMMARY is a brief description of why the task is aborted."
+    (when fanshi/ai-delegate--current-task-id
+      (fanshi/ai-delegate--update-task-by-id fanshi/ai-delegate--current-task-id "KILL" summary)
+      (format "Task aborted: %s" summary)))
 
   (gptel-make-tool
    :name "FinishTask"
@@ -2682,221 +2653,114 @@ SUMMARY: brief description of what was accomplished."
 
   (gptel-make-tool
    :name "AbortTask"
-   :function #'fanshi/ai-delegate--tool-finish-task
+   :function #'fanshi/ai-delegate--tool-abort-task
    :description "Call this tool when the task has to be abort.
 SUMMARY: brief description of what was accomplished and tell us why"
-   :args '((:name "summary" :type string
-            :description "Brief summary of what was accomplished"))
+   :args '((:name "reason" :type string
+            :description "Brief explain of why the task was aborted"))
+   :category "task"
+   :async nil)
+
+  (defun fanshi/ai-delegate--tool-wait-task (reason)
+    "Tool for the gptel-agent to signal that it needs human input.
+REASON explains what human input is needed.
+Sets the task status to WAIT."
+    (if fanshi/ai-delegate--current-task-id
+        (fanshi/ai-delegate--update-task-by-id fanshi/ai-delegate--current-task-id "WAIT" reason)
+      (error "Cannot wait without task-id"))
+    (format "Task paused (WAIT): %s" reason))
+
+  (gptel-make-tool
+   :name "WaitTask"
+   :function #'fanshi/ai-delegate--tool-wait-task
+   :description "Call this tool when you need human input to proceed.
+REASON: explain what human input is needed (e.g., 'Need clarification on requirements', 'Waiting for API credentials')."
+   :args '((:name "reason" :type string
+            :description "Explanation of what human input is needed"))
    :category "task"
    :async nil))
 #+end_src
 ** fanshi/delegate-agent
 Spawn a dedicated gptel-agent buffer in an isolated worktree for a delegated task.
-Provides observability: the user can switch to the child buffer to watch progress.
-Communication via .task-status file for parent agent to poll.
+Uses org-id for robust task tracking. Updates org entry with DELEGATED status and properties.
 #+begin_src emacs-lisp :tangle yes :lexical t
-(defvar-local fanshi/agent--child-branch nil
-  "Branch name of the delegated agent's worktree.")
-
-(defvar-local fanshi/agent--parent-buffer nil
-  "The parent gptel buffer that delegated this task.")
-
-(defun fanshi/spawn-delegated-agent (task branch)
-  "Spawn a new gptel-agent buffer for TASK in worktree BRANCH.
+(after! gptel
+  (defun fanshi/spawn-delegated-agent (task agent task-id)
+    "Spawn a new gptel-agent buffer with AGENT working on TASK in a worktree.
+TASK-ID is the org-id of the task entry to track.
 Returns the branch name for tracking."
-  (let* ((project-root (projectile-project-root))
-         (branch-name (or branch (format "task-%s" (format-time-string "%Y%m%d-%H%M%S"))))
-         (target-dir (expand-file-name (concat ".trees/" branch-name) project-root))
-         (parent-buf (current-buffer)))
-    ;; 1. Create worktree if needed
-    (unless (file-directory-p target-dir)
-      (make-directory (file-name-directory target-dir) t)
-      (unless (zerop (call-process "git" nil nil nil "worktree" "add" "-b" branch-name target-dir))
-        (error "Failed to create worktree for branch '%s'" branch-name)))
-    ;; 2. Create and configure the child agent buffer using gptel-agent
-    (let* ((child-buf-name (format "*gptel-agent: %s*" (substring branch-name 0 30)))
-           (child-buf (get-buffer-create child-buf-name)))
-      (with-current-buffer child-buf
-        (let ((inhibit-read-only t))
-          ;; Initialize as a gptel-agent buffer with the worktree as its directory
-          (gptel-agent target-dir 'gptel-agent)
-          ;; Disable auto-worktree to prevent double worktree creation
-          (setq-local fanshi/gptel-agent-auto-worktree nil
-                      fanshi/agent--child-branch branch-name
-                      fanshi/agent--parent-buffer parent-buf)
-          ;; Insert the task prompt
-          (goto-char (point-max))
-          (insert (format "# Delegated Task\n\n%s\n\nYou are working in an isolated worktree branch '%s'.\nWhen you complete the task, call the FinishTask tool with a summary.\nIf you cannot complete it, call AbortTask with a reason.\n"
-                          task branch-name))
-          ;; Display the buffer for observability
-          (display-buffer child-buf '((display-buffer-in-side-window) (side . bottom))))
-      ;; 3. Start the agent
-      (with-current-buffer child-buf
+    (unless task-id (error "task-id is required"))
+    (let* ((project-root (projectile-project-root))
+           (branch-name (format "task-%s-%s" task-id (format-time-string "%Y%m%d-%H%M%S")))
+           (target-dir (expand-file-name (concat ".trees/" branch-name) project-root))
+           (child-buf-name (format "*gptel-agent: %s*" (substring branch-name 0 30))))
+      ;; 1. Create worktree if needed
+      (unless (file-directory-p target-dir)
+        (make-directory (file-name-directory target-dir) t)
+        (unless (zerop (call-process "git" nil nil nil "worktree" "add" "-b" branch-name target-dir))
+          (error "Failed to create worktree for branch '%s'" branch-name)))
+      ;; 2. Update org entry with DELEGATED status and properties
+      (save-excursion
+        (org-id-goto task-id)
+        (org-entry-put (point) "WORKTREE_DIR" target-dir)
+        (org-entry-put (point) "DELEGATED_AT" (format-time-string "%Y-%m-%d %H:%M:%S"))
+        (org-entry-put (point) "AGENT_BUF" child-buf-name)
+        (org-todo "DELEGATED")
+        (save-buffer))
+      ;; 3. Create and configure the child agent buffer using gptel-agent
+      (with-current-buffer (get-buffer-create child-buf-name)
+        ;; Initialize as a gptel-agent buffer with the worktree as its directory
+        (gptel-agent target-dir agent)
+        ;; Disable auto-worktree to prevent double worktree creation
+        (setq-local fanshi/gptel-agent-auto-worktree nil
+                    fanshi/ai-delegate--current-task-id task-id)
+        ;; Update org entry with agent buffer name
+        ;; Insert the task prompt
+        (goto-char (point-max))
+        (insert (format "# Delegated Task\n\n%s\n\nYou are working in an isolated worktree branch '%s'.\nWhen you complete the task, call the FinishTask tool with a summary.\nIf you cannot complete it, call AbortTask with a reason.\n"
+                        task branch-name))
         (gptel-send))
-      ;; 4. Return the branch name for tracking
-      (format "Task delegated to agent buffer '%s' in worktree branch '%s'.\nYou can observe progress by visiting that buffer.\nWhen done, the agent will write a .task-status file in .trees/%s/."
-              child-buf-name branch-name branch-name))))
+      ;; 5. Return the branch name for tracking
+      (format "Task delegated to agent buffer '%s' in worktree branch '%s'.\nOrg entry updated to DELEGATED.\nYou can observe progress by visiting the agent buffer."
+              child-buf-name branch-name)
+      branch-name))
 
-(gptel-make-tool
- :name "DelegateAgent"
- :function #'fanshi/spawn-delegated-agent
- :description "Spawn a new, isolated gptel-agent buffer to perform a task in a git worktree.
+  (gptel-make-tool
+   :name "DelegateAgent"
+   :function #'fanshi/spawn-delegated-agent
+   :description "Spawn a new, isolated gptel-agent buffer to perform a task in a git worktree.
 The child agent has its own buffer for observability.
-Returns the branch name for tracking. The parent agent can check progress by reading
-.trees/<branch>/.task-status. The child agent should call FinishTask when done."
- :args '((:name "task" :type string
-          :description "Detailed task description for the delegated agent")
-         (:name "branch" :type string
-          :description "Branch name for the worktree. If empty, a timestamp-based name is generated."))
- :category "agents"
- :async t)
-#+end_src
-** fanshi/ai-nightly--process-one-task
-The core loop: worktree -> gptel-agent -> clock -> summary.
-#+begin_src emacs-lisp :tangle yes :lexical t
-(defvar-local fanshi/ai-nightly--task-done nil
-  "Non-nil when the agent has signaled task completion.")
-
-(defvar-local fanshi/ai-nightly--task-summary nil
-  "Summary string from the agent when task is done.")
-
-(defvar-local fanshi/ai-nightly--self-heal-count 0
-  "Number of self-healing retries for the current task.")
-
-(defvar-local fanshi/ai-nightly--time-limit-timer nil
-  "Timer object for the time-limit abort of the current task.")
-
-(defun fanshi/ai-nightly--process-one-task (file pos)
-  "Process a single 'delegated to AI' task at POS in FILE.
-Returns immediately; post-processing is triggered by the agent's
-FinishTask tool call or the post-response handler on DONE.
-Time-limited via `fanshi/ai-task-time-limit'."
-  (pcase-let ((`(,project-dir ,task-heading)
-               (with-current-buffer (find-file-noselect file)
-                 (cons (org-entry-get pos "SCOPED_PROJECT") (org-get-heading t t t t)))))
-    (unless project-dir
-      (user-error "AI Nightly: Task '%s' has no SCOPED_PROJECT property" task-heading))
-    (message "AI Nightly: Processing task '%s' in project %s" task-heading project-dir)
-
-    (with-current-buffer (gptel-agent project-dir 'gptel-agent)
-      (setq-local gptel-agent 'gptel-agent-nightshift)
-      (setq-local gptel-model 'Qwen3.6-27B-uncensored-heretic-v2-Native-MTP-Preserved)
-      (unless (string-prefix-p (expand-file-name fanshi/breeding-ground-dir)
-                               (expand-file-name project-dir))
-        (fanshi/gptel-agent-swtich-to-worktree
-         (format "ai-%s" (replace-regexp-in-string "[^a-z0-9-]+" "-"
-                                                   (downcase (string-trim task-heading))))))
-
-      ;; Set up self-healing
-      (setq-local fanshi/ai-nightly--task-done nil)
-      (setq-local fanshi/ai-nightly--task-summary nil)
-      (setq-local fanshi/ai-nightly--self-heal-count 0)
-      (add-hook 'gptel-post-response-functions
-                #'fanshi/ai-nightly--post-response-handler nil t)
-
-      ;; Set up task context for the FinishTask tool
-      (setq-local fanshi/ai-delegate--current-task-file file)
-      (setq-local fanshi/ai-delegate--current-task-pos pos)
-
-      ;; 4. Clock in on the task file
-      (with-current-buffer (get-file-buffer file)
-        (goto-char pos) (org-clock-in))
-
-      ;; 5. Send the task to the agent
-      (goto-char (point-max))
-      (let ((task-subtree (with-current-buffer (get-file-buffer file)
-                            (save-excursion
-                              (goto-char pos)
-                              (org-back-to-heading t)
-                              (buffer-substring-no-properties
-                               (point)
-                               (save-excursion (org-end-of-subtree t t) (point)))))))
-        (insert (format "\n\n%s\n\nDo the below task completely. When done/give up, call the FinishTask/AbortTask tool with a summary/reasonings. Don't give up easily:\n"
-                        task-subtree)))
-      (goto-char (point-max))
-      (gptel-send)
-
-      ;; 6. Set a timer to abort if the time limit is reached
-      (let ((agent-buf (current-buffer)))
-        (setq-local fanshi/ai-nightly--time-limit-timer
-                    (run-with-timer fanshi/ai-task-time-limit nil
-                                    (lambda ()
-                                      (with-current-buffer agent-buf
-                                        (unless fanshi/ai-nightly--task-done
-                                          (message "AI Nightly: Time limit reached for task '%s'" task-heading)
-                                          (gptel-abort)
-                                          (fanshi/ai-nightly--post-process file pos))))))))))
-#+end_src
-** fanshi/ai-nightly--post-response-handler
-Self-healing: detect done/error and resume if needed.
-#+begin_src emacs-lisp :tangle yes :lexical t
-(defun fanshi/ai-nightly--post-process (file pos)
-  "Finalize the current task: clock out, save, and update task status."
-  (when fanshi/ai-nightly--time-limit-timer
-    (cancel-timer fanshi/ai-nightly--time-limit-timer)
-    (setq-local fanshi/ai-nightly--time-limit-timer nil))
-
-  (with-current-buffer (get-file-buffer file) (org-clock-out))
-
-  ;; Auto-save chat buffer
-  (when (buffer-file-name) (save-buffer))
-
-  ;; Update task in ai-tasks file
-  (fanshi/ai-delegate--update-task file pos
-                                   (or fanshi/ai-nightly--task-summary
-                                       "Task interrupted by time limit")
-                                   (if fanshi/ai-nightly--task-done "DONE" "KILL")))
-
-(defun fanshi/ai-nightly--post-response-handler (_start _end)
-  "Handle post-response for AI nightly agent.
-Self-heals by resending if the response indicates an error or incomplete state."
-  (when (and (string-prefix-p "*gptel-agent:" (buffer-name))
-             (not fanshi/ai-nightly--task-done))
-    (let ((body-start (save-excursion
-                        (text-property-search-backward 'gptel nil t)
-                        (point)))
-          (body-end (point-max))
-          text)
-      (when (> body-end body-start)
-        (setq text (buffer-substring-no-properties body-start body-end)))
-
-      (when text
-        ;; Check if this looks like an error or incomplete response
-        (let ((error-p (or (string-match-p "\\(tool call err\\|error\\|failed\\|blocked\\)"
-                                           (downcase text))
-                           (< (length (string-trim text)) 20))))
-          (when (and error-p (< fanshi/ai-nightly--self-heal-count 5))
-            (cl-incf fanshi/ai-nightly--self-heal-count)
-            (message "AI Nightly: Self-healing attempt %d" fanshi/ai-nightly--self-heal-count)
-            (goto-char (point-max))
-            (insert "\n\nThe previous response was incomplete or errored. Please continue where you left off.\n")
-            (goto-char (point-max))
-            (gptel-send)))))))
+The org entry is updated to DELEGATED status with worktree and buffer properties.
+Returns the branch name for tracking. The child agent should call FinishTask when done."
+   :args '((:name "task" :type string
+            :description "Detailed task description for the delegated agent")
+           (:name "task-id" :type string
+            :description "The org-id of the task entry to track. Required for org-based state management."))
+   :category "agents"
+   :async t))
 #+end_src
 ** fanshi/ai-nightly--run
+Spawn a Scrum Master agent to process all AI-delegated tasks.
 #+begin_src emacs-lisp :tangle yes :lexical t
-(defun fanshi/ai-nightly--run ()
-  "Run the AI nightly processor on all delegated tasks."
-  (interactive)
-  (let* ((ai-tasks-file (org-gtd--path "org-gtd-ai-tasks"))
-         (tasks '()))
-    (when (not (file-exists-p ai-tasks-file))
-        (message "AI Nightly: No AI tasks file found at %s" ai-tasks-file)
-      (with-current-buffer (find-file-noselect ai-tasks-file)
-        (org-map-entries
-         (lambda ()
-           (push (cons (buffer-file-name) (point)) tasks))
-         "DELEGATED_TO=\"ai\"")))
-      (setq tasks (nreverse tasks))
-      (if (null tasks)
-          (message "AI Nightly: No delegated tasks found")
-        (message "AI Nightly: Processing %d delegated task(s)..." (length tasks))
-        (dolist (task tasks)
-          (condition-case err
-              (fanshi/ai-nightly--process-one-task (car task) (cdr task))
-            (error (message "AI Nightly: Error processing task: %s" err)))))))
+(after! (:and org-gtd gtpel-agent)
+  (defun fanshi/ai-nightly--run ()
+    "Spawn a Scrum Master agent to process all AI-delegated tasks."
+    (interactive)
+    (let* ((ai-tasks-file (org-gtd--path "org-gtd-ai-tasks"))
+           (ai-tasks-dir (file-name-directory ai-tasks-file)))
+      (unless (file-exists-p ai-tasks-file)
+        (error "AI Nightly: No AI tasks file at %s" ai-tasks-file))
+      (message "AI Nightly: Starting Scrum Master orchestrator...")
+      (with-current-buffer (get-buffer-create "*gptel-agent: scrum-nightly*")
+        (gptel-agent ai-tasks-dir 'scrum-agent)
+        (goto-char (point-max))
+        (insert (format
+                 "\n\n# Nightly Task Dispatch\n\nProcess all tasks with DELEGATED_TO=\"ai\" in:\n%s\n\nFor each TODO task, use DelegateAgent to spawn a child agent.\nSkip tasks already in DELEGATED, DONE, KILL, or WAIT state.\nAfter delegating all tasks, report a summary table.\n"
+                 ai-tasks-file))
+        (gptel-send)
+        (current-buffer)))))
 #+end_src
-** fanshi/ai-nightly--schedule)
+** fanshi/ai-nightly--schedule
 #+begin_src emacs-lisp :tangle yes :lexical t
 (defvar fanshi/ai-nightly-start-time "23:00"
   "Time of day to auto-trigger the nightly processor.")
@@ -2911,7 +2775,7 @@ Self-heals by resending if the response indicates an error or incomplete state."
   "Timer object for the nightly processor.")
 
 (defun fanshi/ai-nightly--schedule ()
-  "Schedule the AI nightly processor to run after idle for 15mins at the configured time."
+  "Schedule the Scrum Master to run after idle for 15mins at the configured time."
   (when fanshi/ai-nightly-timer
     (cancel-timer fanshi/ai-nightly-timer))
   (when fanshi/ai-nightly-idle-timer
