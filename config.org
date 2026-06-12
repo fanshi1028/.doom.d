@@ -1213,8 +1213,8 @@ We load our own presets
 #+begin_src emacs-lisp :tangle yes :lexical t
 (defvar fanshi/research-tools '("read-tools" "web-read-tools"))
 (defvar fanshi/coding-tools '("read-tools" "write-tools" "WebFetch"))
-(defvar fanshi/scrum-tools (append fanshi/research-tools '("TodoWrite" "DelegateAgent")))
-(defvar fanshi/gptel-agent-tools (append fanshi/research-tools '("TodoWrite" "DelegateAgent")))
+(defvar fanshi/scrum-tools (append fanshi/research-tools '("TodoWrite" "Delegate")))
+(defvar fanshi/gptel-agent-tools (append fanshi/research-tools '("TodoWrite" "Delegate")))
 (defvar fanshi/gptel-agent-nightshift-tools (append fanshi/gptel-agent-tools '("Agent" "task")))
 (after! gptel-agent
   (defun fanshi/update-tools-category (new-category toolnames-list)
@@ -2523,16 +2523,17 @@ This is the single source of truth for task state management.
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! org
   ;; Add custom TODO keywords for AI delegation workflow
-  ;; State machine: TODO → DELEGATED → DONE / KILL / WAIT
+  ;; State machine: TODO → DELEGATED → DONE / KILL
   (add-to-list 'org-todo-keywords
-               '(sequence "TODO" "DELEGATED" "WAIT" "|" "DONE" "KILL"))
+               '(sequence "TODO" "DELEGATED" "|" "DONE" "KILL"))
 
   (defconst fanshi/ai-task-properties
-    '("WORKTREE_DIR" "AGENT_BUF" "DELEGATED_AT" "SCOPED_PROJECT")
+    '("WORKTREE_DIR" "AGENT_BUF" "DELEGATED_TO" "DELEGATED_AT" "SCOPED_PROJECT")
     "List of properties used to track AI-delegated tasks in org entries.
 WORKTREE_DIR: Path to the git worktree for this task.
 AGENT_BUF: Name of the gptel-agent buffer handling this task.
-TASK_ID: The org-id of this task entry (used for robust tracking).
+DELEGATED_TO: The gptel preset name (e.g., coding, product, scrum).
+              Set to 'user' when the task is pending human input.
 DELEGATED_AT: Timestamp when the task was delegated.
 SCOPED_PROJECT: The project directory this task belongs to.")
 
@@ -2558,7 +2559,6 @@ Only fires for entries that have a WORKTREE_DIR property."
            ;;     (message "Cleaning up worktree...")
            ;;     (call-process "git" nil nil nil "worktree" "prune")))
            )
-          ("WAIT" (message "AI Task waiting for input: '%s'" heading))
           (_ nil)))))
   ;; FIXME local hook?
   (add-hook 'org-after-todo-state-change-hook #'fanshi/scrum-todo-change-handler))
@@ -2569,10 +2569,17 @@ Org-ID based task update: the primary mechanism for task state transitions.
 (defvar-local fanshi/ai-delegate--current-task-id nil
   "The org-id of the current AI-delegated task.")
 
+(defun fanshi/ai-delegate--agent-active-p (preset-name)
+  "Return non-nil if PRESET-NAME is a valid gptel preset or 'user'.
+'User' is a special marker meaning the task is pending human input."
+  (or (eq preset-name "user")
+      (string= preset-name "user")
+      (gptel-get-preset (intern-soft preset-name))))
+
 (after! gptel
   (defun fanshi/ai-delegate--update-task-by-id (task-id status summary)
     "Update the task identified by TASK-ID with STATUS and SUMMARY.
-STATUS is a TODO keyword like \"DONE\", \"KILL\", or \"WAIT\".
+STATUS is a TODO keyword like \"DONE\" or \"KILL\".
 Appends the summary as a timestamped note and sets the TODO state.
 Works even if the org file is not currently visited in a buffer."
     (unless task-id
@@ -2621,79 +2628,73 @@ SUMMARY: brief description of what was accomplished and tell us why"
    :category "task"
    :async nil)
 
-  (defun fanshi/ai-delegate--tool-wait-task (reason)
-    "Tool for the gptel-agent to signal that it needs human input.
-REASON explains what human input is needed.
-Sets the task status to WAIT."
-    (if fanshi/ai-delegate--current-task-id
-        (fanshi/ai-delegate--update-task-by-id fanshi/ai-delegate--current-task-id "WAIT" reason)
-      (error "Cannot wait without task-id"))
-    (format "Task paused (WAIT): %s" reason))
+  (defun fanshi/ai-delegate--tool-delegate (task agent task-id)
+    "Delegate the task to an agent or to the user.
+If AGENT is \"user\", delegate to human for input, using TASK
+as the description of what's needed.
+Otherwise, spawn a dedicated gptel-agent buffer with AGENT
+working on TASK in a worktree.
+TASK-ID is the org-id of the task entry to track."
+    (if (or (string= agent "user") (string= agent 'user))
+        ;; Delegate to human
+        (if task-id
+            (progn
+              (org-id-goto task-id)
+              (org-entry-put (point) "DELEGATED_TO" "user")
+              (org-end-of-subtree t t)
+              (insert (format "\n- %s [USER]: %s"
+                              (format-time-string "%Y-%m-%d %H:%M")
+                              task))
+              (save-buffer)
+              (message "Task delegated to user: %s" task)
+              (format "Task delegated to user: %s" task))
+          (error "Cannot delegate to user without task-id"))
+      ;; Delegate to AI agent
+      (unless task-id (error "task-id is required"))
+      (let* ((project-root (projectile-project-root))
+             (branch-name (format "task-%s-%s" task-id (format-time-string "%Y%m%d-%H%M%S")))
+             (target-dir (expand-file-name (concat ".trees/" branch-name) project-root))
+             (child-buf-name (format "*gptel-agent: %s*" (substring branch-name 0 30))))
+        ;; 1. Create worktree if needed
+        (unless (file-directory-p target-dir)
+          (make-directory (file-name-directory target-dir) t)
+          (unless (zerop (call-process "git" nil nil nil "worktree" "add" "-b" branch-name target-dir))
+            (error "Failed to create worktree for branch '%s'" branch-name)))
+        ;; 2. Update org entry with DELEGATED status and properties
+        (save-excursion
+          (org-id-goto task-id)
+          (org-entry-put (point) "WORKTREE_DIR" target-dir)
+          (org-entry-put (point) "DELEGATED_TO" (if (symbolp agent) (symbol-name agent) agent))
+          (org-entry-put (point) "DELEGATED_AT" (format-time-string "%Y-%m-%d %H:%M:%S"))
+          (org-entry-put (point) "AGENT_BUF" child-buf-name)
+          (org-todo "DELEGATED")
+          (save-buffer))
+        ;; 3. Create and configure the child agent buffer using gptel-agent
+        (with-current-buffer (get-buffer-create child-buf-name)
+          (gptel-agent target-dir agent)
+          (setq-local fanshi/gptel-agent-auto-worktree nil
+                      fanshi/ai-delegate--current-task-id task-id)
+          (goto-char (point-max))
+          (insert (format "# Delegated Task\n\n%s\n\nYou are working in an isolated worktree branch '%s'.\nWhen you complete the task, call the FinishTask tool with a summary.\nIf you cannot complete it, call AbortTask with a reason.\nIf you need human input, call Delegate with agent=\"user\" and a task description.\n"
+                          task branch-name))
+          (gptel-send))
+        (format "Task delegated to agent buffer '%s' in worktree branch '%s'.\nOrg entry updated to DELEGATED.\nYou can observe progress by visiting the agent buffer."
+                child-buf-name branch-name)
+        branch-name)))
 
   (gptel-make-tool
-   :name "WaitTask"
-   :function #'fanshi/ai-delegate--tool-wait-task
-   :description "Call this tool when you need human input to proceed.
-REASON: explain what human input is needed (e.g., 'Need clarification on requirements', 'Waiting for API credentials')."
-   :args '((:name "reason" :type string
-            :description "Explanation of what human input is needed"))
-   :category "task"
-   :async nil))
-#+end_src
-** fanshi/delegate-agent
-Spawn a dedicated gptel-agent buffer in an isolated worktree for a delegated task.
-Uses org-id for robust task tracking. Updates org entry with DELEGATED status and properties.
-#+begin_src emacs-lisp :tangle yes :lexical t
-(after! gptel
-  (defun fanshi/spawn-delegated-agent (task agent task-id)
-    "Spawn a new gptel-agent buffer with AGENT working on TASK in a worktree.
-TASK-ID is the org-id of the task entry to track.
-Returns the branch name for tracking."
-    (unless task-id (error "task-id is required"))
-    (let* ((project-root (projectile-project-root))
-           (branch-name (format "task-%s-%s" task-id (format-time-string "%Y%m%d-%H%M%S")))
-           (target-dir (expand-file-name (concat ".trees/" branch-name) project-root))
-           (child-buf-name (format "*gptel-agent: %s*" (substring branch-name 0 30))))
-      ;; 1. Create worktree if needed
-      (unless (file-directory-p target-dir)
-        (make-directory (file-name-directory target-dir) t)
-        (unless (zerop (call-process "git" nil nil nil "worktree" "add" "-b" branch-name target-dir))
-          (error "Failed to create worktree for branch '%s'" branch-name)))
-      ;; 2. Update org entry with DELEGATED status and properties
-      (save-excursion
-        (org-id-goto task-id)
-        (org-entry-put (point) "WORKTREE_DIR" target-dir)
-        (org-entry-put (point) "DELEGATED_AT" (format-time-string "%Y-%m-%d %H:%M:%S"))
-        (org-entry-put (point) "AGENT_BUF" child-buf-name)
-        (org-todo "DELEGATED")
-        (save-buffer))
-      ;; 3. Create and configure the child agent buffer using gptel-agent
-      (with-current-buffer (get-buffer-create child-buf-name)
-        ;; Initialize as a gptel-agent buffer with the worktree as its directory
-        (gptel-agent target-dir agent)
-        ;; Disable auto-worktree to prevent double worktree creation
-        (setq-local fanshi/gptel-agent-auto-worktree nil
-                    fanshi/ai-delegate--current-task-id task-id)
-        ;; Update org entry with agent buffer name
-        ;; Insert the task prompt
-        (goto-char (point-max))
-        (insert (format "# Delegated Task\n\n%s\n\nYou are working in an isolated worktree branch '%s'.\nWhen you complete the task, call the FinishTask tool with a summary.\nIf you cannot complete it, call AbortTask with a reason.\n"
-                        task branch-name))
-        (gptel-send))
-      ;; 5. Return the branch name for tracking
-      (format "Task delegated to agent buffer '%s' in worktree branch '%s'.\nOrg entry updated to DELEGATED.\nYou can observe progress by visiting the agent buffer."
-              child-buf-name branch-name)
-      branch-name))
-
-  (gptel-make-tool
-   :name "DelegateAgent"
-   :function #'fanshi/spawn-delegated-agent
-   :description "Spawn a new, isolated gptel-agent buffer to perform a task in a git worktree.
-The child agent has its own buffer for observability.
-The org entry is updated to DELEGATED status with worktree and buffer properties.
-Returns the branch name for tracking. The child agent should call FinishTask when done."
+   :name "Delegate"
+   :function #'fanshi/ai-delegate--tool-delegate
+   :description "Delegate the task to an AI agent or to the user.
+When agent is \"user\", it signals the task needs human input.
+Otherwise, spawns an isolated gptel-agent buffer with the named agent.
+TASK: description of the task (used as the reason when delegating to user).
+AGENT: name of the agent preset to delegate to, or \"user\" for human input.
+TASK-ID: the org-id of the task entry to track. Required for both paths."
    :args '((:name "task" :type string
-            :description "Detailed task description for the delegated agent")
+            :description "Description of the task to delegate, or what human input is needed")
+           (:name "agent" :type string
+            :description "Name of the agent preset to delegate to, or \"user\" for human input")
            (:name "task-id" :type string
             :description "The org-id of the task entry to track. Required for org-based state management."))
    :category "agents"
@@ -2715,7 +2716,7 @@ Spawn a Scrum Master agent to process all AI-delegated tasks.
         (gptel-agent ai-tasks-dir 'scrum-agent)
         (goto-char (point-max))
         (insert (format
-                 "\n\n# Nightly Task Dispatch\n\nProcess all tasks with DELEGATED_TO=\"ai\" in:\n%s\n\nFor each TODO task, use DelegateAgent to spawn a child agent.\nSkip tasks already in DELEGATED, DONE, KILL, or WAIT state.\nAfter delegating all tasks, report a summary table.\n"
+                 "\n\n# Nightly Task Dispatch\n\nProcess all tasks with DELEGATED_TO=\"ai\" in:\n%s\n\nFor each TODO task, use Delegate with agent=... to spawn a child agent.\nSkip tasks already in DELEGATED, DONE, or KILL state.\nTasks with DELEGATED_TO=\"user\" are pending human input — skip them.\nAfter delegating all tasks, report a summary table.\n"
                  ai-tasks-file))
         (gptel-send)
         (current-buffer)))))
