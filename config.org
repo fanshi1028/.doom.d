@@ -1279,9 +1279,7 @@ We load our own presets
     :request-params '(:append
                       (:enable_thinking :json-false
                        :chat_template_kwargs (:enable_thinking :json-false)
-                       :top_p 0.95 :top_k 20 :min_p 0.0
-                       :presence_penalty 1.5 :repetition_penalty 1.0))
-    :temperature 1.0
+                       :presence_penalty 1.5))
     :description "Preset for research"
     :tools fanshi/research-tools
     :system (lambda ()
@@ -1299,7 +1297,8 @@ We load our own presets
   (gptel-make-preset 'do
     :request-params '(:enable_thinking :json-false
                       :chat_template_kwargs (:enable_thinking :json-false)
-                      :temperature 0.7 :top_p 0.80 :top_k 20 :min_p 0.0 :presence_penalty 1.5 :repetition_penalty 1.0)
+                      :top_p 0.80 :presence_penalty 1.5)
+    :temperature 0.7
     :description "Preset for execute instruction"
     :tools nil))
 #+end_src
@@ -1308,10 +1307,7 @@ We load our own presets
 (after! gptel
   (gptel-make-preset 'coding
     :request-params '(:append (:enable_thinking :json-false
-                               :chat_template_kwargs (:enable_thinking :json-false)
-                               :top_p 0.95 :top_k 20 :min_p 0.0
-                               :presence_penalty 0.0 :repetition_penalty 1.0
-                               :max_tokens :null))
+                               :chat_template_kwargs (:enable_thinking :json-false)))
     :temperature 0.6
     :description "Preset for writing code"
     :tools fanshi/coding-tools
@@ -1463,7 +1459,8 @@ For 'Mlx: uses :hf tag value as model symbol."
    gptel-org-validate-link #'gptel-org--link-standalone-p
    gptel-model 'mlx-community--Qwen3.6-35B-A3B-bf16
    gptel-max-tokens nil
-   gptel-log-level 'info)
+   gptel-log-level 'info
+   gptel--request-params '(:top_p 0.95 :top_k 20 :min_p 0.0 :presence_penalty 0.0 :repetition_penalty 1.0))
   (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* "))
 #+end_src
 ** Restrict tools
