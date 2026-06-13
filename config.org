@@ -1258,8 +1258,8 @@ We load our own presets
 (after! gptel
   (gptel-make-preset 'scrum
     :request-params '(:append
-                      (:top-p 0.95 :top-k 20 :min-p 0.0
-                       :presence-penalty 0.5 :repetition-penalty 1.0))
+                      (:top_p 0.95 :top_k 20 :min_p 0.0
+                       :presence_penalty 0.5 :repetition_penalty 1.0))
     :temperature 0.7
     :description "Scrum Master - orchestrates process flow, delegates to agents, does NOT code"
     :tools fanshi/scrum-tools
@@ -1277,7 +1277,10 @@ We load our own presets
 (after! gptel
   (gptel-make-preset 'research
     :request-params '(:append
-                      (:top-p 0.95 :top-k 20 :min-p 0.0 :presence-penalty 1.5 :repetition-penalty 1.0))
+                      (:enable_thinking :json-false
+                       :chat_template_kwargs (:enable_thinking :json-false)
+                       :top_p 0.95 :top_k 20 :min_p 0.0
+                       :presence_penalty 1.5 :repetition_penalty 1.0))
     :temperature 1.0
     :description "Preset for research"
     :tools fanshi/research-tools
@@ -1294,8 +1297,9 @@ We load our own presets
 #+begin_src emacs-lisp :tangle no
 (after! gptel
   (gptel-make-preset 'do
-    :request-params '(:enable-thinking :json-false
-                      :temperature 0.7 :top-p 0.80 :top-k 20 :min-p 0.0 :presence-penalty 1.5 :repetition-penalty 1.0)
+    :request-params '(:enable_thinking :json-false
+                      :chat_template_kwargs (:enable_thinking :json-false)
+                      :temperature 0.7 :top_p 0.80 :top_k 20 :min_p 0.0 :presence_penalty 1.5 :repetition_penalty 1.0)
     :description "Preset for execute instruction"
     :tools nil))
 #+end_src
@@ -1303,8 +1307,10 @@ We load our own presets
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (gptel-make-preset 'coding
-    :request-params '(:append (:top-p 0.95 :top-k 20 :min-p 0.0
-                               :presence-penalty 0.0 :repetition-penalty 1.0
+    :request-params '(:append (:enable_thinking :json-false
+                               :chat_template_kwargs (:enable_thinking :json-false)
+                               :top_p 0.95 :top_k 20 :min_p 0.0
+                               :presence_penalty 0.0 :repetition_penalty 1.0
                                :max_tokens :null))
     :temperature 0.6
     :description "Preset for writing code"
@@ -1340,7 +1346,9 @@ We load our own presets
   (gptel-make-preset 'heavy
     :description "Preset for heavy task"
     :model 'mlx-community--Qwen3.6-27B-bf16
-    :request-params '(:append (:enable-thinking t :preserve-thinking t))))
+    :request-params '(:append (:enable_thinking t
+                               :chat_template_kwargs (:enable_thinking t
+                                                      :preserve_thinking t)))))
 #+end_src
 *** Fast
 #+begin_src emacs-lisp :tangle yes
