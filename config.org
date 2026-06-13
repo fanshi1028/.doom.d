@@ -1342,6 +1342,7 @@ We load our own presets
   (gptel-make-preset 'heavy
     :description "Preset for heavy task"
     :model 'mlx-community--Qwen3.6-27B-bf16
+    :include-reasoning t
     :request-params '(:append (:enable_thinking t
                                :chat_template_kwargs (:enable_thinking t
                                                       :preserve_thinking t)))))
