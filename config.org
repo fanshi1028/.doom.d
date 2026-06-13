@@ -2098,7 +2098,10 @@ To avoid loading multiple main models into restricted RAM, we can queue requests
 #+begin_src emacs-lisp :tangle yes
 (defvar fanshi/gptel-send-mutex (make-mutex "fanshi/gptel-send-mutex"))
 
-(defvar fanshi/main-models (flatten-list fanshi/models-hierarchy-list)
+(defvar fanshi/main-models (list 'Jundot--MiniMax-M2.7-oQ2
+                                 'mlx-community--Qwen3.6-35B-A3B-bf16
+                                 'mlx-community--Qwen3.6-27B-bf16
+                                 'mlx-community--gemma-4-31b-it-bf16)
   "List of models that are considered 'main models' and should not run concurrently.")
 
 (defvar fanshi/gptel--waiting-request-alist nil
