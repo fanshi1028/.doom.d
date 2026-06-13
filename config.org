@@ -767,8 +767,9 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 
 * Gptel
 ** Fix response org heading level
+Disable due to it seems to mess thing up when I use `fanshi/multisend'
 - ref :: https://github.com/karthink/gptel/issues/1226#issuecomment-3828162897
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! gptel
   (defun gptel-fix-response-levels (beg end)
     "Correctly shifts heading levels ONLY within the gptel response."
