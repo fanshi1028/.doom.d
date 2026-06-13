@@ -1257,10 +1257,8 @@ We load our own presets
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (gptel-make-preset 'scrum
-    :request-params '(:append
-                      (:top_p 0.95 :top_k 20 :min_p 0.0
-                       :presence_penalty 0.5 :repetition_penalty 1.0))
-    :temperature 0.7
+    :request-params '(:append (:top_k 40))
+    :model 'Jundot--MiniMax-M2.7-oQ2
     :description "Scrum Master - orchestrates process flow, delegates to agents, does NOT code"
     :tools fanshi/scrum-tools
     :system (lambda ()
