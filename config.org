@@ -2382,6 +2382,30 @@ CONTEXT is an alist of (KEY . VALUE) for template substitution."
        :prompt "Based on this problem analysis, design a technical solution. Include architecture overview, key components, and implementation plan.\n\nAnalysis:\n{{analysis}}"))
     "Chain: problem analysis → technical design."))
 #+end_src
+** fanshi/gptel-abort-all-in-buffer (buffer
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-abort-all-in-buffer (&optional buffer)
+    "Abort all active GPTel requests in BUFFER.
+If called interactively, BUFFER defaults to the current buffer.
+Return the number of requests aborted."
+    (interactive (list (current-buffer)))
+    (let ((buffer (or buffer (current-buffer)))
+          (aborted 0))
+      (with-demoted-errors "gptel-abort-all: %s"
+        (cl-loop for entry in gptel--request-alist
+                 when (eq (plist-get (gptel-fsm-info (cadr entry)) :buffer)
+                          buffer)
+                 do (gptel-abort (car entry))
+                 (cl-incf aborted))
+        (if (> aborted 0)
+            (message "Aborted %d gptel request(s) in %s." aborted buffer)
+          (message "No active gptel request(s) to abort in %s." buffer))
+        aborted)))
+  (defun fanshi/gptel-agent--setup-abort-all ()
+    (add-hook! 'kill-buffer-hook :local #'fanshi/gptel-abort-all-in-buffer))
+  (add-hook! gptel-mode-hook :append #'fanshi/gptel-agent--setup-abort-all))
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
