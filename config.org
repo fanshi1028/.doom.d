@@ -1538,7 +1538,7 @@ COMMAND is the bash command string to execute."
                                   "--allow" (expand-file-name "~/.cache/nix")
                                   "--read-file" (expand-file-name "~/.gitconfig"))
                             (fanshi/nono-context-allow-read-file-args-list)
-                            ("--" "bash" "-c" command))
+                            (list "--" "bash" "-c" command))
            :connection-type 'pipe
            :sentinel
            (lambda (process _event)
