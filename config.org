@@ -2024,7 +2024,9 @@ a prefix argument, the default is 1 additional send.
 This command temporarily enables `gptel-org-branching-context' to
 allow cloned subtrees to maintain their own history context."
   (interactive "P")
-  (let ((gptel-org-branching-context t))
+  (let ((gptel-org-branching-context t)
+        ;; NOTE: gptel--stream-convert-markdown->org doesn't work well with multi requests in the buffer
+        (gptel-org-convert-response nil))
     (org-clone-subtree-with-time-shift ARG)
     (cl-loop repeat (1+ (if (numberp ARG) ARG 1))
              do (progn
