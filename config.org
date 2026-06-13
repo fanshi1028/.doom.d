@@ -1528,16 +1528,27 @@ For 'Mlx: uses :hf tag value as model symbol."
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (defun fanshi/restrict-to-projectile-files-a (&rest args)
-    (if-let* ((root (projectile-project-root))
-              (abs-root (expand-file-name root))
-              (path (car args))
-              (abs-path (expand-file-name path)))
-        (unless (string-prefix-p abs-root abs-path)
-          (error "Error: File or directory %s is not available (restricted to project root %s)" path root))
-      (error "Error: Unexpected project root or path: %s, %s" root path)))
+    "Restrict file writes to project root.  No context exceptions."
+    (let ((path (car args)))
+      (if-let* ((root (projectile-project-root))
+                (abs-root (expand-file-name root))
+                (abs-path (expand-file-name path)))
+          (unless (string-prefix-p abs-root abs-path)
+            (error "Error: File or directory %s is not available (restricted to project root %s)" path root))
+        (error "Error: Unexpected project root or path: %s, %s" root path))))
+
   (advice-add 'gptel-agent--edit-files :before #'fanshi/restrict-to-projectile-files-a)
-  (advice-add 'gptel-agent--insert-in-file :before #'fanshi/restrict-to-projectile-files-a)
-  (advice-add 'gptel-agent--read-file-lines :before #'fanshi/restrict-to-projectile-files-a))
+  (advice-add 'gptel-agent--insert-in-file :before #'fanshi/restrict-to-projectile-files-a))
+#+end_src
+**** fanshi/restrict-to-projectile-plus-context-a
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/restrict-to-projectile-files-plus-context-a (&rest args)
+    "Restrict file reads to project root, except for files in gptel context."
+    ;; Allow files explicitly added as gptel context
+    (unless (member (car args) fanshi/gptel-context-files)
+      (fanshi/restrict-to-projectile-files-a args)))
+  (advice-add 'gptel-agent--read-file-lines :before #'fanshi/restrict-to-projectile-files-plus-context-a))
 #+end_src
 **** fanshi/restrict-to-projectile-files-2-a
 #+begin_src emacs-lisp :tangle yes
@@ -1555,6 +1566,11 @@ For 'Mlx: uses :hf tag value as model symbol."
   (advice-add 'gptel-agent--make-directory :before #'fanshi/restrict-to-projectile-files-2-a))
 #+end_src
 *** nono
+**** fanshi/nono-context-allow-read-file-args-list
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/nono-context-allow-read-file-args-list (&optional context-files)
+  (mapcan (lambda (file) (list "--read-file" (expand-file-name file))) (or context-files fanshi/gptel-context-files)))
+#+end_src
 **** fanshi/gptel-agent--execute-bash-a
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
@@ -1569,7 +1585,11 @@ COMMAND is the bash command string to execute."
           (make-process
            :name "gptel-agent-bash"
            :buffer output-buffer
-           :command (list fanshi/nono "run" "--allow" root "--allow" (expand-file-name "~/.cache/nix") "--read-file" (expand-file-name "~/.gitconfig") "--" "bash" "-c" command)
+           :command (append (list fanshi/nono "run" "--allow" root
+                                  "--allow" (expand-file-name "~/.cache/nix")
+                                  "--read-file" (expand-file-name "~/.gitconfig"))
+                            (fanshi/nono-context-allow-read-file-args-list)
+                            ("--" "bash" "-c" command))
            :connection-type 'pipe
            :sentinel
            (lambda (process _event)
@@ -1620,9 +1640,11 @@ Raises an error if PATTERN is empty, PATH is not readable, or the
       (unless root
         (error "Error: Project root not found. This tool cannot be used"))
       (with-temp-buffer
-        (let* ((args (list "run" "--allow" root "--" "tree" "-l" "-f" "-i" "-I" ".git"
-                           "--sort=mtime" "--ignore-case"
-                           "--prune" "-P" pattern full-path))
+        (let* ((args (append (list "run" "--allow" root)
+                             (fanshi/nono-context-allow-read-file-args-list)
+                             (list "--" "tree" "-l" "-f" "-i" "-I" ".git"
+                                   "--sort=mtime" "--ignore-case"
+                                   "--prune" "-P" pattern full-path)))
                (args (if (natnump depth)
                          (nconc args (list "-L" (number-to-string depth)))
                        args))
@@ -1687,7 +1709,9 @@ file.  Results are sorted by modification time."
                                   "--line-number" "--regexp" regex
                                   (expand-file-name (substitute-in-file-name path)))))
                  (t (error "Error: failed to identify grepper"))))
-               (args (append (list "run" "--allow" root "--" grepper) args))
+               (args (append (list "run" "--allow" root)
+                             (fanshi/nono-context-allow-read-file-args-list)
+                             (list "--" grepper) args))
                (exit-code (apply #'call-process fanshi/nono nil '(t t) nil args)))
           (goto-char (point-min))
           (if (/= exit-code 0)
@@ -1987,6 +2011,11 @@ point is placed at its position."
 (defvar fanshi/gptel-last-agent-buffer nil
   "Last visited gptel-agent buffer.")
 
+(defvar fanshi/gptel-context-files nil
+  "File paths extracted from org-links added via gptel-context-add.
+Used by `restrict-to-projectile-files-plus-context-a' and `fanshi/nono-context-allow-read-file-args-list' to allow reading these
+files through the sandboxed tool.")
+
 (after! gptel
   (defun fanshi/gptel--track-agent-buffer ()
     "Update the last visited agent buffer if current is one."
@@ -2000,11 +2029,14 @@ point is placed at its position."
   (defun fanshi/gptel-context-add-a (orig-fun &rest args)
     "Redirect context additions to the last visited gptel-agent buffer as links.
 
-Instead of adding text to the global context, this switches to the agent buffer
-and appends an Org-mode link to the prompt."
+Extracts the file path from the stored org-link and adds it to
+fanshi/gptel-context-files so the sandboxed Read tool can access it.
+Also appends an Org-mode link to the prompt."
     (unless (buffer-live-p fanshi/gptel-last-agent-buffer)
       (user-error "%s is not alive to add context link to." fanshi/gptel-last-agent-buffer))
     (call-interactively #'org-store-link)
+    (when buffer-file-name
+      (push buffer-file-name fanshi/gptel-context-files))
     (with-current-buffer fanshi/gptel-last-agent-buffer
       (goto-char (point-max))
       (org-insert-link)
