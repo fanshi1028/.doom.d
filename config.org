@@ -1354,6 +1354,14 @@ We load our own presets
     :description "Preset for quick simple task"
     :model 'gemma-4-E2B-it))
 #+end_src
+*** Creative
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (gptel-make-preset 'creative
+    :description "Preset for creative task"
+    :model 'mlx-community--gemma-4-31b-it-bf16
+    :request-params '(:append (:top_k 64 :enable_thinking t))))
+#+end_src
 *** Cloud
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
