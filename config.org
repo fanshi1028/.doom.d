@@ -2037,7 +2037,8 @@ Also appends an Org-mode link to the prompt."
         t)))
   (advice-add 'gptel-send :before-until #'fanshi/gptel-send--prevent-duplicate-a))
 #+end_src
-** fanshi/gptel-multisend
+** Multi parallel requests in the buffer
+*** fanshi/gptel-multisend
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/gptel-multisend (&optional ARG)
   "Send ARG repetitions of the current org subtree using gptel.
@@ -2061,6 +2062,41 @@ allow cloned subtrees to maintain their own history context."
                   (org-end-of-subtree)
                   (gptel-send)
                   (org-next-visible-heading 1)))))
+#+end_src
+*** gptel-abort aborts the request at point instead of the first one it found
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-abort-at-point-a (buf)
+    "Abort the gptel request in BUF (current-buffer) at point (response at point if any). else return nil"
+    (when-let*
+        (((eq buf (current-buffer)))
+         (pt (point))
+         (req-at-point (cl-find-if (lambda (req)
+                                     (let* ((fsm-info (gptel-fsm-info (cadr req)))
+                                            (pos (plist-get fsm-info :position)))
+                                       (and
+                                        (eq buf (plist-get fsm-info :buffer))
+                                        (let ((bounds (save-excursion
+                                                        (goto-char pos)
+                                                        (gptel--get-response-bounds))))
+                                          (and (< (car bounds) pt) (> (cdr bounds) pt))))))
+                                   gptel--request-alist))
+         (proc (car req-at-point))
+         (fsm (cadr req-at-point))
+         (fsm-info (gptel-fsm-info fsm))
+         (abort-fn (addr req-at-point))
+         (cb (plist-get fsm-info :callback))
+         ((functionp cb)))
+      ;; Run :callback with abort signal
+      (with-demoted-errors "Callback error: %S" (funcall cb 'abort info))
+      (funcall abort-fn)
+      (setf (alist-get proc gptel--request-alist nil 'remove) nil)
+      (gptel--fsm-transition fsm 'ABRT)
+      (message "Stopped gptel request at point in buffer %S"
+               (buffer-name buf))
+      t))
+
+  (advice-add #'gptel-abort :before-until #'fanshi/gptel-abort-at-point-a)) 
 #+end_src
 ** fanshi/speak
 #+begin_src emacs-lisp :tangle yes
