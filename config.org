@@ -971,23 +971,6 @@ Project-specific tools are appended via gptel-mode-hook using setq-local.")
   (fanshi/update-tools-category "write-tools" '("Edit" "Write" "Bash"))
   (fanshi/update-tools-category "web-read-tools" '("WebSearch" "WebFetch" "YouTube")))
 #+end_src
-*** Project-specific coding tools
-#+begin_src emacs-lisp :tangle yes
-(defvar fanshi/project-tools-map
-  '((doom . ("elisp")))
-  "Alist mapping projectile project types to additional tool names.
-Each value is a list of tool name strings to add to the base coding tools.")
-
-(defun fanshi/setup-coding-project-tools ()
-  "Append project-specific tools to coding-tools for this buffer."
-  (when-let* ((project-type (if (string= (doom-path "") (directory-file-name (projectile-project-root)))
-                                'doom
-                              projectile-project-type))
-              (extra-tools (alist-get project-type fanshi/project-tools-map nil nil #'equal)))
-    (setq-local fanshi/coding-tools (append fanshi/coding-tools extra-tools))))
-
-(add-hook! 'gptel-mode-hook #'fanshi/setup-coding-project-tools)
-#+end_src
 ** Tool call enhancement
 - tool call args auto validate
 - and make sure it safely return error detail about the wrong args during tool call to hint about the right usage.
@@ -1343,6 +1326,22 @@ We load our own presets
     :tools nil))
 #+end_src
 *** Coding
+**** Project-specific coding tools
+#+begin_src emacs-lisp :tangle yes
+(defvar fanshi/project-tools-map
+  '((doom . ("elisp")))
+  "Alist mapping projectile project types to additional tool names.
+Each value is a list of tool name strings to add to the base coding tools.")
+
+(defun fanshi/append-coding-project-tools (tools dir)
+  "Append project(in DIR)-specific tools to TOOLS."
+  (when-let* ((project-type (if (string= (doom-path "") (directory-file-name dir))
+                                'doom
+                              (projectile-project-type dir)))
+              (extra-tools (alist-get project-type fanshi/project-tools-map nil nil #'equal)))
+    (append tools extra-tools)))
+#+end_src
+**** Preset
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (gptel-make-preset 'coding
@@ -1350,12 +1349,13 @@ We load our own presets
                                :chat_template_kwargs (:enable_thinking :json-false)))
     :temperature 0.6
     :description "Preset for writing code"
-    :tools fanshi/coding-tools
+    :tools '(:eval (fanshi/append-coding-project-tools fanshi/coding-tools default-directory))
     :system (lambda ()
               (with-temp-buffer
                 (insert-file-contents (expand-file-name "./gptel/coding.md" doom-user-dir))
                 (gptel-agent--expand-templates (point-min)
-                                               `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/coding-tools))
+                                               `(("TOOLS" . ,(fanshi/gptel-agent--tool-system (fanshi/append-coding-project-tools fanshi/coding-tools default-directory) ))
+
                                                  ("DATE" . ,(format-time-string "%Y-%m-%d"))
                                                  ("CWD" . ,default-directory)))
                 (buffer-string)))))
