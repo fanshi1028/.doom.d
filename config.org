@@ -940,6 +940,23 @@ Symbol-Name is a string naming an Elisp function, variable, macro, or face."
    :category "elisp"
    :async nil))
 #+end_src
+*** Project-specific coding tools
+#+begin_src emacs-lisp :tangle yes
+(defvar fanshi/project-tools-map
+  '((doom . ("elisp")))
+  "Alist mapping projectile project types to additional tool names.
+Each value is a list of tool name strings to add to the base coding tools.")
+
+(defun fanshi/setup-coding-project-tools ()
+  "Append project-specific tools to coding-tools for this buffer."
+  (when-let* ((project-type (if (string= (doom-path "") (directory-file-name (projectile-project-root)))
+                                'doom
+                              projectile-project-type))
+              (extra-tools (alist-get project-type fanshi/project-tools-map nil nil #'equal)))
+    (setq-local fanshi/coding-tools (append fanshi/coding-tools extra-tools))))
+
+(add-hook! 'gptel-mode-hook #'fanshi/setup-coding-project-tools)
+#+end_src
 ** Tool call enhancement
 - tool call args auto validate
 - and make sure it safely return error detail about the wrong args during tool call to hint about the right usage.
