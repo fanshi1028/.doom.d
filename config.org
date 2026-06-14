@@ -1034,71 +1034,16 @@ Returns nil if validation succeeded, else a string describing errors."
     "Validate TOOL-CALL args via `gptel-pre-tool-call-functions'.
 
 Returns a plist with :BLOCK on validation failure, or nil to proceed."
-    (when-let* ((name (plist-get tool-call :name))
-                (args (plist-get tool-call :args))
-                (tool-spec (gptel-get-tool name)))
-      (let ((errors (fanshi/gptel--validate-tool-args tool-spec args)))
-        (when (not (string= errors ""))
-          `(:block ,errors)))))
+    (if-let ((name (plist-get tool-call :name)))
+        (if-let ((tool-spec (gptel-get-tool name)))
+            (let ((errors (fanshi/gptel--validate-tool-args tool-spec (plist-get tool-call :args))))
+              (if (not (string= errors ""))
+                  `(:block ,errors)
+                (when (member name fanshi/safe-tool) `(:confirm nil))))
+          `(:block ,(format "Error: Unknown tool called: %s" name)))
+      `(:block "Error: tool called with empty name")))
+
   (add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel--validate-tool-args-hook))
-#+end_src
-*** fanshi/gptel--handle-tool-use-a
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defun fanshi/gptel--handle-tool-use-a (fsm)
-    "Run tool calls captured in FSM, and advance the state machine with the results."
-    (when-let* ((info (gptel-fsm-info fsm))
-                (backend (plist-get info :backend))
-                ;; This function might run many times, so only act on the remaining tool calls.
-                (tool-use (cl-remove-if (lambda (tc) (plist-get tc :result))
-                                        (plist-get info :tool-use))))
-      (with-current-buffer (plist-get info :buffer)
-        (let ((pending-calls))
-          (mapc                         ; Construct function calls
-           (lambda (tool-call)
-             (letrec ((args (plist-get tool-call :args))
-                      (name (plist-get tool-call :name))
-                      (tool-spec (cl-find-if (lambda (ts) (equal (gptel-tool-name ts) name))
-                                             (plist-get info :tools)))
-                      (process-tool-result (apply-partially #'gptel--process-tool-call
-                                                            fsm tool-spec tool-call)))
-               (cond
-                ((null name) (funcall process-tool-result "Error: tool called with emtpy name"))
-                ((null tool-spec)
-                 (if (equal name gptel--ersatz-json-tool) ;Could be a JSON response
-                     ;; Handle structured JSON output supplied as tool call
-                     (let ((result (condition-case errdata
-                                       (gptel--json-encode (plist-get tool-call :args))
-                                     (error (mapconcat #'gptel--to-string errdata " ")))))
-                       (funcall (plist-get info :callback) result info))
-                   (funcall process-tool-result (format "Error: Unknown tool called: %s" name))))
-                (t (let ((confirm)) ;Check if tool requires confirmation
-                     (cond ;:confirm in tool-call (from hooks) takes precedence
-                      ((member name fanshi/safe-tool))
-                      ((and-let* ((call-confirm (plist-member tool-call :confirm)))
-                         (setq confirm (cadr call-confirm))))
-                      ((and gptel-confirm-tool-calls ;global and tool-specific setting
-                            (or (eq gptel-confirm-tool-calls t) ;always confirm, or
-                                (and-let* ((confirm (gptel-tool-confirm tool-spec)))
-                                  (or (not (functionp confirm))
-                                      (apply confirm (gptel--map-tool-args tool-spec args))))))
-                       (setq confirm t)))
-                     (if confirm  ;To send to callback for confirmation
-                         (push (list tool-spec args process-tool-result) pending-calls)
-                       (let ((arg-values (gptel--map-tool-args tool-spec args)))
-                         (if (gptel-tool-async tool-spec) ;If not, run the tool
-                             (apply (gptel-tool-function tool-spec)
-                                    process-tool-result arg-values)
-                           (let ((result (condition-case errdata
-                                             (apply (gptel-tool-function tool-spec) arg-values)
-                                           (error (mapconcat #'gptel--to-string errdata " ")))))
-                             (funcall process-tool-result result))))))))))))
-        tool-use)
-      (when pending-calls
-        (plist-put info :tool-pending t)
-        (funcall (plist-get info :callback)
-                 (cons 'tool-call pending-calls) info))))
-  (advice-add 'gptel--handle-tool-use :override #'fanshi/gptel--handle-tool-use-a))
 #+end_src
 *** fanshi/gptel--handle-post-tool-a
 #+begin_src emacs-lisp :tangle yes
