@@ -2045,10 +2045,7 @@ files through the sandboxed tool.")
 (after! gptel
   (defun fanshi/gptel--track-agent-buffer ()
     "Update the last visited agent buffer if current is one."
-    (when (and gptel-mode
-               ;; FIXME NOTE: maybe even non agent buffer are allowed?
-               (string-prefix-p "*gptel-agent:" (buffer-name)))
-      (setq fanshi/gptel-last-agent-buffer (current-buffer))))
+    (setq fanshi/gptel-last-agent-buffer (current-buffer)))
 
   (defun fanshi/gptel--setup-track-agent-buffer ()
     "Add `fanshi/gptel--track-agent-buffer' to the local window buffer change hook.
@@ -2056,6 +2053,7 @@ files through the sandboxed tool.")
 This tracks `fanshi/gptel-last-agent-buffer' when the user switches
 windows to a gptel buffer, rather than on mode-hook which only fires
 once at buffer creation."
+    (fanshi/gptel--track-agent-buffer)
     (add-hook 'window-buffer-change-functions #'fanshi/gptel--track-agent-buffer nil t))
 
   (add-hook! 'gptel-mode-hook :append #'fanshi/gptel--setup-track-agent-buffer)
