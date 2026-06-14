@@ -2041,7 +2041,15 @@ files through the sandboxed tool.")
                (string-prefix-p "*gptel-agent:" (buffer-name)))
       (setq fanshi/gptel-last-agent-buffer (current-buffer))))
 
-  (add-hook! 'gptel-mode-hook :append #'fanshi/gptel--track-agent-buffer)
+  (defun fanshi/gptel--setup-track-agent-buffer ()
+    "Add `fanshi/gptel--track-agent-buffer' to the local window buffer change hook.
+
+This tracks `fanshi/gptel-last-agent-buffer' when the user switches
+windows to a gptel buffer, rather than on mode-hook which only fires
+once at buffer creation."
+    (add-hook 'window-buffer-change-functions #'fanshi/gptel--track-agent-buffer nil t))
+
+  (add-hook! 'gptel-mode-hook :append #'fanshi/gptel--setup-track-agent-buffer)
 
   (defun fanshi/gptel-context-add-a (orig-fun &rest args)
     "Redirect context additions to the last visited gptel-agent buffer as links.
