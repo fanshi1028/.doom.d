@@ -915,12 +915,12 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
 *** Elisp Help
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (defun fanshi/gptel-agent--helpful-symbol (symbol-name)
+  (defun fanshi/gptel-agent--helpful-symbol (symbol-name &optional force-variable)
     "Return the helpful.el help buffer content for SYMBOL-NAME as a string.
 
 Symbol-Name is a string naming an Elisp function, variable, macro, or face."
     (if-let ((symbol (intern-soft symbol-name)))
-        (if-let ((buf (helpful--buffer symbol (fboundp symbol))))
+        (if-let ((buf (helpful--buffer symbol (and (not force-variable) (fboundp symbol)))))
             (with-current-buffer buf
               (helpful-update)
               (buffer-substring-no-properties (point-min) (point-max)))
@@ -930,9 +930,12 @@ Symbol-Name is a string naming an Elisp function, variable, macro, or face."
   (gptel-make-tool
    :name "ElispHelp"
    :function #'fanshi/gptel-agent--helpful-symbol
-   :description "Look up Elisp documentation for a symbol (function, variable, macro, or face) using helpful.el.\nReturns the full help buffer content including signature, documentation, key bindings, references, source code, and symbol properties."
+   :description "Look up Elisp documentation for a symbol (function, variable, macro) using helpful.el.\nReturns the full help buffer content including signature, documentation, key bindings, references, source code, and symbol properties."
    :args '((:name "symbol-name" :type string
-            :description "Name of the Elisp symbol to look up, e.g. \"gptel-send\" or \"buffer-file-name\""))
+            :description "Name of the Elisp symbol to look up, e.g. \"gptel-send\" or \"buffer-file-name\", default heuretic is callable-first")
+           (:name "force-variable" :type boolean
+            :description "Flag to force a variable lookup"
+            :optional t))
    :category "elisp"
    :async nil))
 #+end_src
