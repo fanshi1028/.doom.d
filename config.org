@@ -2131,7 +2131,7 @@ allow cloned subtrees to maintain their own history context."
                                             (pos (plist-get fsm-info :position)))
                                        (and
                                         (eq buf (plist-get fsm-info :buffer))
-                                        (let ((bounds (save-excursion
+                                        (when-let ((bounds (save-excursion
                                                         (goto-char pos)
                                                         (gptel--get-response-bounds))))
                                           (and (< (car bounds) pt) (> (cdr bounds) pt))))))
