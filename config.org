@@ -2945,6 +2945,13 @@ kill-new: Wrong type argument: stringp, nil
 
 (advice-add 'gptel-curl--get-args :filter-args #'fanshi/gptel-curl--get-args-a)
 #+end_src
+** ⛔ Warning (emacs): Tab width in Org files must be 8, not 8.  Setting back to 8.  Please adjust your ‘tab-width’ settings for Org mode
+- ref :: https://github.com/doomemacs/core/issues/7670#issuecomment-1987534938
+#+begin_src emacs-lisp :tangle yes
+(add-hook! 'org-mode-hook
+  (add-hook! 'after-change-major-mode-hook :local
+    (setq-local tab-width 8)))
+#+end_src
 * agent-shell
 ** Work around path issue
 #+begin_src emacs-lisp :tangle yes
