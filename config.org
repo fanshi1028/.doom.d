@@ -911,6 +911,31 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
 #+begin_src emacs-lisp :tangle yes
 (advice-add #'gptel-send :after (lambda (&rest r) "call `deactivate-mark' after, to temp fix an unexpected trigger of snippet by org-cycle calls in reponse" (if (use-region-p) (deactivate-mark))))
 #+end_src
+** Tools
+*** Elisp Help
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-agent--helpful-symbol (symbol-name)
+    "Return the helpful.el help buffer content for SYMBOL-NAME as a string.
+
+Symbol-Name is a string naming an Elisp function, variable, macro, or face."
+    (if-let ((symbol (intern-soft symbol-name)))
+        (if-let ((buf (helpful--buffer symbol (fboundp symbol))))
+            (with-current-buffer buf
+              (helpful-update)
+              (buffer-substring-no-properties (point-min) (point-max)))
+          (error "helpful could not create a buffer for %s" symbol-name))
+      (error "Unknown symbol: %s" symbol-name)))
+
+  (gptel-make-tool
+   :name "ElispHelp"
+   :function #'fanshi/gptel-agent--helpful-symbol
+   :description "Look up Elisp documentation for a symbol (function, variable, macro, or face) using helpful.el.\nReturns the full help buffer content including signature, documentation, key bindings, references, source code, and symbol properties."
+   :args '((:name "symbol-name" :type string
+            :description "Name of the Elisp symbol to look up, e.g. \"gptel-send\" or \"buffer-file-name\""))
+   :category "elisp"
+   :async nil))
+#+end_src
 ** Tool call enhancement
 - tool call args auto validate
 - and make sure it safely return error detail about the wrong args during tool call to hint about the right usage.
