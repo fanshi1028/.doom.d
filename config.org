@@ -913,7 +913,7 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
 (advice-add #'gptel-send :after (lambda (&rest r) "call `deactivate-mark' after, to temp fix an unexpected trigger of snippet by org-cycle calls in reponse" (if (use-region-p) (deactivate-mark))))
 #+end_src
 ** Tools
-*** Elisp Help
+*** Elisp Help Tool
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (defun fanshi/gptel-agent--helpful-symbol (symbol-name &optional force-variable)
