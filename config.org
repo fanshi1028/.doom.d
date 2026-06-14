@@ -940,6 +940,37 @@ Symbol-Name is a string naming an Elisp function, variable, macro, or face."
    :category "elisp"
    :async nil))
 #+end_src
+*** Tool Groups
+#+begin_src emacs-lisp :tangle yes :lexical t
+(defvar fanshi/research-tools '("read-tools" "web-read-tools"))
+(defvar fanshi/coding-tools '("read-tools" "write-tools" "WebFetch")
+  "Base tool list for the coding preset.
+Project-specific tools are appended via gptel-mode-hook using setq-local.")
+(defvar fanshi/scrum-tools (append fanshi/research-tools '("TodoWrite" "Delegate")))
+(defvar fanshi/gptel-agent-tools (append fanshi/research-tools '("TodoWrite" "Delegate")))
+(defvar fanshi/gptel-agent-nightshift-tools (append fanshi/gptel-agent-tools '("Agent" "task")))
+(after! gptel-agent
+  (defun fanshi/update-tools-category (new-category toolnames-list)
+    "Move TOOLNAMES-LIST from their current categories to NEW-CATEGORY."
+    (dolist (toolname toolnames-list)
+      (let* ((tool (gptel-get-tool toolname))
+             (old-category (gptel-tool-category tool)))
+        (unless (string= old-category new-category)
+          ;; 1. updated tool with new internal category
+          (aset tool 6 new-category)
+          ;; 2. Add to new category's inner alist
+          (push (cons toolname tool) (alist-get new-category gptel--known-tools nil nil #'equal))
+          ;; 3. Remove from old category's inner alist
+          (let ((old-alist (alist-get old-category gptel--known-tools nil nil #'equal)))
+            (when old-alist
+              ;; Remove (name . tool) pair where name is toolname
+              (setf (alist-get old-category gptel--known-tools nil nil #'equal)
+                    (assoc-delete-all toolname old-alist #'equal))))))))
+
+  (fanshi/update-tools-category "read-tools" '("Glob" "Grep" "Read"))
+  (fanshi/update-tools-category "write-tools" '("Edit" "Write" "Bash"))
+  (fanshi/update-tools-category "web-read-tools" '("WebSearch" "WebFetch" "YouTube")))
+#+end_src
 *** Project-specific coding tools
 #+begin_src emacs-lisp :tangle yes
 (defvar fanshi/project-tools-map
@@ -1303,35 +1334,6 @@ for remote APIs."
 We load our own presets
 #+begin_src emacs-lisp :tangle yes
 (after! gptel-agent (advice-add 'gptel-agent-update :override #'ignore))
-#+end_src
-*** Tool Groups
-#+begin_src emacs-lisp :tangle yes :lexical t
-(defvar fanshi/research-tools '("read-tools" "web-read-tools"))
-(defvar fanshi/coding-tools '("read-tools" "write-tools" "WebFetch"))
-(defvar fanshi/scrum-tools (append fanshi/research-tools '("TodoWrite" "Delegate")))
-(defvar fanshi/gptel-agent-tools (append fanshi/research-tools '("TodoWrite" "Delegate")))
-(defvar fanshi/gptel-agent-nightshift-tools (append fanshi/gptel-agent-tools '("Agent" "task")))
-(after! gptel-agent
-  (defun fanshi/update-tools-category (new-category toolnames-list)
-    "Move TOOLNAMES-LIST from their current categories to NEW-CATEGORY."
-    (dolist (toolname toolnames-list)
-      (let* ((tool (gptel-get-tool toolname))
-             (old-category (gptel-tool-category tool)))
-        (unless (string= old-category new-category)
-          ;; 1. updated tool with new internal category
-          (aset tool 6 new-category)
-          ;; 2. Add to new category's inner alist
-          (push (cons toolname tool) (alist-get new-category gptel--known-tools nil nil #'equal))
-          ;; 3. Remove from old category's inner alist
-          (let ((old-alist (alist-get old-category gptel--known-tools nil nil #'equal)))
-            (when old-alist
-              ;; Remove (name . tool) pair where name is toolname
-              (setf (alist-get old-category gptel--known-tools nil nil #'equal)
-                    (assoc-delete-all toolname old-alist #'equal))))))))
-
-  (fanshi/update-tools-category "read-tools" '("Glob" "Grep" "Read"))
-  (fanshi/update-tools-category "write-tools" '("Edit" "Write" "Bash"))
-  (fanshi/update-tools-category "web-read-tools" '("WebSearch" "WebFetch" "YouTube")))
 #+end_src
 *** General tasks
 #+begin_src emacs-lisp :tangle yes
