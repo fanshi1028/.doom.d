@@ -808,13 +808,14 @@ Disable due to it seems to mess thing up when I use `fanshi/multisend'
 ** Auto continue on not finished responses
 *** Config
 #+begin_src emacs-lisp :tangle yes
-(defcustom fanshi/gptel-auto-continue-enabled t
+(defcustom fanshi/gptel-auto-continue-enabled nil
   "If non-nil, automatically detect and continue truncated responses."
   :type 'boolean
   :group 'gptel)
 #+end_src
 *** fanshi/gptel--not-done-auto-continue-or-notify
 #+begin_src emacs-lisp :tangle yes :lexical t
+;; FIXME: auto continue no good with multisend
 (after! gptel
   (defun fanshi/notify () (ns-do-applescript
                            (format "display notification \"%s\" with title \"%s\" sound name \"Submerge\""
