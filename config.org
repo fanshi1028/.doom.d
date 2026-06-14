@@ -1135,6 +1135,45 @@ return nil if the validation suceeded else return a string describing the errors
   (advice-add 'gptel--accept-tool-calls :before #'fanshi/gptel-agent--clear-tool-calls-confirmation-timer)
   (advice-add 'gptel--reject-tool-calls :before #'fanshi/gptel-agent--clear-tool-calls-confirmation-timer))
 #+end_src
+*** Force Read tool to read less
+**** fanshi/gptel-agent--read-file-lines-a
+#+begin_src emacs-lisp :tangle yes
+(after! gptel-agent
+  (defun fanshi/gptel-agent--read-file-lines-a (filename start-line end-line)
+    (unless start-line (error "Error: Please provide start-line args to the Read tool"))
+    (unless end-line (error "Error: Read file tool %s" ))
+    (unless (<= (- end-line start-line) 100)
+      (error "Error: Read tool only allow reading 100 lines each time, you tried to read from line %s to line %s" start-line end-line)))
+
+  (advice-add 'gptel-agent--read-file-lines :before #'fanshi/gptel-agent--read-file-lines-a ))
+#+end_src
+**** Update tool doc
+#+begin_src emacs-lisp :tangle no
+(after! gptel-agent
+  (when-let ((read-tool (gptel-get-tool "Read")))
+    (setf (gptel-tool-description read-tool)
+          "Read file contents between specified line numbers `start_line` and `end_line`,
+with both ends included.
+
+Consider using the \"Grep\" tool to find the right range to read first.
+
+Read at most 100 lines at a time"
+          (gptel-tool-args read-tool)
+          '((:name "file_path"
+             :type "string"
+             :description "The path to the file to be read.")
+            (:name "start_line"
+             :type "integer"
+             :description "The line to start reading from"
+             )
+            (:name "end_line"
+             :type "integer"
+             :description "The line up to which to read"))
+          (alist-get "Read"
+                     (alist-get (gptel-tool-category (gptel-get-tool "Read")) gptel--known-tools nil nil #'equal)
+                     nil nil #'equal)
+          read-tool)))
+#+end_src
 ** Inject TOOLS and TOOL_USAGE into Agent specification dynamically
 *** fanshi/gptel-agent--tool-system
 #+begin_src emacs-lisp :tangle yes
