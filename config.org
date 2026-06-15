@@ -1570,6 +1570,23 @@ For 'Mlx: uses :hf tag value as model symbol."
   (advice-add 'gptel-agent--make-directory :before #'fanshi/restrict-to-projectile-files-2-a))
 #+end_src
 *** nono
+**** fanshi/handle_nono_output
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/handle_nono_output (exit-code)
+  "Handle nono wrapped command output in the buffer. EXIT-CODE is from the nono process"
+  (save-excursion
+    (goto-char (point-min))
+    (if (zerop exit-code)
+        (let ((pos (search-forward "Applying sandbox...\n")))
+          (when pos (delete-region (point-min) pos)))
+      (let ((pos (search-forward "NONO DIAGNOSTIC")))
+        (when pos (delete-region (point-min) pos)))
+      (goto-char (point-max))
+      (let ((pos (search-backward "To grant additional access, re-run with:")))
+        (when pos (delete-region pos (point-max))))
+      (goto-char (point-min))
+      (insert (format "Command failed with exit code %d:\nSTDOUT+STDERR:\n" exit-code)))))
+#+end_src
 **** fanshi/nono-context-allow-read-file-args-list
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/nono-context-allow-read-file-args-list (&optional context-files)
@@ -1600,14 +1617,9 @@ COMMAND is the bash command string to execute."
              (when (memq (process-status process) '(exit signal))
                (let* ((exit-code (process-exit-status process))
                       (output (with-current-buffer (process-buffer process)
-                                (if (zerop exit-code)
-                                    (progn
-                                      (goto-char (point-min))
-                                      (let ((pos (search-forward "Applying sandbox...\n")))
-                                        (when pos (delete-region (point-min) pos)))
-                                      (buffer-string))
-                                  (format "Command failed with exit code %d:\nSTDOUT+STDERR:\n%s"
-                                          exit-code (buffer-string))))))
+                                (fanshi/handle_nono_output exit-code)
+                                (gptel-agent--truncate-buffer (format "%s" command))
+                                (buffer-string))))
                  (kill-buffer (process-buffer process))
                  (funcall callback output)))))
         (funcall callback (format "Project root not found, command blocked: %s" command)))))
@@ -1653,15 +1665,9 @@ Raises an error if PATTERN is empty, PATH is not readable, or the
                          (nconc args (list "-L" (number-to-string depth)))
                        args))
                (exit-code (apply #'call-process fanshi/nono nil t nil args)))
-          (when (/= exit-code 0)
-            (goto-char (point-min))
-            (insert (format "Glob failed with exit code %d\n.STDOUT:\n\n"
-                            exit-code))))
-        (goto-char (point-min))
-        (let ((pos (search-forward "Applying sandbox...\n")))
-          (when pos (delete-region (point-min) pos)))
-        (gptel-agent--truncate-buffer "glob")
-        (buffer-string))))
+          (fanshi/handle_nono_output exit-code)
+          (gptel-agent--truncate-buffer "glob")
+          (buffer-string)))))
   (advice-add 'gptel-agent--glob :override #'fanshi/gptel-agent--glob-a))
 #+end_src
 **** fanshi/gptel-agent--grep-a
@@ -1717,11 +1723,8 @@ file.  Results are sorted by modification time."
                              (fanshi/nono-context-allow-read-file-args-list)
                              (list "--" grepper) args))
                (exit-code (apply #'call-process fanshi/nono nil '(t t) nil args)))
-          (goto-char (point-min))
-          (if (/= exit-code 0)
-              (insert (format "Error: search failed with exit-code %d.  Tool output:\n\n" exit-code))
-            (let ((pos (search-forward "Applying sandbox...\n")))
-              (when pos (delete-region (point-min) pos))))
+          (fanshi/handle_nono_output exit-code)
+          (gptel-agent--truncate-buffer "grep")
           (buffer-string)))))
   (advice-add 'gptel-agent--grep :override #'fanshi/gptel-agent--grep-a))
 #+end_src
