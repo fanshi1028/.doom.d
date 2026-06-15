@@ -2011,7 +2011,7 @@ files through the sandboxed tool.")
     "Update the last visited agent buffer if current is one."
     (setq fanshi/gptel-last-agent-buffer (current-buffer)))
 
-  (defun fanshi/gptel--setup-track-agent-buffer ()
+  (defun fanshi/gptel--setup-track-agent-buffer (&optional _rest)
     "Add `fanshi/gptel--track-agent-buffer' to the local window buffer change hook.
 
 This tracks `fanshi/gptel-last-agent-buffer' when the user switches
