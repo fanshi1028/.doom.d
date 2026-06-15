@@ -984,7 +984,7 @@ Project-specific tools are appended via gptel-mode-hook using setq-local.")
       ((or 'number "number") (numberp arg))
       ((or 'integer "integer") (integerp arg))
       ((or 'boolean "boolean") (booleanp arg))
-      (_ (progn (message (format "Warning: FIXME tool call validation skipped for type %s: %s" type arg)) t))))
+      (_ (progn (message "Warning: FIXME tool call validation skipped for type %s: %s" type arg) t))))
 
   (defun fanshi/gptel--validate-tool-args (tool-spec args)
     "Validate ARGS according to TOOL-SPEC.
@@ -1335,6 +1335,7 @@ We load our own presets
                       :chat_template_kwargs (:enable_thinking :json-false)
                       :top_p 0.80 :presence_penalty 1.5)
     :temperature 0.7
+    :system gptel--system-message
     :description "Preset for execute instruction"
     :tools nil))
 #+end_src
@@ -1842,7 +1843,7 @@ file.  Results are sorted by modification time."
                           (insert "@" classification " ")
                           (goto-char (point-max)))
                         (funcall cb)))))
-              (t (message (format "Prompt classification %s" err))))))
+              (t (message "Prompt classification %s" err)))))
       (funcall cb)))
   (add-to-list 'gptel-prompt-transform-functions #'fanshi/gptel-apply-preset-by-prompt-classification)
 
