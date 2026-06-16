@@ -1623,7 +1623,7 @@ For 'Mlx: uses :hf tag value as model symbol."
     "Restrict file reads to project root, except for files in gptel context."
     ;; Allow files explicitly added as gptel context
     (unless (member (car args) fanshi/gptel-context-files)
-      (funcall #'fanshi/restrict-to-projectile-files-a args)))
+      (apply #'fanshi/restrict-to-projectile-files-a args)))
   (advice-add 'gptel-agent--read-file-lines :before #'fanshi/restrict-to-projectile-files-plus-context-a))
 #+end_src
 **** fanshi/restrict-to-projectile-files-2-a
