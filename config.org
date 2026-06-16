@@ -1589,6 +1589,7 @@ For 'Mlx: uses :hf tag value as model symbol."
    gptel-model 'mlx-community--Qwen3.6-35B-A3B-bf16
    gptel-max-tokens nil
    gptel-log-level 'info
+   gptel-magit-model 'mlx-community--gemma-4-E4B-it-bf16
    gptel--request-params '(:top_p 0.95 :top_k 20 :min_p 0.0 :presence_penalty 0.0 :repetition_penalty 1.0))
   (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* "))
 #+end_src
