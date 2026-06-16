@@ -1201,16 +1201,21 @@ Returns a plist with :BLOCK on validation failure, or nil to proceed."
   (advice-add 'gptel--reject-tool-calls :before #'fanshi/gptel-agent--clear-tool-calls-confirmation-timer))
 #+end_src
 *** Force Read tool to read less
+**** fanshi/read-tool-max-lines
+#+begin_src emacs-lisp :tangle yes
+(defcustom fanshi/read-tool-max-lines 200
+  "Max number of lines for the Read tool to read, see `gptel-agent--read-file-lines-a' and ")
+#+end_src
 **** fanshi/gptel-agent--read-file-lines-a
 #+begin_src emacs-lisp :tangle yes
 (after! gptel-agent
   (defun fanshi/gptel-agent--read-file-lines-a (filename start-line end-line)
     (unless (>= end-line start-line)
       (error "Error: Read tool end-line %s < startline %s" end-line start-line ))
-    (unless (<= (- end-line start-line) 200)
-      (error "Error: Read tool only allow reading 200 lines each time, you tried to read from line %s to line %s" start-line end-line)))
+    (unless (<= (- end-line start-line) fanshi/read-tool-max-lines)
+      (error "Error: Read tool only allow reading %s lines each time, you tried to read from line %s to line %s" fanshi/read-tool-max-lines start-line end-line)))
 
-  (advice-add 'gptel-agent--read-file-lines :before #'fanshi/gptel-agent--read-file-lines-a ))
+  (advice-add 'gptel-agent--read-file-lines :before #'fanshi/gptel-agent--read-file-lines-a))
 #+end_src
 **** Update tool doc
 #+begin_src emacs-lisp :tangle yes
@@ -1221,7 +1226,7 @@ Returns a plist with :BLOCK on validation failure, or nil to proceed."
 
      Consider using the \"Imenu\" tool to find the right range to read first.
 
-     Read at most 200 lines at a time")
+     Read at most `fanshi/read-tool-max-lines' lines at a time")
     (aset read-tool 4 '((:name "file_path"
                          :type "string"
                          :description "The path to the file to be read.")
