@@ -1207,8 +1207,8 @@ Returns a plist with :BLOCK on validation failure, or nil to proceed."
   (defun fanshi/gptel-agent--read-file-lines-a (filename start-line end-line)
     (unless (>= end-line start-line)
       (error "Error: Read tool end-line %s < startline %s" end-line start-line ))
-    (unless (<= (- end-line start-line) 100)
-      (error "Error: Read tool only allow reading 100 lines each time, you tried to read from line %s to line %s" start-line end-line)))
+    (unless (<= (- end-line start-line) 200)
+      (error "Error: Read tool only allow reading 200 lines each time, you tried to read from line %s to line %s" start-line end-line)))
 
   (advice-add 'gptel-agent--read-file-lines :before #'fanshi/gptel-agent--read-file-lines-a ))
 #+end_src
@@ -1221,7 +1221,7 @@ Returns a plist with :BLOCK on validation failure, or nil to proceed."
 
      Consider using the \"Imenu\" tool to find the right range to read first.
 
-     Read at most 100 lines at a time")
+     Read at most 200 lines at a time")
     (aset read-tool 4 '((:name "file_path"
                          :type "string"
                          :description "The path to the file to be read.")
