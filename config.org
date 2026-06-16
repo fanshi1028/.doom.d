@@ -1215,29 +1215,28 @@ Returns a plist with :BLOCK on validation failure, or nil to proceed."
 **** Update tool doc
 #+begin_src emacs-lisp :tangle yes
 (after! gptel-agent
-  (when-let ((read-tool (gptel-get-tool "Read")))
-    (setf (gptel-tool-description read-tool)
-          "Read file contents between specified line numbers `start_line` and `end_line`,
-with both ends included.
+  (when-let* ((read-tool (gptel-get-tool "Read")))
+    (aset read-tool 3 "Read file contents between specified line numbers `start_line` and `end_line`,
+     with both ends included.
 
-Consider using the \"Imenu\" tool to find the right range to read first.
+     Consider using the \"Imenu\" tool to find the right range to read first.
 
-Read at most 100 lines at a time"
-          (gptel-tool-args read-tool)
-          '((:name "file_path"
-             :type "string"
-             :description "The path to the file to be read.")
-            (:name "start_line"
-             :type "integer"
-             :description "The line to start reading from"
-             )
-            (:name "end_line"
-             :type "integer"
-             :description "The line up to which to read"))
-          (alist-get "Read"
-                     (alist-get (gptel-tool-category (gptel-get-tool "Read")) gptel--known-tools nil nil #'equal)
-                     nil nil #'equal)
-          read-tool)))
+     Read at most 100 lines at a time")
+    (aset read-tool 4 '((:name "file_path"
+                         :type "string"
+                         :description "The path to the file to be read.")
+                        (:name "start_line"
+                         :type "integer"
+                         :description "The line to start reading from"
+                         )
+                        (:name "end_line"
+                         :type "integer"
+                         :description "The line up to which to read")))
+    (setf
+     (alist-get "Read"
+                (alist-get (gptel-tool-category (gptel-get-tool "Read")) gptel--known-tools nil nil #'equal)
+                nil nil #'equal)
+     read-tool)))
 #+end_src
 ** Inject TOOLS and TOOL_USAGE into Agent specification dynamically
 *** fanshi/gptel-agent--tool-system
