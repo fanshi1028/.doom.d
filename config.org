@@ -815,7 +815,6 @@ Disable due to it seems to mess thing up when I use `fanshi/multisend'
 #+end_src
 *** fanshi/gptel--not-done-auto-continue-or-notify
 #+begin_src emacs-lisp :tangle yes :lexical t
-;; FIXME: auto continue no good with multisend
 (after! gptel
   (defun fanshi/notify () (ns-do-applescript
                            (format "display notification \"%s\" with title \"%s\" sound name \"Submerge\""
@@ -824,7 +823,13 @@ Disable due to it seems to mess thing up when I use `fanshi/multisend'
     "Check if the just-inserted response appears truncated and auto-continue.
 Runs as a post-response hook, so the FSM is fully done and no
 re-entrancy corruption occurs. Uses run-at-time to avoid blocking."
-    (if fanshi/gptel-auto-continue-enabled
+    (if (and fanshi/gptel-auto-continue-enabled
+             ;; TEMP FIXME: auto continue seems to not working well with multisend
+             ;; TEMP FIXME: This check probably I little bit too adhoc and hacky
+             (= 1 (cl-count-if (lambda (req)
+                                 (let ((fsm-info (gptel-fsm-info (cadr req))))
+                                   (eq (current-buffer) (plist-get fsm-info :buffer))))
+                               gptel--request-alist)))
         (let ((response-text (buffer-substring-no-properties beg end)))
           (when (and response-text (> (length response-text) 0))
             (let ((classifier-prompt
@@ -846,7 +851,8 @@ Your answer (one word):"
               (while (and (not done) (> retry-quota 0))
                 (cl-decf retry-quota)
                 (condition-case err
-                    (let ((inner-fsm (gptel-make-fsm)))
+                    (let ((inner-fsm (gptel-make-fsm))
+                          (gptel-model 'mlx-community--gemma-4-E4B-it-bf16))
                       (gptel-request classifier-prompt
                         :callback (lambda (resp _info)
                                     (setq classification resp)
