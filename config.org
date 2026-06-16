@@ -946,6 +946,67 @@ Symbol-Name is a string naming an Elisp function, variable, macro, or face."
    :category "elisp"
    :async nil))
 #+end_src
+*** Imenu Tool
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/ai-imenu--flatten (items &optional parent)
+  "Flatten imenu tree ITEMS into a list of (name . position) pairs.
+
+ITEMS is a list of items, where each item is either a pair (NAME . POSITION)
+or a pair (NAME . CHILDREN) with CHILDREN being a list of items.
+
+PARENT is the name of the parent section, used to build hierarchical
+names by joining parent and child names with a separator."
+  (mapcan
+   (lambda (item)
+     (let* ((name (car item))
+            (rest (cdr item))
+            (parent (if parent (concat parent " / " name) name)))
+       (if (listp rest)
+           (fanshi/ai-imenu--flatten (cdr item) parent)
+         ;; (or (markerp rest) (integerp rest))
+         (list (cons parent rest)))))
+   items))
+
+(defun fanshi/ai-imenu (file-path)
+  "Return the imenu index of the file at FILE-PATH as a flat list.
+
+If no buffer is visiting FILE-PATH, open it temporarily (read-only).
+This is useful for an AI agent to understand the structure of a file
+without reading its entire contents. Imenu provides a semantic index
+(functions, classes, sections) which is far more efficient than reading
+the whole file or grepping line-by-line."
+  (if-let* ((buffer (or (find-buffer-visiting file-path)
+                        (find-file-noselect file-path)))
+            (imenu-use-markers t))
+      (when-let* ((items (with-current-buffer buffer
+                           (save-excursion
+                             (without-restriction
+                               (funcall imenu-create-index-function)))))
+                  (flat-items (fanshi/ai-imenu--flatten items)))
+        (with-temp-buffer
+          (insert "Items:\n")
+          (dolist (item flat-items)
+            (let ((name (car item))
+                  (pos (cdr item)))
+              (insert (format "- %s: line %s, col %s\n"
+                              name
+                              (if (markerp pos) (marker-position pos) pos)
+                              (or (save-excursion (with-current-buffer buffer (goto-char pos) (current-column))) 0)))))
+          (gptel-agent--truncate-buffer "imenu")
+          (buffer-substring-no-properties (point-min) (point-max))))
+    "Error: file not found"))
+
+(after! gptel
+  (gptel-make-tool
+   :name "Imenu"
+   :function #'fanshi/ai-imenu
+   :description "Get the imenu index of a file. Returns a list of all named items with their line/column positions. Use this to understand the file structure before reading or editing - much more efficient than scanning the entire file. Takes a file_path argument to specify which file to index."
+   :args '((:name "file_path"
+            :type string
+            :description "The path to the file whose imenu index to retrieve"))
+   :category "read-tools"
+   :async nil))
+#+end_src
 *** Tool Groups
 #+begin_src emacs-lisp :tangle yes :lexical t
 (defvar fanshi/research-tools '("read-tools" "web-read-tools"))
@@ -973,8 +1034,8 @@ Project-specific tools are appended via gptel-mode-hook using setq-local.")
               (setf (alist-get old-category gptel--known-tools nil nil #'equal)
                     (assoc-delete-all toolname old-alist #'equal))))))))
 
-  (fanshi/update-tools-category "read-tools" '("Glob" "Grep" "Read"))
-  (fanshi/update-tools-category "write-tools" '("Edit" "Write" "Bash"))
+  (fanshi/update-tools-category "read-tools" '("Glob" "Imenu" "Read"))
+  (fanshi/update-tools-category "write-tools" '("Edit" "Write"))
   (fanshi/update-tools-category "web-read-tools" '("WebSearch" "WebFetch" "YouTube")))
 #+end_src
 ** Tool call enhancement
@@ -1159,7 +1220,7 @@ Returns a plist with :BLOCK on validation failure, or nil to proceed."
           "Read file contents between specified line numbers `start_line` and `end_line`,
 with both ends included.
 
-Consider using the \"Grep\" tool to find the right range to read first.
+Consider using the \"Imenu\" tool to find the right range to read first.
 
 Read at most 100 lines at a time"
           (gptel-tool-args read-tool)
