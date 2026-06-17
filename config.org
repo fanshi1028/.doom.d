@@ -988,10 +988,13 @@ the whole file or grepping line-by-line."
           (dolist (item flat-items)
             (let ((name (car item))
                   (pos (cdr item)))
-              (insert (format "- %s: line %s, col %s\n"
-                              name
-                              (if (markerp pos) (marker-position pos) pos)
-                              (or (save-excursion (with-current-buffer buffer (goto-char pos) (current-column))) 0)))))
+              (insert (with-current-buffer buffer
+                        (save-excursion
+                          (goto-char pos)
+                          (format "- %s: line %s, col %s\n"
+                                  name
+                                  (line-number-at-pos nil t)
+                                  (current-column) ))))))
           (gptel-agent--truncate-buffer "imenu")
           (buffer-substring-no-properties (point-min) (point-max))))
     "Error: file not found"))
