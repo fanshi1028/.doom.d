@@ -1700,6 +1700,11 @@ For 'Mlx: uses :hf tag value as model symbol."
 #+begin_src emacs-lisp :tangle no
 (after! gptel (fanshi/gptel-make-openai "SwiftLM" "127.0.0.1:5413"))
 #+end_src
+**** ds4-server
+- url :: https://github.com/antirez/ds4
+#+begin_src emacs-lisp :tangle no
+(after! gptel (fanshi/gptel-make-openai "DS4" "127.0.0.1:8000" nil nil 'set-as-backend))
+#+end_src
 
 ** Default
 #+begin_src emacs-lisp :tangle yes
