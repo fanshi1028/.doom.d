@@ -1128,7 +1128,7 @@ the whole file or grepping line-by-line."
 *** Tool Groups
 #+begin_src emacs-lisp :tangle yes :lexical t
 (defvar fanshi/research-tools '("read-tools" "web-read-tools"))
-(defvar fanshi/coding-tools '("read-tools" "write-tools" "WebFetch")
+(defvar fanshi/coding-tools '("read-tools" "write-tools" "WebFetch" "WebSearch")
   "Base tool list for the coding preset.
 Project-specific tools are appended via gptel-mode-hook using setq-local.")
 (defvar fanshi/scrum-tools (append fanshi/research-tools '("TodoWrite" "Delegate")))
