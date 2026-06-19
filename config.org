@@ -1131,7 +1131,7 @@ the whole file or grepping line-by-line."
 (defvar fanshi/coding-tools '("read-tools" "write-tools" "WebFetch" "WebSearch")
   "Base tool list for the coding preset.
 Project-specific tools are appended via gptel-mode-hook using setq-local.")
-(defvar fanshi/scrum-tools (append fanshi/research-tools '("TodoWrite" "Delegate")))
+(defvar fanshi/scrum-tools (append fanshi/research-tools '("TodoWrite" "Delegate" "ReviewTask" "IntegrateTask" "DiscardTask")))
 (defvar fanshi/gptel-agent-tools (append fanshi/research-tools '("TodoWrite" "Delegate")))
 (defvar fanshi/gptel-agent-nightshift-tools (append fanshi/gptel-agent-tools '("Agent" "task")))
 (after! gptel-agent
@@ -1955,7 +1955,7 @@ file.  Results are sorted by modification time."
 #+end_src
 *** liberate restricted tools!
 #+begin_src emacs-lisp :tangle yes
-(defvar fanshi/safe-tool '("Write" "Edit" "Bash"))
+(defvar fanshi/safe-tool '("Write" "Edit" "Bash" "ReviewTask" "IntegrateTask"))
 #+end_src
 ** Prompt rewrite for gptel-mode
 *** fanshi/gptel--rewrite-directive-default
@@ -2874,14 +2874,13 @@ Org-ID based task update: the primary mechanism for task state transitions.
 (defvar-local fanshi/ai-delegate--current-task-id nil
   "The org-id of the current AI-delegated task.")
 
-(defun fanshi/ai-delegate--agent-active-p (preset-name)
-  "Return non-nil if PRESET-NAME is a valid gptel preset or 'user'.
-'User' is a special marker meaning the task is pending human input."
-  (or (eq preset-name "user")
-      (string= preset-name "user")
-      (gptel-get-preset (intern-soft preset-name))))
-
 (after! gptel
+  (defun fanshi/ai-delegate--agent-active-p (preset-name)
+    "Return non-nil if PRESET-NAME is a valid gptel preset or 'user'.
+'User' is a special marker meaning the task is pending human input."
+    (or (eq preset-name "user")
+        (string= preset-name "user")
+        (gptel-get-preset (intern-soft preset-name))))
   (defun fanshi/ai-delegate--update-task-by-id (task-id status summary)
     "Update the task identified by TASK-ID with STATUS and SUMMARY.
 STATUS is a TODO keyword like \"DONE\" or \"KILL\".
@@ -2903,6 +2902,11 @@ Works even if the org file is not currently visited in a buffer."
     "Tool for the gptel-agent to signal task completion.
 SUMMARY is a brief description of what was accomplished."
     (when fanshi/ai-delegate--current-task-id
+      ;; Commit the changes with jj before marking task done
+      (with-temp-buffer
+        (let ((exit-code (call-process "jj" nil t nil "describe" "-m" summary)))
+          (unless (zerop exit-code)
+            (message "Warning: jj describe failed with code %d" exit-code))))
       (fanshi/ai-delegate--update-task-by-id fanshi/ai-delegate--current-task-id "DONE" summary)
       (format "Task finished: %s" summary)))
 
@@ -2910,6 +2914,12 @@ SUMMARY is a brief description of what was accomplished."
     "Tool for the gptel-agent to signal task abortion.
 SUMMARY is a brief description of why the task is aborted."
     (when fanshi/ai-delegate--current-task-id
+      ;; Abandon the working-copy commit to discard changes
+      ;; TEMP FIXME is jj abondon correct here?
+      (with-temp-buffer
+        (let ((exit-code (call-process "jj" nil t nil "abandon" "@")))
+          (unless (zerop exit-code)
+            (message "Warning: jj abandon failed with code %d" exit-code))))
       (fanshi/ai-delegate--update-task-by-id fanshi/ai-delegate--current-task-id "KILL" summary)
       (format "Task aborted: %s" summary)))
 
@@ -2938,7 +2948,7 @@ SUMMARY: brief description of what was accomplished and tell us why"
 If AGENT is \"user\", delegate to human for input, using TASK
 as the description of what's needed.
 Otherwise, spawn a dedicated gptel-agent buffer with AGENT
-working on TASK in a worktree.
+working on TASK in an isolated jj workspace.
 TASK-ID is the org-id of the task entry to track."
     (if (or (string= agent "user") (string= agent 'user))
         ;; Delegate to human
@@ -2960,11 +2970,23 @@ TASK-ID is the org-id of the task entry to track."
              (branch-name (format "task-%s-%s" task-id (format-time-string "%Y%m%d-%H%M%S")))
              (target-dir (expand-file-name (concat ".trees/" branch-name) project-root))
              (child-buf-name (format "*gptel-agent: %s*" (substring branch-name 0 30))))
-        ;; 1. Create worktree if needed
+        ;; 1. Create jj workspace if needed
         (unless (file-directory-p target-dir)
           (make-directory (file-name-directory target-dir) t)
-          (unless (zerop (call-process "git" nil nil nil "worktree" "add" "-b" branch-name target-dir))
-            (error "Failed to create worktree for branch '%s'" branch-name)))
+          (with-temp-buffer
+            ;; Create a jj workspace for this agent
+            (unless (zerop (call-process "jj" nil t nil "workspace" "add" target-dir))
+              (error "Failed to create jj workspace at '%s'" target-dir))
+            (let ((default-directory target-dir))
+              ;; Configure agent identity in the workspace
+              (unless (zerop (call-process "jj" nil t nil "config" "set" "--repo" "user.name" (format "Agent (%s)" agent)))
+                (error "Failed to create jj config set username '%s' for repo '%s'" agent target-dir))
+              (unless (zerop (call-process "jj" nil t nil "config" "set" "--repo" "user.email" (format "%s-agent@local" agent)))
+                (error "Failed to create jj config set username '%s' for repo '%s'" agent target-dir))
+              ;; Start a new commit on top of main with the task description
+              (let (exit-code (call-process "jj" nil t nil "new" "main@" "-m" task))
+                (unless (zerop exit-code)
+                  (message "Warning: jj new failed with code %d" exit-code))))))
         ;; 2. Update org entry with DELEGATED status and properties
         (save-excursion
           (org-id-goto task-id)
@@ -2980,11 +3002,11 @@ TASK-ID is the org-id of the task entry to track."
           (setq-local fanshi/gptel-agent-auto-worktree nil
                       fanshi/ai-delegate--current-task-id task-id)
           (goto-char (point-max))
-          (insert (format "# Delegated Task\n\n%s\n\nYou are working in an isolated worktree branch '%s'.\nWhen you complete the task, call the FinishTask tool with a summary.\nIf you cannot complete it, call AbortTask with a reason.\nIf you need human input, call Delegate with agent=\"user\" and a task description.\n"
+          (insert (format "# Delegated Task\n\n%s\n\nYou are working in an isolated jj workspace.\nAll file changes are automatically committed to your working-copy commit (@).\nWhen you complete the task, call the FinishTask tool with a summary.\nIf you cannot complete it, call AbortTask with a reason.\nIf you need human input, call Delegate with agent=\"user\" and a task description.\n"
                           task branch-name))
           (gptel-send))
-        (format "Task delegated to agent buffer '%s' in worktree branch '%s'.\nOrg entry updated to DELEGATED.\nYou can observe progress by visiting the agent buffer."
-                child-buf-name branch-name)
+        (format "Task delegated to agent buffer '%s' in jj workspace.\nOrg entry updated to DELEGATED.\nYou can observe progress by visiting the agent buffer."
+                child-buf-name)
         branch-name)))
 
   (gptel-make-tool
@@ -3003,7 +3025,124 @@ TASK-ID: the org-id of the task entry to track. Required for both paths."
            (:name "task-id" :type string
             :description "The org-id of the task entry to track. Required for org-based state management."))
    :category "agents"
-   :async t))
+   :async t)
+
+  ;; --- Human review tools for jj workspace integration ---
+  (defun fanshi/ai-delegate--review-task-diff (task-id)
+    "Review the changes made by an agent for TASK-ID.
+Opens a buffer showing the diff of the agent's working-copy commit."
+    (interactive "sTask ID: ")
+    (save-excursion
+      (org-id-goto task-id)
+      (when-let* ((worktree-dir (org-entry-get (point) "WORKTREE_DIR"))
+                  ((file-directory-p worktree-dir)))
+        (let ((diff-buf (get-buffer-create (format "*jj diff: %s*" task-id))))
+          (with-current-buffer diff-buf
+            (let ((default-directory worktree-dir))
+              (call-process "jj" nil '(t nil) nil "diff")
+              (diff-mode))
+            (switch-to-buffer-other-window diff-buf)
+            (message "Showing jj diff for task %s" task-id)))
+        (format "Diff shown in buffer for task %s" task-id))))
+
+  (defun fanshi/ai-delegate--review-task-log (task-id)
+    "Review the commit log for TASK-ID's workspace.
+Shows the commit graph including the agent's changes."
+    (interactive "sTask ID: ")
+    (save-excursion
+      (org-id-goto task-id)
+      (when-let* ((worktree-dir (org-entry-get (point) "WORKTREE_DIR"))
+                  ((file-directory-p worktree-dir)))
+        (let ((log-buf (get-buffer-create (format "*jj log: %s*" task-id))))
+          (with-current-buffer log-buf
+            (let ((default-directory worktree-dir))
+              (call-process "jj" nil '(t nil) nil "log" "-T" "commit_id.short() ++ \" \" ++ description.firstline() ++ \"\\n\"")
+              (special-mode))
+            (switch-to-buffer-other-window log-buf)
+            (message "Showing jj log for task %s" task-id)))
+        (format "Log shown in buffer for task %s" task-id))))
+
+  (defun fanshi/ai-delegate--integrate-task (task-id)
+    "Integrate the agent's changes from TASK-ID into the main workspace.
+Rebases the agent's commit onto @ in your current workspace, then abandons the original."
+    (interactive "sTask ID: ")
+    (save-excursion
+      (org-id-goto task-id)
+      (when-let* ((worktree-dir (org-entry-get (point) "WORKTREE_DIR"))
+                  ((file-directory-p worktree-dir)))
+        ;; Get the commit ID from the agent's workspace
+        (let* ((commit-id (with-temp-buffer
+                            (let ((default-directory worktree-dir))
+                              (call-process "jj" nil '(t nil) nil "log" "-r" "@" "-T" "commit_id() ++ \"\\n\"" "--no-graph")
+                              (buffer-string))))
+               (commit-id (string-trim commit-id)))
+          (if (and commit-id (> (length commit-id) 0))
+              (progn
+                ;; Rebase the agent's commit onto our working copy
+                (let ((exit-code (call-process "jj" nil t nil "rebase" "-s" commit-id "-d" "@")))
+                  (if (zerop exit-code)
+                      (progn
+                        ;; Abandon the original commit in the agent's workspace
+                        (with-temp-buffer
+                          (let ((default-directory worktree-dir))
+                            (call-process "jj" nil t nil "abandon" commit-id)))
+                        (message "Integrated changes from task %s" task-id)
+                        (format "Successfully integrated changes from task %s. Run 'jj git push' when ready." task-id))
+                    (error "Failed to rebase commit %s" commit-id)))
+                (error "Could not find commit ID for task %s" task-id)))))
+      (error "No workspace found for task %s" task-id))
+
+    (defun fanshi/ai-delegate--discard-task (task-id)
+      "Discard all changes from TASK-ID's agent workspace.
+Abandons the working-copy commit and removes the workspace."
+      (interactive "sTask ID: ")
+      (save-excursion
+        (org-id-goto task-id)
+        (when-let* ((worktree-dir (org-entry-get (point) "WORKTREE_DIR"))
+                    ((file-directory-p worktree-dir)))
+          ;; Abandon the working-copy commit
+          (with-temp-buffer
+            (let ((default-directory worktree-dir))
+              (call-process "jj" nil t nil "abandon" "@")))
+          ;; Remove the workspace directory
+          (delete-directory worktree-dir t)
+          (message "Discarded changes from task %s" task-id)
+          (format "Discarded changes and removed workspace for task %s" task-id))))
+    (error "No workspace found for task %s" task-id))
+
+  ;; Register review tools as gptel tools for the Scrum Master
+  (gptel-make-tool
+   :name "ReviewTask"
+   :function #'fanshi/ai-delegate--review-task-diff
+   :description "Review the changes made by an agent for a given task.
+Shows the diff of the agent's working-copy commit in a buffer.
+TASK-ID: the org-id of the task entry."
+   :args '((:name "task-id" :type string
+            :description "The org-id of the task entry to review."))
+   :category "agents"
+   :async nil)
+
+  (gptel-make-tool
+   :name "IntegrateTask"
+   :function #'fanshi/ai-delegate--integrate-task
+   :description "Integrate the agent's changes from a completed task into the main workspace.
+Rebases the agent's commit onto your working copy.
+TASK-ID: the org-id of the task entry."
+   :args '((:name "task-id" :type string
+            :description "The org-id of the task entry to integrate."))
+   :category "agents"
+   :async nil)
+
+  (gptel-make-tool
+   :name "DiscardTask"
+   :function #'fanshi/ai-delegate--discard-task
+   :description "Discard all changes from a task's agent workspace.
+Abandons the commit and removes the workspace directory.
+TASK-ID: the org-id of the task entry."
+   :args '((:name "task-id" :type string
+            :description "The org-id of the task entry to discard."))
+   :category "agents"
+   :async nil))
 #+end_src
 ** fanshi/ai-nightly--run
 Spawn a Scrum Master agent to process all AI-delegated tasks.
