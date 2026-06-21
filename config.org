@@ -2734,6 +2734,10 @@ Return the number of requests aborted."
     (add-hook! 'kill-buffer-hook :local #'fanshi/gptel-abort-all-in-buffer))
   (add-hook! gptel-mode-hook :append #'fanshi/gptel-agent--setup-abort-all))
 #+end_src
+** Key binding to open gptel-agent
+#+begin_src emacs-lisp :tangle yes
+(map! :map doom-leader-open-map "l l" #'gptel-agent)
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
