@@ -2385,7 +2385,7 @@ allow cloned subtrees to maintain their own history context."
          (proc (car req-at-point))
          (fsm (cadr req-at-point))
          (fsm-info (gptel-fsm-info fsm))
-         (abort-fn (addr req-at-point))
+         (abort-fn (caddr req-at-point))
          (cb (plist-get fsm-info :callback))
          ((functionp cb)))
       ;; Run :callback with abort signal
