@@ -2397,7 +2397,7 @@ allow cloned subtrees to maintain their own history context."
                (buffer-name buf))
       t))
 
-  (advice-add #'gptel-abort :before-until #'fanshi/gptel-abort-at-point-a)) 
+  (advice-add #'gptel-abort :before-until #'fanshi/gptel-abort-at-point-a))
 #+end_src
 ** fanshi/speak
 #+begin_src emacs-lisp :tangle yes
