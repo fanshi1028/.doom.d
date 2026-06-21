@@ -1168,7 +1168,7 @@ Project-specific tools are appended via gptel-mode-hook using setq-local.")
       ((or 'string "string") (stringp arg))
       ((or 'number "number") (numberp arg))
       ((or 'integer "integer") (integerp arg))
-      ((or 'boolean "boolean") (booleanp arg))
+      ((or 'boolean "boolean") (or (and (booleanp arg) (eq t arg)) (eq :json-false arg)))
       (_ (progn (message "Warning: FIXME tool call validation skipped for type %s: %s" type arg) t))))
 
   (defun fanshi/gptel--validate-tool-args (tool-spec args)
