@@ -3511,6 +3511,12 @@ worktree and its branch.  If dirty, keeps it and notifies the user."
 #+begin_src emacs-lisp :tangle yes
 (after! avy (setopt avy-all-windows t))
 #+end_src
+* VC
+rebind = for vc-ediff
+#+begin_src emacs-lisp :tangle yes
+(map! :map vc-prefix-map
+      "=" #'vc-ediff)
+#+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
 ;; Here are some additional functions/macros that could help you configure Doom:
