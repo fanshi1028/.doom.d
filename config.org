@@ -470,28 +470,6 @@ Else call original evil-paste-after."
 (setq fanshi/project-files-to-copy/haskell-cabal (append  fanshi/project-files-to-copy/nix-flake '("nix" "*.cabal" )))
 #+end_src
 
-** fanshi/init-new-project
-#+begin_src emacs-lisp :tangle yes
-(defun fanshi/init-new-project (&optional dir)
-  "Init a directory as a new project"
-  (interactive)
-  (let ((default-directory (expand-file-name (or dir default-directory))))
-    ;; NOTE: init git repo
-    (require 'magit)
-    (magit-call-git "init" (magit-convert-filename-for-git default-directory))
-
-    ;; NOTE: init commit
-    (magit-gitignore-in-gitdir "/.envrc")
-    (magit-gitignore-in-gitdir "/.direnv/")
-    (magit-stage-modified t)
-    (magit-call-git "commit" '("-m" "init"))
-
-    ;; NOTE: to load the .envrc
-    (require 'envrc)
-    (envrc-allow)
-    (+vterm/toggle nil)))
-#+end_src
-
 ** fanshi/clone-from-project
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/clone-from-project (dir)
