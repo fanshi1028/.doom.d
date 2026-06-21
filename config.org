@@ -1751,7 +1751,6 @@ For 'Mlx: uses :hf tag value as model symbol."
    gptel-model 'mlx-community--Qwen3.6-35B-A3B-bf16
    gptel-max-tokens nil
    gptel-log-level 'info
-   gptel-magit-model 'mlx-community--gemma-4-E4B-it-bf16
    gptel--request-params '(:top_p 0.95 :top_k 20 :min_p 0.0 :presence_penalty 0.0 :repetition_penalty 1.0))
   (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* "))
 #+end_src
@@ -2845,12 +2844,13 @@ Return the number of requests aborted."
             (progn (message "Scoped to project: %s" project) project)
           (let* ((task-heading (org-get-heading t t t t))
                  (project-name (replace-regexp-in-string "^-+\\|-+$" ""
-                                       (format "ai-%s" (replace-regexp-in-string
-                                                       "[^a-z0-9-]+" "-"
-                                                       (downcase (string-trim task-heading))))))
-                 (project-dir (expand-file-name project-name fanshi/breeding-ground-dir)))
+                                                         (format "ai-%s" (replace-regexp-in-string
+                                                                          "[^a-z0-9-]+" "-"
+                                                                          (downcase (string-trim task-heading))))))
+                 (project-dir (expand-file-name project-name fanshi/breeding-ground-dir))
+                 (default-directory project-dir))
             (make-directory project-dir t)
-            (magit-init project-dir)
+            (call-process "jj" nil nil nil "git" "init")
             (projectile-add-known-project project-dir)
             (org-entry-put (point) "SCOPED_PROJECT" project-dir)
             (message "Created project: %s" project-dir)
