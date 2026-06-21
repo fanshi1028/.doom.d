@@ -1535,21 +1535,6 @@ We load our own presets
 #+begin_src emacs-lisp :tangle yes
 (after! gptel-agent (advice-add 'gptel-agent-update :override #'ignore))
 #+end_src
-*** General tasks
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (gptel-make-preset 'plan :parents 'gptel-agent)
-  (gptel-make-preset 'gptel-agent
-    :parents 'research
-    :description "Preset for general plan"
-    :tools fanshi/gptel-agent-tools
-    :system "FIXME")
-  (gptel-make-preset 'gptel-agent-nightshift
-    :parents 'gptel-agent
-    :description "Preset for general agent to run tasks at night"
-    :tools fanshi/gptel-agent-nightshift-tools
-    :system "FIXME"))
-#+end_src
 *** Scrum master
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
@@ -1565,7 +1550,8 @@ We load our own presets
                                                `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/scrum-tools))
                                                  ("DATE" . ,(format-time-string "%Y-%m-%d"))
                                                  ("CWD" . ,default-directory)))
-                (buffer-string)))))
+                (buffer-string))))
+  (gptel-make-preset 'gptel-agent :parents 'scrum))
 #+end_src
 *** Research
 #+begin_src emacs-lisp :tangle yes
