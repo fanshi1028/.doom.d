@@ -2264,7 +2264,7 @@ Used by `restrict-to-projectile-files-plus-context-a' and `fanshi/nono-context-a
 files through the sandboxed tool.")
 
 (after! gptel
-  (defun fanshi/gptel--track-agent-buffer ()
+  (defun fanshi/gptel--track-agent-buffer (&optional _window)
     "Update the last visited agent buffer if current is one."
     (setq fanshi/gptel-last-agent-buffer (current-buffer)))
 
