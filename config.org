@@ -1651,7 +1651,7 @@ Each value is a list of tool name strings to add to the base coding tools.")
 **** NVIDIA NIM
 - url :: https://build.nvidia.com/explore/discover
 - rate limit :: 40 RPM
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! gptel (fanshi/gptel-make-openai "Nvidia" "integrate.api.nvidia.com" "Nvidia/API/1" "https"))
 #+end_src
 *** Local
