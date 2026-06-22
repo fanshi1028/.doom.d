@@ -1739,7 +1739,7 @@ For 'Mlx: uses :hf tag value as model symbol."
 (after! gptel (fanshi/gptel-make-openai "MLX-LM" "127.0.0.1:8080"))
 #+end_src
 **** omlx server
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! gptel (fanshi/gptel-make-openai "oMLX"  "127.0.0.1:8000" "omlx/1" nil 'set-as-backend))
 #+end_src
 **** swiftlm server
@@ -1748,7 +1748,7 @@ For 'Mlx: uses :hf tag value as model symbol."
 #+end_src
 **** ds4-server
 - url :: https://github.com/antirez/ds4
-#+begin_src emacs-lisp :tangle no
+#+begin_src emacs-lisp :tangle yes
 (after! gptel (fanshi/gptel-make-openai "DS4" "127.0.0.1:8000" nil nil 'set-as-backend))
 #+end_src
 
