@@ -1501,6 +1501,18 @@ for remote APIs."
                                                  collect (intern id)))))
                         (when set-as-backend (setopt gptel-backend backend))))))))
 #+end_src
+*** fanshi/gptel-select-model
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defun fanshi/gptel-select-model (omlx-model)
+    "Return appropriate model symbol based on current backend.
+If current backend is DS4, always return `deepseek-v4-flash'.
+Otherwise return OMLX-MODEL (the fallback for oMLX backend)."
+    (if (and gptel-backend
+             (string= (gptel-backend-name gptel-backend) "DS4"))
+        'deepseek-v4-flash
+      omlx-model)))
+#+end_src
 ** Agents
 *** init
 #+begin_src emacs-lisp :tangle yes
@@ -1518,7 +1530,7 @@ We load our own presets
 (after! gptel
   (gptel-make-preset 'scrum
     :request-params '(:append (:top_k 40))
-    :model 'Jundot--MiniMax-M2.7-oQ2
+    :model '(:eval (fanshi/gptel-select-model 'Jundot--MiniMax-M2.7-oQ2))
     :description "Scrum Master - orchestrates process flow, delegates to agents, does NOT code"
     :tools fanshi/scrum-tools
     :system (lambda ()
@@ -1618,7 +1630,7 @@ Each value is a list of tool name strings to add to the base coding tools.")
 (after! gptel
   (gptel-make-preset 'heavy
     :description "Preset for heavy task"
-    :model 'mlx-community--Qwen3.6-27B-bf16
+    :model '(:eval (fanshi/gptel-select-model 'mlx-community--Qwen3.6-27B-bf16))
     :include-reasoning t
     :request-params '(:append (:enable_thinking t
                                :chat_template_kwargs (:enable_thinking t
@@ -1629,14 +1641,14 @@ Each value is a list of tool name strings to add to the base coding tools.")
 (after! gptel
   (gptel-make-preset 'fast
     :description "Preset for quick simple task"
-    :model 'gemma-4-E2B-it))
+    :model '(:eval (fanshi/gptel-select-model 'gemma-4-E2B-it))))
 #+end_src
 *** Creative
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (gptel-make-preset 'creative
     :description "Preset for creative task"
-    :model 'mlx-community--gemma-4-31b-it-bf16
+    :model '(:eval (fanshi/gptel-select-model 'mlx-community--gemma-4-31b-it-bf16))
     :request-params '(:append (:top_k 64 :enable_thinking t))))
 #+end_src
 *** Cloud
