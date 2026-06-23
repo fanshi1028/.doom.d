@@ -1310,6 +1310,7 @@ This is useful for an AI agent to understand the structure of a file
 without reading its entire contents. Imenu provides a semantic index
 (functions, classes, sections) which is far more efficient than reading
 the whole file or grepping line-by-line."
+  (fanshi/restrict-to-projectile-files-plus-context-a file-path)
   (if-let* ((buffer (or (find-buffer-visiting file-path)
                         (find-file-noselect file-path)))
             (imenu-use-markers t))
