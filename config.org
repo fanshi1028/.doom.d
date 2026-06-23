@@ -896,6 +896,248 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
 #+begin_src emacs-lisp :tangle yes
 (advice-add #'gptel-send :after (lambda (&rest r) "call `deactivate-mark' after, to temp fix an unexpected trigger of snippet by org-cycle calls in reponse" (if (use-region-p) (deactivate-mark))))
 #+end_src
+** Restrict tools
+*** restrict-to-projectile-files
+**** fanshi/restrict-to-projectile-files-a
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/restrict-to-projectile-files-a (&rest args)
+    "Restrict file writes to project root.  No context exceptions."
+    (let ((path (car args)))
+      (if-let* ((root (projectile-project-root))
+                (abs-root (expand-file-name root))
+                (abs-path (expand-file-name path)))
+          (unless (string-prefix-p abs-root abs-path)
+            (error "Error: File or directory %s is not available (restricted to project root %s)" path root))
+        (error "Error: Unexpected project root or path: %s, %s" root path))))
+
+  (advice-add 'gptel-agent--edit-files :before #'fanshi/restrict-to-projectile-files-a)
+  (advice-add 'gptel-agent--insert-in-file :before #'fanshi/restrict-to-projectile-files-a))
+#+end_src
+**** fanshi/restrict-to-projectile-plus-context-a
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/restrict-to-projectile-files-plus-context-a (&rest args)
+    "Restrict file reads to project root, except for files in gptel context."
+    ;; Allow files explicitly added as gptel context
+    (unless (cl-find-if (lambda (context) (if (file-directory-p context)
+                                              (file-in-directory-p (car args) context)
+                                            (string= (car args) context)))
+                        fanshi/gptel-context-files)
+      (apply #'fanshi/restrict-to-projectile-files-a args)))
+  (advice-add 'gptel-agent--read-file-lines :before #'fanshi/restrict-to-projectile-files-plus-context-a))
+#+end_src
+**** fanshi/restrict-to-projectile-files-2-a
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/restrict-to-projectile-files-2-a (&rest args)
+    (if-let* ((root (projectile-project-root))
+              (abs-root (expand-file-name root))
+              (path (car args))
+              (filename (cadr args))
+              (abs-path (expand-file-name filename path)))
+        (unless (string-prefix-p abs-root abs-path)
+          (error "Error: File or directory %s is not available (restricted to project root %s)" path root))
+      (error "Error: Unexpected project root, path or filename: %s, %s, %s" root path filename)))
+  (advice-add 'gptel-agent--write-file :before #'fanshi/restrict-to-projectile-files-2-a)
+  (advice-add 'gptel-agent--make-directory :before #'fanshi/restrict-to-projectile-files-2-a))
+#+end_src
+*** nono
+**** fanshi/handle_nono_output
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/handle_nono_output (exit-code)
+  "Handle nono wrapped command output in the buffer. EXIT-CODE is from the nono process"
+  (save-excursion
+    (goto-char (point-min))
+    (if (zerop exit-code)
+        (let ((pos (search-forward "Applying sandbox...\n")))
+          (when pos (delete-region (point-min) pos)))
+      (let ((pos (search-forward "NONO DIAGNOSTIC")))
+        (when pos (delete-region (point-min) pos)))
+      (goto-char (point-max))
+      (let ((pos (search-backward "To grant additional access, re-run with:")))
+        (when pos (delete-region pos (point-max))))
+      (goto-char (point-min))
+      (insert (format "Command failed with exit code %d:\nSTDOUT+STDERR:\n" exit-code)))))
+#+end_src
+**** fanshi/nono-context-allow-read-file-args-list
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/nono-context-allow-read-file-args-list (&optional context-files)
+  (mapcan (lambda (file)
+            (list (if (file-directory-p file) "--read" "--read-file") (expand-file-name file)))
+          (or context-files fanshi/gptel-context-files)))
+#+end_src
+**** fanshi/gptel-agent--execute-bash-a
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defun fanshi/gptel-agent--execute-bash-a (callback command)
+    "Execute COMMAND (wrapped by nono) asynchronously in bash and call CALLBACK with output.
+
+CALLBACK is called with the command output string when the process finishes.
+COMMAND is the bash command string to execute."
+    (let ((output-buffer (generate-new-buffer " *gptel-agent-bash*"))
+          (root (projectile-project-root)))
+      (if root
+          (make-process
+           :name "gptel-agent-bash"
+           :buffer output-buffer
+           :command (append (list fanshi/nono "run" "--allow" root
+                                  "--allow" (expand-file-name "~/.cache/nix")
+                                  "--read-file" (expand-file-name "~/.gitconfig"))
+                            (fanshi/nono-context-allow-read-file-args-list)
+                            (list "--" "bash" "-c" command))
+           :connection-type 'pipe
+           :sentinel
+           (lambda (process _event)
+             (when (memq (process-status process) '(exit signal))
+               (let* ((exit-code (process-exit-status process))
+                      (output (with-current-buffer (process-buffer process)
+                                (fanshi/handle_nono_output exit-code)
+                                (gptel-agent--truncate-buffer (format "%s" command))
+                                (buffer-string))))
+                 (kill-buffer (process-buffer process))
+                 (funcall callback output)))))
+        (funcall callback (format "Project root not found, command blocked: %s" command)))))
+  (advice-add 'gptel-agent--execute-bash :override #'fanshi/gptel-agent--execute-bash-a))
+#+end_src
+**** fanshi/gptel-agent--glob-a
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-agent--glob-a (pattern &optional path depth)
+    "Find files matching PATTERN using the `tree' command.
+
+PATTERN is a case-insensitive regex pattern to match filenames against.
+PATH is the optional directory to search (defaults to current directory).
+DEPTH limits recursion depth when provided (non-negative integer).
+
+Returns a string listing matching files with full paths, sorted by
+modification time.  If the output is too large (>20000 chars), it writes
+the full results to a temporary file and returns a truncated version with
+instructions to use `Read' for the full contents.
+
+Raises an error if PATTERN is empty, PATH is not readable, or the
+`tree' executable is not found."
+    (when (string-empty-p pattern)
+      (error "Error: pattern must not be empty"))
+    (if path
+        (unless (and (file-readable-p path) (file-directory-p path))
+          (error "Error: path %s is not readable" path))
+      (setq path "."))
+    (unless (executable-find "tree")
+      (error "Error: Executable `tree` not found.  This tool cannot be used"))
+
+    (let ((full-path (expand-file-name path))
+          (root (projectile-project-root)))
+      (unless root
+        (error "Error: Project root not found. This tool cannot be used"))
+      (with-temp-buffer
+        (let* ((args (append (list "run" "--allow" root)
+                             (fanshi/nono-context-allow-read-file-args-list)
+                             (list "--" "tree" "-l" "-f" "-i" "-I" ".git"
+                                   "--sort=mtime" "--ignore-case"
+                                   "--prune" "-P" pattern full-path)))
+               (args (if (natnump depth)
+                         (nconc args (list "-L" (number-to-string depth)))
+                       args))
+               (exit-code (apply #'call-process fanshi/nono nil t nil args)))
+          (fanshi/handle_nono_output exit-code)
+          (gptel-agent--truncate-buffer "glob")
+          (buffer-string)))))
+  (advice-add 'gptel-agent--glob :override #'fanshi/gptel-agent--glob-a))
+#+end_src
+**** fanshi/gptel-agent--grep-a
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-agent--grep-a (regex path &optional glob context-lines)
+    "Search for REGEX in file or directory at PATH using ripgrep.
+
+REGEX is a PCRE-format regular expression to search for.
+PATH can be a file or directory to search in.
+
+Optional arguments:
+GLOB restricts the search to files matching the glob pattern.
+  Examples: \"*.el\", \"*.md\", \"*.rs\"
+CONTEXT-LINES specifies the number of lines of context to show
+  around each match (0-15 inclusive, defaults to 0).
+
+Returns a string containing matches grouped by file, with line numbers
+and optional context.  Results are limited to 1000 or fewer matches per
+file.  Results are sorted by modification time."
+    (unless (file-readable-p path)
+      (error "Error: File or directory %s is not readable" path))
+
+    (let ((root (projectile-project-root))
+          (grepper (or (executable-find "rg") (executable-find "grep"))))
+      (unless root
+        (error "Error: project root not found, this tool cannot be used"))
+      (unless grepper
+        (error "Error: ripgrep/grep not available, this tool cannot be used"))
+      (with-temp-buffer
+        (let* ((cmd (file-name-sans-extension (file-name-nondirectory grepper)))
+               (args
+                (cond
+                 ((string= "rg" cmd)
+                  (delq nil (list "--sort=modified"
+                                  (and (natnump context-lines)
+                                       (format "--context=%d" context-lines))
+                                  (and glob (format "--glob=%s" glob))
+                                  ;; "--files-with-matches"
+                                  "--max-count=1000"
+                                  "--heading" "--line-number" "-e" regex
+                                  (expand-file-name (substitute-in-file-name path)))))
+                 ((string= "grep" cmd)
+                  (delq nil (list "--recursive"
+                                  (and (natnump context-lines)
+                                       (format "--context=%d" context-lines))
+                                  (and glob (format "--include=%s" glob))
+                                  "--max-count=1000"
+                                  "--line-number" "--regexp" regex
+                                  (expand-file-name (substitute-in-file-name path)))))
+                 (t (error "Error: failed to identify grepper"))))
+               (args (append (list "run" "--allow" root)
+                             (fanshi/nono-context-allow-read-file-args-list)
+                             (list "--" grepper) args))
+               (exit-code (apply #'call-process fanshi/nono nil '(t t) nil args)))
+          (fanshi/handle_nono_output exit-code)
+          (gptel-agent--truncate-buffer "grep")
+          (buffer-string)))))
+  (advice-add 'gptel-agent--grep :override #'fanshi/gptel-agent--grep-a))
+#+end_src
+*** gptel-agent--read-url
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-agent--read-url-a (tool-cb url)
+    "Fetch URL text and call TOOL-CB with it."
+    (gptel-agent--fetch-with-timeout
+     url
+     (lambda (cb)
+       (progn
+         (goto-char (point-min))
+         ;; TEMP FIXME handle more content type like img or other?
+         ;; maybe if model can handling those mime, pass it to them in the right way.
+         (if (search-forward "content-type: application/pdf" (save-excursion (forward-paragraph) (point)) t)
+             (funcall cb "TEMP FIXME: pdf returned from the url, but handler for pdf is not implemented")
+           (goto-char (point-min))
+           (forward-paragraph)
+           (condition-case errdata
+               (let ((dom (libxml-parse-html-region (point) (point-max))))
+                 (with-temp-buffer
+                   (eww-score-readability dom)
+                   (shr-insert-document (eww-highest-readability dom))
+                   (decode-coding-region (point-min) (point-max) 'utf-8)
+                   (funcall
+                    cb (buffer-substring-no-properties
+                        (point-min) (point-max)))))
+             (error (funcall cb (format "Error: Request failed with error data:\n%S"
+                                        errdata)))))))
+     tool-cb (format "Fetch for \"%s\"" url)))
+  (advice-add 'gptel-agent--read-url :override #'fanshi/gptel-agent--read-url-a))
+#+end_src
+*** liberate restricted tools!
+#+begin_src emacs-lisp :tangle yes
+(defvar fanshi/safe-tool '("Write" "Edit" "Bash" "ReviewTask" "IntegrateTask"))
+#+end_src
+
 ** Tools
 *** Elisp Help Tool
 #+begin_src emacs-lisp :tangle yes
@@ -1765,247 +2007,6 @@ For 'Mlx: uses :hf tag value as model symbol."
    gptel-log-level 'info
    gptel--request-params '(:top_p 0.95 :top_k 20 :min_p 0.0 :presence_penalty 0.0 :repetition_penalty 1.0))
   (setcdr (assq 'org-mode gptel-prompt-prefix-alist) "* "))
-#+end_src
-** Restrict tools
-*** restrict-to-projectile-files
-**** fanshi/restrict-to-projectile-files-a
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defun fanshi/restrict-to-projectile-files-a (&rest args)
-    "Restrict file writes to project root.  No context exceptions."
-    (let ((path (car args)))
-      (if-let* ((root (projectile-project-root))
-                (abs-root (expand-file-name root))
-                (abs-path (expand-file-name path)))
-          (unless (string-prefix-p abs-root abs-path)
-            (error "Error: File or directory %s is not available (restricted to project root %s)" path root))
-        (error "Error: Unexpected project root or path: %s, %s" root path))))
-
-  (advice-add 'gptel-agent--edit-files :before #'fanshi/restrict-to-projectile-files-a)
-  (advice-add 'gptel-agent--insert-in-file :before #'fanshi/restrict-to-projectile-files-a))
-#+end_src
-**** fanshi/restrict-to-projectile-plus-context-a
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defun fanshi/restrict-to-projectile-files-plus-context-a (&rest args)
-    "Restrict file reads to project root, except for files in gptel context."
-    ;; Allow files explicitly added as gptel context
-    (unless (cl-find-if (lambda (context) (if (file-directory-p context)
-                                              (file-in-directory-p (car args) context)
-                                            (string= (car args) context)))
-                        fanshi/gptel-context-files)
-      (apply #'fanshi/restrict-to-projectile-files-a args)))
-  (advice-add 'gptel-agent--read-file-lines :before #'fanshi/restrict-to-projectile-files-plus-context-a))
-#+end_src
-**** fanshi/restrict-to-projectile-files-2-a
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defun fanshi/restrict-to-projectile-files-2-a (&rest args)
-    (if-let* ((root (projectile-project-root))
-              (abs-root (expand-file-name root))
-              (path (car args))
-              (filename (cadr args))
-              (abs-path (expand-file-name filename path)))
-        (unless (string-prefix-p abs-root abs-path)
-          (error "Error: File or directory %s is not available (restricted to project root %s)" path root))
-      (error "Error: Unexpected project root, path or filename: %s, %s, %s" root path filename)))
-  (advice-add 'gptel-agent--write-file :before #'fanshi/restrict-to-projectile-files-2-a)
-  (advice-add 'gptel-agent--make-directory :before #'fanshi/restrict-to-projectile-files-2-a))
-#+end_src
-*** nono
-**** fanshi/handle_nono_output
-#+begin_src emacs-lisp :tangle yes
-(defun fanshi/handle_nono_output (exit-code)
-  "Handle nono wrapped command output in the buffer. EXIT-CODE is from the nono process"
-  (save-excursion
-    (goto-char (point-min))
-    (if (zerop exit-code)
-        (let ((pos (search-forward "Applying sandbox...\n")))
-          (when pos (delete-region (point-min) pos)))
-      (let ((pos (search-forward "NONO DIAGNOSTIC")))
-        (when pos (delete-region (point-min) pos)))
-      (goto-char (point-max))
-      (let ((pos (search-backward "To grant additional access, re-run with:")))
-        (when pos (delete-region pos (point-max))))
-      (goto-char (point-min))
-      (insert (format "Command failed with exit code %d:\nSTDOUT+STDERR:\n" exit-code)))))
-#+end_src
-**** fanshi/nono-context-allow-read-file-args-list
-#+begin_src emacs-lisp :tangle yes
-(defun fanshi/nono-context-allow-read-file-args-list (&optional context-files)
-  (mapcan (lambda (file)
-            (list (if (file-directory-p file) "--read" "--read-file") (expand-file-name file)))
-          (or context-files fanshi/gptel-context-files)))
-#+end_src
-**** fanshi/gptel-agent--execute-bash-a
-#+begin_src emacs-lisp :tangle yes :lexical t
-(after! gptel
-  (defun fanshi/gptel-agent--execute-bash-a (callback command)
-    "Execute COMMAND (wrapped by nono) asynchronously in bash and call CALLBACK with output.
-
-CALLBACK is called with the command output string when the process finishes.
-COMMAND is the bash command string to execute."
-    (let ((output-buffer (generate-new-buffer " *gptel-agent-bash*"))
-          (root (projectile-project-root)))
-      (if root
-          (make-process
-           :name "gptel-agent-bash"
-           :buffer output-buffer
-           :command (append (list fanshi/nono "run" "--allow" root
-                                  "--allow" (expand-file-name "~/.cache/nix")
-                                  "--read-file" (expand-file-name "~/.gitconfig"))
-                            (fanshi/nono-context-allow-read-file-args-list)
-                            (list "--" "bash" "-c" command))
-           :connection-type 'pipe
-           :sentinel
-           (lambda (process _event)
-             (when (memq (process-status process) '(exit signal))
-               (let* ((exit-code (process-exit-status process))
-                      (output (with-current-buffer (process-buffer process)
-                                (fanshi/handle_nono_output exit-code)
-                                (gptel-agent--truncate-buffer (format "%s" command))
-                                (buffer-string))))
-                 (kill-buffer (process-buffer process))
-                 (funcall callback output)))))
-        (funcall callback (format "Project root not found, command blocked: %s" command)))))
-  (advice-add 'gptel-agent--execute-bash :override #'fanshi/gptel-agent--execute-bash-a))
-#+end_src
-**** fanshi/gptel-agent--glob-a
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defun fanshi/gptel-agent--glob-a (pattern &optional path depth)
-    "Find files matching PATTERN using the `tree' command.
-
-PATTERN is a case-insensitive regex pattern to match filenames against.
-PATH is the optional directory to search (defaults to current directory).
-DEPTH limits recursion depth when provided (non-negative integer).
-
-Returns a string listing matching files with full paths, sorted by
-modification time.  If the output is too large (>20000 chars), it writes
-the full results to a temporary file and returns a truncated version with
-instructions to use `Read' for the full contents.
-
-Raises an error if PATTERN is empty, PATH is not readable, or the
-`tree' executable is not found."
-    (when (string-empty-p pattern)
-      (error "Error: pattern must not be empty"))
-    (if path
-        (unless (and (file-readable-p path) (file-directory-p path))
-          (error "Error: path %s is not readable" path))
-      (setq path "."))
-    (unless (executable-find "tree")
-      (error "Error: Executable `tree` not found.  This tool cannot be used"))
-
-    (let ((full-path (expand-file-name path))
-          (root (projectile-project-root)))
-      (unless root
-        (error "Error: Project root not found. This tool cannot be used"))
-      (with-temp-buffer
-        (let* ((args (append (list "run" "--allow" root)
-                             (fanshi/nono-context-allow-read-file-args-list)
-                             (list "--" "tree" "-l" "-f" "-i" "-I" ".git"
-                                   "--sort=mtime" "--ignore-case"
-                                   "--prune" "-P" pattern full-path)))
-               (args (if (natnump depth)
-                         (nconc args (list "-L" (number-to-string depth)))
-                       args))
-               (exit-code (apply #'call-process fanshi/nono nil t nil args)))
-          (fanshi/handle_nono_output exit-code)
-          (gptel-agent--truncate-buffer "glob")
-          (buffer-string)))))
-  (advice-add 'gptel-agent--glob :override #'fanshi/gptel-agent--glob-a))
-#+end_src
-**** fanshi/gptel-agent--grep-a
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defun fanshi/gptel-agent--grep-a (regex path &optional glob context-lines)
-    "Search for REGEX in file or directory at PATH using ripgrep.
-
-REGEX is a PCRE-format regular expression to search for.
-PATH can be a file or directory to search in.
-
-Optional arguments:
-GLOB restricts the search to files matching the glob pattern.
-  Examples: \"*.el\", \"*.md\", \"*.rs\"
-CONTEXT-LINES specifies the number of lines of context to show
-  around each match (0-15 inclusive, defaults to 0).
-
-Returns a string containing matches grouped by file, with line numbers
-and optional context.  Results are limited to 1000 or fewer matches per
-file.  Results are sorted by modification time."
-    (unless (file-readable-p path)
-      (error "Error: File or directory %s is not readable" path))
-
-    (let ((root (projectile-project-root))
-          (grepper (or (executable-find "rg") (executable-find "grep"))))
-      (unless root
-        (error "Error: project root not found, this tool cannot be used"))
-      (unless grepper
-        (error "Error: ripgrep/grep not available, this tool cannot be used"))
-      (with-temp-buffer
-        (let* ((cmd (file-name-sans-extension (file-name-nondirectory grepper)))
-               (args
-                (cond
-                 ((string= "rg" cmd)
-                  (delq nil (list "--sort=modified"
-                                  (and (natnump context-lines)
-                                       (format "--context=%d" context-lines))
-                                  (and glob (format "--glob=%s" glob))
-                                  ;; "--files-with-matches"
-                                  "--max-count=1000"
-                                  "--heading" "--line-number" "-e" regex
-                                  (expand-file-name (substitute-in-file-name path)))))
-                 ((string= "grep" cmd)
-                  (delq nil (list "--recursive"
-                                  (and (natnump context-lines)
-                                       (format "--context=%d" context-lines))
-                                  (and glob (format "--include=%s" glob))
-                                  "--max-count=1000"
-                                  "--line-number" "--regexp" regex
-                                  (expand-file-name (substitute-in-file-name path)))))
-                 (t (error "Error: failed to identify grepper"))))
-               (args (append (list "run" "--allow" root)
-                             (fanshi/nono-context-allow-read-file-args-list)
-                             (list "--" grepper) args))
-               (exit-code (apply #'call-process fanshi/nono nil '(t t) nil args)))
-          (fanshi/handle_nono_output exit-code)
-          (gptel-agent--truncate-buffer "grep")
-          (buffer-string)))))
-  (advice-add 'gptel-agent--grep :override #'fanshi/gptel-agent--grep-a))
-#+end_src
-*** gptel-agent--read-url
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defun fanshi/gptel-agent--read-url-a (tool-cb url)
-    "Fetch URL text and call TOOL-CB with it."
-    (gptel-agent--fetch-with-timeout
-     url
-     (lambda (cb)
-       (progn
-         (goto-char (point-min))
-         ;; TEMP FIXME handle more content type like img or other?
-         ;; maybe if model can handling those mime, pass it to them in the right way.
-         (if (search-forward "content-type: application/pdf" (save-excursion (forward-paragraph) (point)) t)
-             (funcall cb "TEMP FIXME: pdf returned from the url, but handler for pdf is not implemented")
-           (goto-char (point-min))
-           (forward-paragraph)
-           (condition-case errdata
-               (let ((dom (libxml-parse-html-region (point) (point-max))))
-                 (with-temp-buffer
-                   (eww-score-readability dom)
-                   (shr-insert-document (eww-highest-readability dom))
-                   (decode-coding-region (point-min) (point-max) 'utf-8)
-                   (funcall
-                    cb (buffer-substring-no-properties
-                        (point-min) (point-max)))))
-             (error (funcall cb (format "Error: Request failed with error data:\n%S"
-                                        errdata)))))))
-     tool-cb (format "Fetch for \"%s\"" url)))
-  (advice-add 'gptel-agent--read-url :override #'fanshi/gptel-agent--read-url-a))
-#+end_src
-*** liberate restricted tools!
-#+begin_src emacs-lisp :tangle yes
-(defvar fanshi/safe-tool '("Write" "Edit" "Bash" "ReviewTask" "IntegrateTask"))
 #+end_src
 ** Prompt rewrite for gptel-mode
 *** fanshi/gptel--rewrite-directive-default
