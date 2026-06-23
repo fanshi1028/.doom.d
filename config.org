@@ -744,6 +744,10 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 #+end_src
 
 * Gptel
+** Work around path issue
+#+begin_src emacs-lisp :tangle yes
+(defconst fanshi/nono (executable-find "nono"))
+#+end_src
 ** Fix response org heading level
 Disable due to it seems to mess thing up when I use `fanshi/multisend'
 - ref :: https://github.com/karthink/gptel/issues/1226#issuecomment-3828162897
@@ -2770,6 +2774,117 @@ Return the number of requests aborted."
 #+begin_src emacs-lisp :tangle yes
 (map! :map doom-leader-open-map "l l" #'gptel-agent)
 #+end_src
+** fanshi/gptel-agent-auto-worktree
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defcustom fanshi/gptel-agent-auto-worktree nil
+    "If non-nil, automatically create a git worktree for new gptel-agent buffers.
+
+When a gptel-agent buffer is created, a new worktree is automatically
+created under .trees/agent-YYYYMMDD-HHMMSS.  When the buffer is killed,
+the worktree is cleaned up if there are no uncommitted changes.
+
+Set to nil to disable this behavior."
+    :type 'boolean
+    :group 'gptel)
+
+  (defvar-local fanshi/gptel-agent--auto-worktree-branch nil
+    "Branch name of the auto-created worktree for this buffer.")
+
+  (defun fanshi/gptel-agent--auto-worktree-setup-a (buf)
+    "Automatically create and switch to a worktree for gptel-agent buffers.
+
+Only runs for buffers whose name starts with \"*gptel-agent:\".
+Creates a worktree under .trees/agent-YYYYMMDD-HHMMSS and switches to it.
+Stores the branch name in `fanshi/gptel-agent--auto-worktree-branch'."
+    (when (and fanshi/gptel-agent-auto-worktree
+               ;; (string-prefix-p "*gptel-agent:" (buffer-name))
+               ;; (eq 'Git (vc-responsible-backend default-directory t))
+               (not (string-match "/\\.trees/" default-directory)))
+      (with-current-buffer buf
+        (let ((branch (format "agent-%s" (format-time-string "%Y%m%d-%H%M%S"))))
+          (fanshi/gptel-agent-swtich-to-worktree branch)
+          (setq-local fanshi/gptel-agent--auto-worktree-branch branch)
+          (add-hook 'kill-buffer-hook #'fanshi/gptel-agent--auto-worktree-cleanup nil t))))
+    buf)
+
+  (defun fanshi/gptel-agent--auto-worktree-cleanup ()
+    "Clean up auto-created worktree if there are no changes.
+
+Checks git diff in the current buffer's directory.  If clean, removes the
+worktree and its branch.  If dirty, keeps it and notifies the user."
+    (when-let ((branch fanshi/gptel-agent--auto-worktree-branch))
+      (let* ((project-root (if (string-match "\\(.*\\)/\\.trees/" default-directory)
+                               (match-string 1 default-directory)
+                             (projectile-project-root)))
+             (target-path (expand-file-name (concat ".trees/" branch) project-root)))
+        (if (zerop (call-process "git" nil nil nil "-C" target-path "diff" "--quiet"))
+            (progn
+              (call-process "git" nil nil nil "-C" project-root "worktree" "remove" target-path)
+              (message "Auto-cleaned worktree %s (no changes)" branch))
+          (message "Worktree %s kept (has uncommitted changes)" branch)))))
+
+  (advice-add 'gptel-agent :filter-return #'fanshi/gptel-agent--auto-worktree-setup-a))
+#+end_src
+** fanshi/gptel-agent-swtich-to-worktree
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-agent-swtich-to-worktree (branch)
+    "Switch this gptel-agent buffer to a git worktree or back to the project root.
+
+If BRANCH is empty, switch back to the project root (useful when
+currently in a worktree).  Otherwise, create a worktree under
+.trees/BRANCH and switch to it.
+
+With a prefix arg, defaults to switching to the project root.
+
+Context entries whose files are inside the current working directory
+(project root or worktree) are remapped to the corresponding paths in
+the target location.  Context entries outside the project are unchanged.
+Buffer-region entries (overlays) are also left unchanged."
+    (interactive (list (if current-prefix-arg "" (read-string "Branch name (RET for root): "))))
+    (unless (and (derived-mode-p 'org-mode) gptel-mode)
+      (user-error "This command must be called from a gptel buffer"))
+    (unless (eq 'Git (vc-responsible-backend default-directory t))
+      (user-error "Not in a Git repository"))
+    (let* ((project-root (if (string-match "\\(.*\\)/\\.trees/" default-directory)
+                             (match-string 1 default-directory)
+                           (projectile-project-root)))
+           (trees-dir (expand-file-name ".trees/" project-root))
+           (in-worktree (string-prefix-p trees-dir default-directory))
+           (to-root (string= branch ""))
+           (target-path (if to-root
+                            project-root
+                          (expand-file-name (concat ".trees/" branch) project-root)))
+           (remapped 0))
+      ;; Create worktree if needed (skip for project root)
+      (when (and (not to-root)
+                 (not (file-directory-p target-path)))
+        (make-directory (file-name-directory target-path) t)
+        (unless (zerop (call-process "git" nil nil nil "worktree" "add" "-b" branch target-path))
+          (user-error "Failed to create worktree")))
+      ;; Check if already at target
+      (when (equal default-directory target-path)
+        (user-error "Already in %s"
+                    (if to-root "project root" (format "worktree %s" branch))))
+      ;; Remap context: files under default-directory -> target-path
+      (dolist (entry gptel-context)
+        (let ((source (car-safe entry)))
+          (when (and (stringp source)
+                     (file-in-directory-p (expand-file-name source) default-directory))
+            (let* ((rel-path (file-relative-name source default-directory))
+                   (new-path (expand-file-name rel-path target-path)))
+              (setf (car entry) new-path)
+              (cl-incf remapped)
+              (message "Context remapped: %s" rel-path)))))
+      ;; Switch
+      (setq default-directory target-path)
+      ;; Clear auto-worktree tracking so cleanup won't remove a manually-chosen worktree
+      (setq-local fanshi/gptel-agent--auto-worktree-branch nil)
+      (message "Switched to %s (%d context file%s remapped)"
+               (if to-root "project root" (format "worktree %s" branch))
+               remapped (if (= remapped 1) "" "s")))))
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
@@ -3317,182 +3432,6 @@ kill-new: Wrong type argument: stringp, nil
 (add-hook! 'org-mode-hook
   (add-hook! 'after-change-major-mode-hook :local
     (setq-local tab-width 8)))
-#+end_src
-* agent-shell
-** Work around path issue
-#+begin_src emacs-lisp :tangle yes
-(defconst fanshi/nono (executable-find "nono"))
-(defconst fanshi/opencode (executable-find "opencode"))
-(defconst fanshi/pi-acp (executable-find "pi-acp"))
-#+end_src
-#+begin_src emacs-lisp :tangle yes
-(after! agent-shell
-  (setopt agent-shell-pi-environment
-        (agent-shell-make-environment-variables
-         "OMLX_API_KEY" (+pass-get-secret "omlx/2"))))
-#+end_src
-** fanshi/agent-shell-command-prefix
-#+begin_src emacs-lisp :tangle yes
-(after! agent-shell
-  (defvar fanshi/agent-shell-command-prefix-by-project-type-alist
-    '((haskell-cabal . ("--allow-file" "/Users/francischan/.config/cabal/config"
-                        "--allow" "/Users/francischan/.cache/cabal"
-                        "--allow" "/Users/francischan/.local/state/cabal/store"))
-      (python-uv . ("--allow" "/Users/francischan/.cache/uv")))
-    "A alist of default arguments for specific project types.
-Each element is of the form (TYPE . ARGS), where TYPE is a
-projectile project type symbol and ARGS is a list of arguments
-to append to the agent-shell command prefix.")
-  (defun fanshi/agent-shell-command-prefix (buffer)
-    (with-current-buffer buffer
-      (let* ((config (agent-shell-get-config buffer))
-             (profile (map-elt config :identifier))
-             (args `(,fanshi/nono "run" "-v"))
-             (args (append args `("--profile" ,(symbol-name profile))))
-             (root (projectile-project-type))
-             (args (if root (append args (alist-get root fanshi/agent-shell-command-prefix-by-project-type-alist))
-                     args))
-             (args (if root (append args `("--allow" ,(symbol-name root) "--read" ,(symbol-name root))) args)))
-        (append args '("--read" "/Users/francischan/.agents" "--allow-cwd" "--"))))))
-#+end_src
-** fanshi/gptel-spawn-agent-shell-in-worktree
-#+begin_src emacs-lisp :tangle yes
-(after! agent-shell
-  (defun fanshi/gptel-spawn-agent-shell-in-worktree (branch)
-    "Create a git worktree under .trees/BRANCH and spawn agent-shell in it.
-The worktree is created as a new branch off the current HEAD."
-    (interactive
-     (list (read-string "Branch name: ")))
-    (unless (eq 'Git (vc-responsible-backend default-directory t))
-      (user-error "Not in a Git repository"))
-    (let* ((project-root (projectile-project-root))
-           (worktree-path (expand-file-name (concat ".trees/" branch) project-root)))
-      (make-directory (file-name-directory worktree-path) t)
-      (unless (zerop (call-process "git" nil nil nil "worktree" "add" "-b" branch worktree-path))
-        (user-error "Failed to create worktree"))
-      (message "Created worktree: %s" worktree-path)
-      (agent-shell--new-shell :location worktree-path))))
-#+end_src
-** fanshi/gptel-agent-swtich-to-worktree
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defun fanshi/gptel-agent-swtich-to-worktree (branch)
-    "Switch this gptel-agent buffer to a git worktree or back to the project root.
-
-If BRANCH is empty, switch back to the project root (useful when
-currently in a worktree).  Otherwise, create a worktree under
-.trees/BRANCH and switch to it.
-
-With a prefix arg, defaults to switching to the project root.
-
-Context entries whose files are inside the current working directory
-(project root or worktree) are remapped to the corresponding paths in
-the target location.  Context entries outside the project are unchanged.
-Buffer-region entries (overlays) are also left unchanged."
-    (interactive (list (if current-prefix-arg "" (read-string "Branch name (RET for root): "))))
-    (unless (and (derived-mode-p 'org-mode) gptel-mode)
-      (user-error "This command must be called from a gptel buffer"))
-    (unless (eq 'Git (vc-responsible-backend default-directory t))
-      (user-error "Not in a Git repository"))
-    (let* ((project-root (if (string-match "\\(.*\\)/\\.trees/" default-directory)
-                             (match-string 1 default-directory)
-                           (projectile-project-root)))
-           (trees-dir (expand-file-name ".trees/" project-root))
-           (in-worktree (string-prefix-p trees-dir default-directory))
-           (to-root (string= branch ""))
-           (target-path (if to-root
-                            project-root
-                          (expand-file-name (concat ".trees/" branch) project-root)))
-           (remapped 0))
-      ;; Create worktree if needed (skip for project root)
-      (when (and (not to-root)
-                 (not (file-directory-p target-path)))
-        (make-directory (file-name-directory target-path) t)
-        (unless (zerop (call-process "git" nil nil nil "worktree" "add" "-b" branch target-path))
-          (user-error "Failed to create worktree")))
-      ;; Check if already at target
-      (when (equal default-directory target-path)
-        (user-error "Already in %s"
-                    (if to-root "project root" (format "worktree %s" branch))))
-      ;; Remap context: files under default-directory -> target-path
-      (dolist (entry gptel-context)
-        (let ((source (car-safe entry)))
-          (when (and (stringp source)
-                     (file-in-directory-p (expand-file-name source) default-directory))
-            (let* ((rel-path (file-relative-name source default-directory))
-                   (new-path (expand-file-name rel-path target-path)))
-              (setf (car entry) new-path)
-              (cl-incf remapped)
-              (message "Context remapped: %s" rel-path)))))
-      ;; Switch
-      (setq default-directory target-path)
-      ;; Clear auto-worktree tracking so cleanup won't remove a manually-chosen worktree
-      (setq-local fanshi/gptel-agent--auto-worktree-branch nil)
-      (message "Switched to %s (%d context file%s remapped)"
-               (if to-root "project root" (format "worktree %s" branch))
-               remapped (if (= remapped 1) "" "s")))))
-#+end_src
-** fanshi/gptel-agent-auto-worktree
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defcustom fanshi/gptel-agent-auto-worktree nil
-    "If non-nil, automatically create a git worktree for new gptel-agent buffers.
-
-When a gptel-agent buffer is created, a new worktree is automatically
-created under .trees/agent-YYYYMMDD-HHMMSS.  When the buffer is killed,
-the worktree is cleaned up if there are no uncommitted changes.
-
-Set to nil to disable this behavior."
-    :type 'boolean
-    :group 'gptel)
-
-  (defvar-local fanshi/gptel-agent--auto-worktree-branch nil
-    "Branch name of the auto-created worktree for this buffer.")
-
-  (defun fanshi/gptel-agent--auto-worktree-setup-a (buf)
-    "Automatically create and switch to a worktree for gptel-agent buffers.
-
-Only runs for buffers whose name starts with \"*gptel-agent:\".
-Creates a worktree under .trees/agent-YYYYMMDD-HHMMSS and switches to it.
-Stores the branch name in `fanshi/gptel-agent--auto-worktree-branch'."
-    (when (and fanshi/gptel-agent-auto-worktree
-               ;; (string-prefix-p "*gptel-agent:" (buffer-name))
-               ;; (eq 'Git (vc-responsible-backend default-directory t))
-               (not (string-match "/\\.trees/" default-directory)))
-      (with-current-buffer buf
-        (let ((branch (format "agent-%s" (format-time-string "%Y%m%d-%H%M%S"))))
-          (fanshi/gptel-agent-swtich-to-worktree branch)
-          (setq-local fanshi/gptel-agent--auto-worktree-branch branch)
-          (add-hook 'kill-buffer-hook #'fanshi/gptel-agent--auto-worktree-cleanup nil t))))
-    buf)
-
-  (defun fanshi/gptel-agent--auto-worktree-cleanup ()
-    "Clean up auto-created worktree if there are no changes.
-
-Checks git diff in the current buffer's directory.  If clean, removes the
-worktree and its branch.  If dirty, keeps it and notifies the user."
-    (when-let ((branch fanshi/gptel-agent--auto-worktree-branch))
-      (let* ((project-root (if (string-match "\\(.*\\)/\\.trees/" default-directory)
-                               (match-string 1 default-directory)
-                             (projectile-project-root)))
-             (target-path (expand-file-name (concat ".trees/" branch) project-root)))
-        (if (zerop (call-process "git" nil nil nil "-C" target-path "diff" "--quiet"))
-            (progn
-              (call-process "git" nil nil nil "-C" project-root "worktree" "remove" target-path)
-              (message "Auto-cleaned worktree %s (no changes)" branch))
-          (message "Worktree %s kept (has uncommitted changes)" branch)))))
-
-  (advice-add 'gptel-agent :filter-return #'fanshi/gptel-agent--auto-worktree-setup-a))
-#+end_src
-** Use it!
-#+begin_src emacs-lisp :tangle yes
-(use-package! agent-shell
-  :config
-  (setopt agent-shell-command-prefix #'fanshi/agent-shell-command-prefix)
-  (setopt agent-shell-opencode-acp-command `(,fanshi/opencode "acp"))
-  (setopt agent-shell-pi-acp-command `(,fanshi/pi-acp))
-  (setopt agent-shell-opencode-default-model-id "llama.cpp/Qwen3-Coder-Next")
-  (setopt agent-shell-pi-default-model-id "Qwen3-Coder-Next"))
 #+end_src
 * Use spatial-window
 #+begin_src emacs-lisp :tangle yes
