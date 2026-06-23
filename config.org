@@ -2722,7 +2722,7 @@ CONTEXT is an alist of (KEY . VALUE) for template substitution."
        :prompt "Based on this problem analysis, design a technical solution. Include architecture overview, key components, and implementation plan.\n\nAnalysis:\n{{analysis}}"))
     "Chain: problem analysis → technical design."))
 #+end_src
-** fanshi/gptel-abort-all-in-buffer (buffer
+** fanshi/gptel-abort-all-in-buffer
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (defun fanshi/gptel-abort-all-in-buffer (&optional buffer)
