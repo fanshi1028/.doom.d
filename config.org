@@ -1137,6 +1137,31 @@ file.  Results are sorted by modification time."
      tool-cb (format "Fetch for \"%s\"" url)))
   (advice-add 'gptel-agent--read-url :override #'fanshi/gptel-agent--read-url-a))
 #+end_src
+*** Handle URL fetch errors gracefully
+- When calling WebFetch with a nonexistent URL, Emacs prints noisy
+  "error in process sentinel" messages and halt the whole request because
+  `gptel-agent--fetch-with-timeout` doesn't catch synchronous errors
+  from `url-retrieve` (e.g., DNS failure, connection refused).
+- Fix: add an `:around` advice that wraps the call in `condition-case`
+  and routes errors to the tool callback so the LLM sees a clean error
+  message instead of raw sentinel noise.
+#+begin_src emacs-lisp :tangle yes
+(after! gptel-agent
+  (defun fanshi/gptel-agent--fetch-with-timeout-a (orig-fn url url-cb tool-cb failed-msg &rest args)
+    "Catch DNS/connection errors from url-retrieve gracefully.
+
+Instead of letting the error bubble up as 'error in process sentinel'
+noise, route it through TOOL-CB so the LLM receives a proper error
+message it can act on."
+    (condition-case err
+        (apply orig-fn url url-cb tool-cb failed-msg args)
+      (error
+       (funcall tool-cb
+                (format "Error: %s failed with error: %S"
+                        failed-msg err))
+       nil)))
+  (advice-add 'gptel-agent--fetch-with-timeout :around #'fanshi/gptel-agent--fetch-with-timeout-a))
+#+end_src
 *** liberate restricted tools!
 #+begin_src emacs-lisp :tangle yes
 (defvar fanshi/safe-tool '("Write" "Edit" "Bash" "ReviewTask" "IntegrateTask"))
