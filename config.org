@@ -1619,11 +1619,14 @@ when gptel parses the prompt to send to the LLM."
 
   ;; Prompt transform: on each successful tool call, search backward for
   ;; same-tool failures and mark them with 'ignore so gptel--parse-buffer skips them.
-  (defun fanshi/gptel--tool-call-failure-hide-transform (_fsm)
+  (defun fanshi/gptel--tool-call-failure-hide-transform (fsm)
     "Hide failed tool call blocks by marking them with gptel 'ignore property.
 
 gptel--parse-buffer skips regions with gptel 'ignore, so these blocks
-are invisible to the LLM while remaining visible in the buffer."
+are invisible to the LLM while remaining visible in the buffer.
+
+Additionally, marks the corresponding blocks in the original gptel buffer
+so that the 'ignore persists across requests — no redundant re-scanning."
     (when fanshi/gptel-clean-failed-tool-calls
       (save-excursion
         (goto-char (point-max))
@@ -1642,10 +1645,29 @@ are invisible to the LLM while remaining visible in the buffer."
                                                          (optional (and "error" (+ (syntax -))))
                                                          (or "<tool_call_error>" "Error:")))
                                                 nil t)
-                             (when (and successful-tool-call-name (string= successful-tool-call-name name))
-                               ;; Mark the entire block + trailing newline as 'ignore.
-                               (put-text-property start end 'gptel 'ignore))
-                           (setq latest-success-tool-name name))))
+                             ;; Failed call: hide it if we already saw a
+                             ;; successful call of the same tool name.
+                             (when (and successful-tool-call-name
+                                        (string= successful-tool-call-name name))
+                               ;; Mark in temp buffer (for this request).
+                               (put-text-property start end 'gptel 'ignore)
+                               ;; ALSO mark in original buffer (persists across requests).
+                               (when-let* ((original-buffer (plist-get (gptel-fsm-info fsm) :buffer))
+                                           (orig-buf (get-buffer original-buffer)))
+                                 (with-current-buffer orig-buf
+                                   (save-excursion
+                                     (goto-char (point-max))
+                                     (while (not (or (equal (point) (point-min))
+                                                     (equal (get-char-property (point) 'gptel)
+                                                            `(tool . ,id))))
+                                       (goto-char (previous-single-property-change (point) 'gptel nil (point-min))))
+                                     (if (equal (get-char-property (point) 'gptel)
+                                                `(tool . ,id))
+                                         (let ((prop-end (save-excursion (next-single-property-change (point) 'gptel nil (point-max)))))
+                                           (put-text-property (point) prop-end 'gptel 'ignore))
+                                       (warn "tool-call(%s) not found in %s" id original-buffer))))))
+                           ;; Successful call: record the tool name.
+                           (setq successful-tool-call-name name))))
                    (t
                     (message (format "fanshi/gptel--tool-call-failure-hide-transform: could not parse tool-call %s on line %s"
                                      id (line-number-at-pos (point)))))))
