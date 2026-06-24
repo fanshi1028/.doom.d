@@ -2821,99 +2821,109 @@ Return the number of requests aborted."
 #+begin_src emacs-lisp :tangle yes
 (map! :map doom-leader-open-map "l l" #'gptel-agent)
 #+end_src
-** fanshi/gptel-agent-auto-worktree
+** fanshi/gptel-agent-auto-workspace (jj workspace)
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (defcustom fanshi/gptel-agent-auto-worktree nil
-    "If non-nil, automatically create a git worktree for new gptel-agent buffers.
+  (defun fanshi/jj-repo-p (&optional dir)
+    "Check if DIR (default: default-directory) is inside a jj repository."
+    (locate-dominating-file (or dir default-directory) ".jj/"))
 
-When a gptel-agent buffer is created, a new worktree is automatically
-created under .trees/agent-YYYYMMDD-HHMMSS.  When the buffer is killed,
-the worktree is cleaned up if there are no uncommitted changes.
+  (defun fanshi/jj-workspace-root (&optional dir)
+    "Return the workspace root path for DIR using `jj workspace root`."
+    (string-trim (shell-command-to-string (format "jj -R '%s' workspace root 2>/dev/null" (or dir default-directory)))))
+
+  (defcustom fanshi/gptel-agent-auto-workspace nil
+    "If non-nil, automatically create a jj workspace for new gptel-agent buffers.
+
+When a gptel-agent buffer is created, a new jj workspace is automatically
+created under `fanshi/breeding-ground-dir'/agent-YYYYMMDD-HHMMSS.
+When the buffer is killed, the workspace is cleaned up if there are no
+uncommitted changes.
 
 Set to nil to disable this behavior."
     :type 'boolean
     :group 'gptel)
 
-  (defvar-local fanshi/gptel-agent--auto-worktree-branch nil
-    "Branch name of the auto-created worktree for this buffer.")
+  (defvar-local fanshi/gptel-agent--auto-workspace-branch nil
+    "Workspace name of the auto-created jj workspace for this buffer.")
 
-  (defun fanshi/gptel-agent--auto-worktree-setup-a (buf)
-    "Automatically create and switch to a worktree for gptel-agent buffers.
+  (defvar-local fanshi/gptel-agent--auto-workspace-project-root nil
+    "Project root of the jj repo the auto-created workspace belongs to.")
 
-Only runs for buffers whose name starts with \"*gptel-agent:\".
-Creates a worktree under .trees/agent-YYYYMMDD-HHMMSS and switches to it.
-Stores the branch name in `fanshi/gptel-agent--auto-worktree-branch'."
-    (when (and fanshi/gptel-agent-auto-worktree
-               ;; (string-prefix-p "*gptel-agent:" (buffer-name))
-               ;; (eq 'Git (vc-responsible-backend default-directory t))
-               (not (string-match "/\\.trees/" default-directory)))
+  (defun fanshi/gptel-agent--auto-workspace-setup-a (buf)
+    "Automatically create and switch to a jj workspace for gptel-agent buffers.
+
+Creates a workspace under `fanshi/breeding-ground-dir'/agent-YYYYMMDD-HHMMSS
+and switches to it.  Stores the workspace name in
+`fanshi/gptel-agent--auto-workspace-branch'."
+    (when (and fanshi/gptel-agent-auto-workspace
+               (not (string-prefix-p (expand-file-name fanshi/breeding-ground-dir)
+                                     default-directory)))
       (with-current-buffer buf
-        (let ((branch (format "agent-%s" (format-time-string "%Y%m%d-%H%M%S"))))
-          (fanshi/gptel-agent-swtich-to-worktree branch)
-          (setq-local fanshi/gptel-agent--auto-worktree-branch branch)
-          (add-hook 'kill-buffer-hook #'fanshi/gptel-agent--auto-worktree-cleanup nil t))))
+        (let ((name (format "agent-%s" (format-time-string "%Y%m%d-%H%M%S"))))
+          (fanshi/gptel-agent-swtich-to-worktree name)
+          (setq-local fanshi/gptel-agent--auto-workspace-branch name)
+          (add-hook 'kill-buffer-hook #'fanshi/gptel-agent--auto-workspace-cleanup nil t))))
     buf)
 
-  (defun fanshi/gptel-agent--auto-worktree-cleanup ()
-    "Clean up auto-created worktree if there are no changes.
+  (defun fanshi/gptel-agent--auto-workspace-cleanup ()
+    "Clean up auto-created jj workspace if there are no changes.
 
-Checks git diff in the current buffer's directory.  If clean, removes the
-worktree and its branch.  If dirty, keeps it and notifies the user."
-    (when-let ((branch fanshi/gptel-agent--auto-worktree-branch))
-      (let* ((project-root (if (string-match "\\(.*\\)/\\.trees/" default-directory)
-                               (match-string 1 default-directory)
-                             (projectile-project-root)))
-             (target-path (expand-file-name (concat ".trees/" branch) project-root)))
-        (if (zerop (call-process "git" nil nil nil "-C" target-path "diff" "--quiet"))
+Checks jj diff in the current buffer's directory.  If clean, forgets the
+workspace and removes its directory.  If dirty, keeps it and notifies."
+    (when-let ((name fanshi/gptel-agent--auto-workspace-branch)
+               (project-root fanshi/gptel-agent--auto-workspace-project-root))
+      (let ((target-path (expand-file-name (concat fanshi/breeding-ground-dir name))))
+        (if (zerop (let ((default-directory target-path))
+                     (call-process "jj" nil nil nil "diff" "--quiet")))
             (progn
-              (call-process "git" nil nil nil "-C" project-root "worktree" "remove" target-path)
-              (message "Auto-cleaned worktree %s (no changes)" branch))
-          (message "Worktree %s kept (has uncommitted changes)" branch)))))
+              (call-process "jj" nil nil nil "-R" project-root "workspace" "forget" "--name" name)
+              (delete-directory target-path t)
+              (message "Auto-cleaned workspace %s (no changes)" name))
+          (message "Workspace %s kept (has uncommitted changes)" name)))))
 
-  (advice-add 'gptel-agent :filter-return #'fanshi/gptel-agent--auto-worktree-setup-a))
+  (advice-add 'gptel-agent :filter-return #'fanshi/gptel-agent--auto-workspace-setup-a))
 #+end_src
-** fanshi/gptel-agent-swtich-to-worktree
+** fanshi/gptel-agent-swtich-to-workspace (jj workspace)
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (defun fanshi/gptel-agent-swtich-to-worktree (branch)
-    "Switch this gptel-agent buffer to a git worktree or back to the project root.
+  (defun fanshi/gptel-agent-swtich-to-workspace (name)
+    "Switch this gptel-agent buffer to a jj workspace or back to the project root.
 
-If BRANCH is empty, switch back to the project root (useful when
-currently in a worktree).  Otherwise, create a worktree under
-.trees/BRANCH and switch to it.
+If NAME is empty, switch back to the project root (useful when
+currently in a workspace).  Otherwise, create a jj workspace under
+`fanshi/breeding-ground-dir'/NAME and switch to it.
 
 With a prefix arg, defaults to switching to the project root.
 
 Context entries whose files are inside the current working directory
-(project root or worktree) are remapped to the corresponding paths in
+(project root or workspace) are remapped to the corresponding paths in
 the target location.  Context entries outside the project are unchanged.
 Buffer-region entries (overlays) are also left unchanged."
-    (interactive (list (if current-prefix-arg "" (read-string "Branch name (RET for root): "))))
+    (interactive (list (if current-prefix-arg "" (read-string "Workspace name (RET for root): "))))
     (unless (and (derived-mode-p 'org-mode) gptel-mode)
       (user-error "This command must be called from a gptel buffer"))
-    (unless (eq 'Git (vc-responsible-backend default-directory t))
-      (user-error "Not in a Git repository"))
-    (let* ((project-root (if (string-match "\\(.*\\)/\\.trees/" default-directory)
-                             (match-string 1 default-directory)
-                           (projectile-project-root)))
-           (trees-dir (expand-file-name ".trees/" project-root))
-           (in-worktree (string-prefix-p trees-dir default-directory))
-           (to-root (string= branch ""))
+    (let* ((repo-dir (fanshi/jj-repo-p))
+           (project-root (or repo-dir (projectile-project-root)))
+           (in-workspace (string-prefix-p (expand-file-name fanshi/breeding-ground-dir)
+                                          default-directory))
+           (to-root (string= name ""))
            (target-path (if to-root
                             project-root
-                          (expand-file-name (concat ".trees/" branch) project-root)))
+                          (expand-file-name (concat fanshi/breeding-ground-dir name))))
            (remapped 0))
-      ;; Create worktree if needed (skip for project root)
+      (unless repo-dir
+        (user-error "Not in a jj repository"))
+      ;; Create workspace if needed (skip for project root)
       (when (and (not to-root)
                  (not (file-directory-p target-path)))
         (make-directory (file-name-directory target-path) t)
-        (unless (zerop (call-process "git" nil nil nil "worktree" "add" "-b" branch target-path))
-          (user-error "Failed to create worktree")))
+        (unless (zerop (call-process "jj" nil nil nil "-R" project-root "workspace" "add" "--name" name target-path))
+          (user-error "Failed to create workspace")))
       ;; Check if already at target
       (when (equal default-directory target-path)
         (user-error "Already in %s"
-                    (if to-root "project root" (format "worktree %s" branch))))
+                    (if to-root "project root" (format "workspace %s" name))))
       ;; Remap context: files under default-directory -> target-path
       (dolist (entry gptel-context)
         (let ((source (car-safe entry)))
@@ -2926,10 +2936,11 @@ Buffer-region entries (overlays) are also left unchanged."
               (message "Context remapped: %s" rel-path)))))
       ;; Switch
       (setq default-directory target-path)
-      ;; Clear auto-worktree tracking so cleanup won't remove a manually-chosen worktree
-      (setq-local fanshi/gptel-agent--auto-worktree-branch nil)
+      ;; Clear auto-worktree tracking so cleanup won't remove a manually-chosen workspace
+      (setq-local fanshi/gptel-agent--auto-workspace-branch nil)
+      (setq-local fanshi/gptel-agent--auto-workspace-project-root project-root)
       (message "Switched to %s (%d context file%s remapped)"
-               (if to-root "project root" (format "worktree %s" branch))
+               (if to-root "project root" (format "workspace %s" name))
                remapped (if (= remapped 1) "" "s")))))
 #+end_src
 * Literate recompilation only for config.org
@@ -3231,7 +3242,7 @@ TASK-ID is the org-id of the task entry to track."
         ;; 3. Create and configure the child agent buffer using gptel-agent
         (with-current-buffer (get-buffer-create child-buf-name)
           (gptel-agent target-dir agent)
-          (setq-local fanshi/gptel-agent-auto-worktree nil
+          (setq-local fanshi/gptel-agent-auto-workspace nil
                       fanshi/ai-delegate--current-task-id task-id)
           (goto-char (point-max))
           (insert (format "# Delegated Task\n\n%s\n\nYou are working in an isolated jj workspace.\nAll file changes are automatically committed to your working-copy commit (@).\nWhen you complete the task, call the FinishTask tool with a summary.\nIf you cannot complete it, call AbortTask with a reason.\nIf you need human input, call Delegate with agent=\"user\" and a task description.\n"
