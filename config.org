@@ -3466,10 +3466,27 @@ kill-new: Wrong type argument: stringp, nil
 (after! avy (setopt avy-all-windows t))
 #+end_src
 * VC
-rebind = for vc-ediff
+** rebind for vc-ediff
 #+begin_src emacs-lisp :tangle yes
 (map! :map vc-prefix-map
       "=" #'vc-ediff)
+#+end_src
+**  jj color for shell-command
+adapted from
+- Source :: https://stackoverflow.com/a/72132446
+- Posted by :: Chris
+- Retrieved :: 2026-06-25  License - CC BY-SA 4.0
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/ansi-colorize-jj-shell-command-output-a (cmd &rest _args)
+  "Colorize `shell-command' output."
+  (when (string-prefix-p "jj" cmd)
+    (cl-loop for buf in (buffer-list)
+             when (or (string-prefix-p " *Echo Area" (buffer-name buf))
+                      (string-prefix-p "*Shell Command" (buffer-name buf)))
+             do (with-current-buffer buf
+                  (ansi-color-apply-on-region (point-min) (point-max) t)))))
+
+(advice-add 'shell-command :after #'fanshi/ansi-colorize-jj-shell-command-output-a)
 #+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
