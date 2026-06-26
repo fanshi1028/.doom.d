@@ -1324,45 +1324,25 @@ Symbol-Name is a string naming an Elisp function, variable, macro, or face."
 #+end_src
 *** Imenu Tool
 #+begin_src emacs-lisp :tangle yes
-(defun fanshi/ai-imenu--flatten (items &optional parent)
-  "Flatten imenu tree ITEMS into a list of (name . position) pairs.
-
-ITEMS is a list of items, where each item is either a pair (NAME . POSITION)
-or a pair (NAME . CHILDREN) with CHILDREN being a list of items.
-
-PARENT is the name of the parent section, used to build hierarchical
-names by joining parent and child names with a separator."
-  (mapcan
-   (lambda (item)
-     (let* ((name (car item))
-            (rest (cdr item))
-            (parent (if parent (concat parent " / " name) name)))
-       (if (listp rest)
-           (fanshi/ai-imenu--flatten (cdr item) parent)
-         ;; (or (markerp rest) (integerp rest))
-         (list (cons parent rest)))))
-   items))
-
-(defun fanshi/ai-imenu (file-path)
-  "Return the imenu index of the file at FILE-PATH as a flat list.
+(after! gptel
+  (defun fanshi/gptel-read-imenu (file-path)
+    "Return the imenu index of the file at FILE-PATH as a flat list.
 
 If no buffer is visiting FILE-PATH, open it temporarily (read-only).
 This is useful for an AI agent to understand the structure of a file
 without reading its entire contents. Imenu provides a semantic index
 (functions, classes, sections) which is far more efficient than reading
-the whole file or grepping line-by-line."
-  (fanshi/restrict-to-projectile-files-plus-context-a file-path)
-  (if-let* ((buffer (or (find-buffer-visiting file-path)
-                        (find-file-noselect file-path)))
-            (imenu-use-markers t))
-      (when-let* ((items (with-current-buffer buffer
-                           (save-excursion
-                             (without-restriction
-                               (funcall imenu-create-index-function)))))
-                  (flat-items (fanshi/ai-imenu--flatten items)))
+the whole file or grepping line-by-line.
+
+Reuses consult-imenu--items-safe for caching and robustness."
+    (fanshi/restrict-to-projectile-files-plus-context-a file-path)
+    (if-let* ((buffer (or (find-buffer-visiting file-path)
+                          (find-file-noselect file-path)))
+              (items (with-current-buffer buffer
+                       (consult-imenu--items-safe))))
         (with-temp-buffer
           (insert "Items:\n")
-          (dolist (item flat-items)
+          (dolist (item items)
             (let ((name (car item))
                   (pos (cdr item)))
               (insert (with-current-buffer buffer
@@ -1373,19 +1353,21 @@ the whole file or grepping line-by-line."
                                   (line-number-at-pos nil t)
                                   (current-column) ))))))
           (gptel-agent--truncate-buffer "imenu")
-          (buffer-substring-no-properties (point-min) (point-max))))
-    "Error: file not found"))
+          (buffer-substring-no-properties (point-min) (point-max))
+          ;; (buffer-string)
+          )
+      "Error: file not found"))
 
-(after! gptel
-  (gptel-make-tool
-   :name "Imenu"
-   :function #'fanshi/ai-imenu
-   :description "Get the imenu index of a file. Returns a list of all named items with their line/column positions. Use this to understand the file structure before reading or editing - much more efficient than scanning the entire file. Takes a file_path argument to specify which file to index."
-   :args '((:name "file_path"
-            :type string
-            :description "The path to the file whose imenu index to retrieve"))
-   :category "read-tools"
-   :async nil))
+  (after! gptel
+    (gptel-make-tool
+     :name "Imenu"
+     :function #'fanshi/gptel-read-imenu
+     :description "Get the imenu index of a file. Returns a list of all named items with their line/column positions. Use this to understand the file structure before reading or editing - much more efficient than scanning the entire file. Takes a file_path argument to specify which file to index."
+     :args '((:name "file_path"
+              :type string
+              :description "The path to the file whose imenu index to retrieve"))
+     :category "read-tools"
+     :async nil)))
 #+end_src
 *** Tool Groups
 #+begin_src emacs-lisp :tangle yes :lexical t
