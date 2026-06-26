@@ -1111,30 +1111,42 @@ file.  Results are sorted by modification time."
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (defun fanshi/gptel-agent--read-url-a (tool-cb url)
-    "Fetch URL text and call TOOL-CB with it."
-    (gptel-agent--fetch-with-timeout
-     url
-     (lambda (cb)
-       (progn
-         (goto-char (point-min))
-         ;; TEMP FIXME handle more content type like img or other?
-         ;; maybe if model can handling those mime, pass it to them in the right way.
-         (if (search-forward "content-type: application/pdf" (save-excursion (forward-paragraph) (point)) t)
-             (funcall cb "TEMP FIXME: pdf returned from the url, but handler for pdf is not implemented")
+    "Fetch URL text and call TOOL-CB with it.
+
+Rejects local file URLs (file://, absolute paths, ~ paths) to prevent
+the LLM from bypassing `Read' tool restrictions and exploding the
+context window."
+    ;; Block local file URLs before they reach url-retrieve.
+    (if (or (string-prefix-p "file://" url)
+            (string-prefix-p "file:" url)
+            (string-prefix-p "/" url)
+            (string-prefix-p "~" url)
+            (string-match-p "^[a-zA-Z]:" url)) ;; Windows paths like C:\
+        (funcall tool-cb
+                 (format "Error: WebFetch cannot read local files \"%s\". Use the Read tool for local files." url))
+      (gptel-agent--fetch-with-timeout
+       url
+       (lambda (cb)
+         (progn
            (goto-char (point-min))
-           (forward-paragraph)
-           (condition-case errdata
-               (let ((dom (libxml-parse-html-region (point) (point-max))))
-                 (with-temp-buffer
-                   (eww-score-readability dom)
-                   (shr-insert-document (eww-highest-readability dom))
-                   (decode-coding-region (point-min) (point-max) 'utf-8)
-                   (funcall
-                    cb (buffer-substring-no-properties
-                        (point-min) (point-max)))))
-             (error (funcall cb (format "Error: Request failed with error data:\n%S"
-                                        errdata)))))))
-     tool-cb (format "Fetch for \"%s\"" url)))
+           ;; TEMP FIXME handle more content type like img or other?
+           ;; maybe if model can handling those mime, pass it to them in the right way.
+           (if (search-forward "content-type: application/pdf" (save-excursion (forward-paragraph) (point)) t)
+               (funcall cb "TEMP FIXME: pdf returned from the url, but handler for pdf is not implemented")
+             (goto-char (point-min))
+             (forward-paragraph)
+             (condition-case errdata
+                 (let ((dom (libxml-parse-html-region (point) (point-max))))
+                   (with-temp-buffer
+                     (eww-score-readability dom)
+                     (shr-insert-document (eww-highest-readability dom))
+                     (decode-coding-region (point-min) (point-max) 'utf-8)
+                     (funcall
+                      cb (buffer-substring-no-properties
+                          (point-min) (point-max)))))
+               (error (funcall cb (format "Error: Request failed with error data:\n%S"
+                                          errdata)))))))
+       tool-cb (format "Fetch for \"%s\"" url))))
   (advice-add 'gptel-agent--read-url :override #'fanshi/gptel-agent--read-url-a))
 #+end_src
 *** Handle URL fetch errors gracefully
