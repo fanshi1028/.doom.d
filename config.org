@@ -2153,125 +2153,37 @@ For 'Mlx: uses :hf tag value as model symbol."
 
   (advice-add 'gptel--transform-apply-preset :before #'fanshi/gptel--transform-apply-preset-a))
 #+end_src
-** Default to save to .gptel-agent under project root when saving gptel-agent's chat + auto infer filename-prefix by chat content
+** Save gptel-agent chat to .gptel-agent under original project root with name from task description
 *** fanshi/gptel-agent--auto-assign-filename
 #+begin_src elisp :tangle yes
 (after! gptel
   (defun fanshi/gptel-agent--auto-assign-filename ()
-    "Auto-assign a timestamped filename under ./gptel-agent/ for gptel-agent buffers.
+    "Auto-assign a filename under .gptel-agent/ for gptel-agent buffers.
 
-Intended for use in `before-save-hook'.  If the buffer already has a file
-associated, or a prefix arg was used, does nothing.
-
-When inside a git worktree (under .trees/), resolves the directory to the
-project root so that the file is saved under <project-root>/.gptel-agent/."
-    (unless (or buffer-file-name current-prefix-arg)
+For jj workspace sessions, resolves the original project root via
+`jj workspace root --name default' and saves there so the chat survives
+workspace cleanup.  For regular sessions, saves to `default-directory'."
+    (unless buffer-file-name
       (when (string-prefix-p "*gptel-agent:" (buffer-name))
-        (let* ((dd (file-name-as-directory default-directory))
-               (trees-pos (string-search ".trees/" dd))
-               (base-dir (if trees-pos
-                             (substring dd 0 trees-pos)
-                           dd))
-               (dir (expand-file-name ".gptel-agent/" base-dir))
-               (timestamp (format-time-string "%Y%m%d-%H%M%S")))
-          (make-directory dir t)
-          (setq buffer-file-name
-                (expand-file-name
-                 (concat timestamp ".org")
-                 dir))
-          (rename-buffer (file-name-nondirectory buffer-file-name) t))))))
-#+end_src
-*** fanshi/gptel-agent--extract-chat-content
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
-  (defun fanshi/gptel-agent--extract-chat-content (&optional max-prompt-length)
-    "Extract the first MAX-PROMPT-LENGTH chars of the buffer, stripping org property drawers.
-
-Returns text suitable for sending to an LLM (e.g. for filename suggestion).
-Default MAX-PROMPT-LENGTH is 25000."
-    (let ((content (buffer-substring-no-properties
-                    (point-min)
-                    (min (or max-prompt-length 25000) (point-max)))))
-      (replace-regexp-in-string "^:PROPERTIES:.*?:END:" "" content nil 'multiline))))
-#+end_src
-*** fanshi/gptel-agent--suggest-filename-prefix
-#+begin_src emacs-lisp :tangle yes :lexical t
-(after! gptel
-  (defun fanshi/gptel-agent--suggest-filename-prefix ()
-    "Suggest a concise filename prefix via gptel-request based on CHAT content.
-
-Runs asynchronously.  When called interactively:
-- In a buffer visiting a file: operates on that file.
-- In a Dired buffer: operates on marked files if any, otherwise the file at point.
-
-When run from =after-save-hook', CONTENT and FILE are provided as arguments.
-
-If the file already has a prefix (matching pattern PREFIX-TIMESTAMP.org),
-replaces the old prefix with the new one."
-    (interactive)
-    (let ((resolved
-           (cond
-            ;; Dired buffer — marked files, or file at point
-            ((derived-mode-p 'dired-mode)
-             (or
-              (cl-loop for file in (dired-get-marked-files nil)
-                       collect (cons file
-                                     (with-temp-buffer
-                                       (insert-file-contents file)
-                                       (fanshi/gptel-agent--extract-chat-content))))
-              (let ((file (dired-get-filename nil t)))
-                (if (null file) (user-error "No file at point and no marked files in Dired")
-                  (list (cons file (with-temp-buffer (insert-file-contents file) (fanshi/gptel-agent--extract-chat-content))))))))
-            ;; Buffer visiting a file
-            (buffer-file-name (list (cons buffer-file-name (fanshi/gptel-agent--extract-chat-content))))
-            ;; No valid context
-            (t (user-error "No file context: not visiting a file and not in Dired")))))
-      (cl-loop for res in resolved
-               do (fanshi/gptel-agent--suggest-filename-prefix--1 res))))
-
-  (defun fanshi/gptel-agent--suggest-filename-prefix--1 (pair)
-    "Process a single (FILE . CONTENT) resolved pair."
-    (when-let* ((file (car pair))
-                (dir (file-name-directory file))
-                (base (file-name-sans-extension file))
-                (ext (file-name-extension file))
-                ;; Extract trailing timestamp YYYYMMDD-HHMMSS
-                (timestamp (when-let*
-                               ((match (string-match
-                                        "\\([0-9]\\{8\\}-[0-9]\\{6\\}\\)$" base)))
-                             (match-string 1 base)))
-                (suffix (or timestamp base))
-                (content (cdr pair))
-                (gptel-model (or (fanshi/gptel--get-active-main-model) 'mlx-community--Qwen3.6-35B-A3B-bf16)))
-      (gptel-request (format "%s" content)
-        :context nil
-        :system "You are a file naming assistant. Based on the following chat transcript, suggest a CONCISE filename prefix (2-4 words). Rules:
-- Return ONLY the prefix, nothing else
-- Use lowercase, replace spaces with hyphens
-- Capture the core topic or task
-- No quotes, no code blocks, no explanations"
-        :callback (lambda (response _)
-                    (when (stringp response)
-                      (if-let* ((prefix (downcase (string-trim response)))
-                                (prefix (replace-regexp-in-string "[^a-z0-9-]" "-" prefix))
-                                (prefix (replace-regexp-in-string "-\\+" "-" prefix))
-                                (prefix (string-trim prefix "-"))
-                                (new-base (when (> (length prefix) 1) (concat prefix "-" suffix)))
-                                (new-file (expand-file-name (concat new-base "." ext) dir)))
-                          (rename-file file new-file)
-                          (when-let* ((buf (get-file-buffer file)))
-                            (with-current-buffer buf
-                              (setq buffer-file-name new-file)
-                              (rename-buffer (file-name-nondirectory new-file) t)))
-                        (message "Failed to rename %s (file may have been moved or deleted)" file))))))))
+        (if-let* ((cmd  "jj workspace root --name default")
+                  (base-dir  (ignore-errors (string-trim (shell-command-to-string cmd)))))
+            (if-let* ((dir (expand-file-name ".gptel-agent/" base-dir))
+                      (timestamp (format-time-string "%Y%m%d-%H%M%S"))
+                      (filename ((s-chop-prefix "*gptel-agent:" (buffer-name)) "-" timestamp ".org")))
+                (progn
+                  (make-directory dir t)
+                  (setq buffer-file-name
+                        (expand-file-name filename dir))
+                  (rename-buffer (file-name-nondirectory buffer-file-name) t))
+              (message "failed to assign file name to the gptel-buffer"))
+          (message "%s failed" cmd))))))
 #+end_src
 *** set it all up
 #+begin_src elisp :tangle yes
 (after! gptel
   (defun fanshi/gptel-agent--setup-auto-save ()
-    "Set up auto-save and auto-rename for gptel-agent buffers."
-    (add-hook! 'before-save-hook :local #'fanshi/gptel-agent--auto-assign-filename)
-    (add-hook! 'after-save-hook :local #'fanshi/gptel-agent--suggest-filename-prefix))
+    "Set up auto-save for gptel-agent buffers."
+    (add-hook! 'before-save-hook :local #'fanshi/gptel-agent--auto-assign-filename))
   (add-hook! 'gptel-mode-hook :append #'fanshi/gptel-agent--setup-auto-save))
 #+end_src
 ** Fix gptel--transform-apply-preset to handle the case where we resume from the middle of a agent response.
@@ -2806,24 +2718,27 @@ Return the number of requests aborted."
     (interactive)
     (let ((task-description (read-from-minibuffer "Task Description: "))
           (root (projectile-project-root))
-          (default-directory (projectile-project-root)))
+          (default-directory (projectile-project-root))
+          (jj-default-root (ignore-errors
+                             (string-trim (shell-command-to-string "jj workspace root --name default"))))
+          (jj-current-root (ignore-errors
+                             (string-trim (shell-command-to-string "jj workspace root")))))
       (if (or (string-empty-p task-description)
-              (not (file-exists-p ".jj")))
+              (not (and jj-default-root jj-current-root
+                        (string= jj-default-root jj-current-root))))
+          ;; Not a jj repo, or already inside a sub-workspace — use plain gptel-agent
           (gptel-agent default-directory 'gptel-agent)
+        ;; We're in the default workspace of a jj repo — create a new workspace
         (let* ((name (->> task-description
                           (s-replace " " "-")
                           (concat (projectile-project-name default-directory) "-")
-                          (downcase)
-                          ;; (s-append (format-time-string "-%Y%m%d-%H%M%S"))
-                          ))
+                          (downcase)))
                (dir (file-name-as-directory (expand-file-name name fanshi/breeding-ground-dir)))
                (jj-add-workspace-cmd (list #'call-process "jj" nil nil nil "workspace" "add" "--name" name dir)))
           (if (zerop (eval jj-add-workspace-cmd))
               (let ((buf (gptel-agent dir 'gptel-agent)))
                 (with-current-buffer buf
-
-                  (when (string= (doom-path "")
-                                 (string-trim (shell-command-to-string (format "jj -R '%s' workspace root" default-directory))))
+                  (when (string= doom-user-dir (file-name-as-directory jj-default-root))
                     ;; Allow agent for the doomemacs config project to read modules & repos
                     (setq-local fanshi/gptel-context-files
                                 `(,doom-modules-dir
@@ -2834,7 +2749,6 @@ Return the number of requests aborted."
                     (add-hook 'kill-buffer-hook (lambda ()
                                                   (if ;; NOTE: only cleanup "workspaces without changes"
                                                       (not (string-empty-p (shell-command-to-string "jj diff -s")))
-                                                      ;; NOTE FIXME: how about some book keeping about the gptel agent buffer too?
                                                       (message "Workspace %s kept (has uncommitted changes)" default-directory)
                                                     (let ((current-jj-workspace-root-dir (file-name-as-directory (string-trim (shell-command-to-string "jj workspace root"))))
                                                           (jj-abandon-cmd (list #'call-process "jj" nil nil nil "abandon"))
