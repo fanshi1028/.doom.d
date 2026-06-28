@@ -279,8 +279,6 @@ Corfu detected an error:
          `((:discard (:scheduled t :deadline t :regexp ,org-scheduled-time-hour-regexp :not (:file-path "work")))
            (:auto-outline-path t  :order 7))))
 #+end_src
-
-
 ***** fanshi/org-private-agenda-file-regexp (include GPG for private agenda)
 [[https://emacs.stackexchange.com/a/36543][org mode - Include .org.gpg files in org-agenda - Emacs Stack Exchange]]
 #+begin_src emacs-lisp :tangle yes
@@ -522,7 +520,7 @@ Else call original evil-paste-after."
 #+begin_src emacs-lisp :tangle yes
 (after! haskell-ts-mode (set-eglot-client! 'haskell-ts-mode '("haskell-language-server-wrapper" "--lsp" :initializationOptions '(:sessionLoading "multipleComponents")) "wtf is this"))
 #+end_src
-**** fix freeze 
+**** fix freeze
 - ref :: https://github.com/joaotavora/eglot/discussions/1151#discussioncomment-4689697
 #+begin_src emacs-lisp :tangle yes
 (after! eglot
@@ -1339,6 +1337,7 @@ Reuses consult-imenu--items-safe for caching and robustness."
     (if-let* ((buffer (or (find-buffer-visiting file-path)
                           (find-file-noselect file-path)))
               (items (with-current-buffer buffer
+                       (require 'consult-imenu)
                        (consult-imenu--items-safe))))
         (with-temp-buffer
           (insert "Items:\n")
@@ -1697,6 +1696,119 @@ so that the 'ignore persists across requests — no redundant re-scanning."
   (add-to-list 'gptel-prompt-transform-functions
                #'fanshi/gptel--tool-call-failure-hide-transform))
 #+end_src
+*** Tool Call Deduplication
+Prevent the agent from calling the same tool with the same arguments
+repeatedly (not necessarily consecutively). This is a common LLM agent
+problem: as the context grows, the model "forgets" what it already knows
+and re-reads the same sources.
+
+- *Immutable tools* (ElispHelp, WebSearch, WebFetch, YouTube): results won't change, so block immediately
+  if the same tool+args was called within the last N tool calls.
+- *Mutable tools* (Imenu, Glob, Read, Grep): results can change if underlying files are modified.
+  Block if the same tool+args was called within the last N tool calls AND the result text is
+  identical (meaning no edits affected the files in between).
+- *Escape hatch*: if the last identical call was more than N tool calls
+  ago, allow the call (to let the agent refresh its context).
+
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defcustom fanshi/gptel-dedup-window 20
+    "Number of recent tool calls to check for duplicates.
+
+If the same tool+args was called within this window, the call is
+blocked.  Beyond this window the call is allowed (escape hatch to
+let the agent refresh its context)."
+    :type 'integer
+    :group 'gptel)
+
+  (defvar fanshi/gptel-immutable-tools
+    '("ElispHelp" "WebSearch" "WebFetch" "YouTube")
+    "Tools whose results are considered immutable within a session.")
+
+  (defvar fanshi/gptel-mutable-tools '("Imenu" "Glob" "Read" "Grep")
+    "Tools whose results can change if underlying files are modified.")
+
+  (defun fanshi/gptel--dedup-immutable-tools (tool-call)
+    "`gptel-pre-tool-call-functions' hook to block duplicate tool calls which are `fanshi/gptel-immutable-tools'.
+
+Returns (:block REASON) if the call should be blocked, or nil to
+proceed."
+    (let ((name (plist-get tool-call :name)))
+      (when (member name fanshi/gptel-immutable-tools)
+        (let* ((args (plist-get tool-call :args))
+               (buf (plist-get tool-call :buffer))
+               (prompt-buf (with-current-buffer buf
+                             (gptel--create-prompt-buffer (point-max))))
+               (window fanshi/gptel-dedup-window)
+               (result))
+          (with-current-buffer prompt-buf
+            (while (and (> window 0) (/= (point) (point-min)) (not result))
+              (let ((end (point))
+                    (start (goto-char (previous-single-property-change (point) 'gptel nil (point-min)))))
+                (pcase (get-char-property (point) 'gptel)
+                  (`(tool . ,id)
+                   (condition-case nil
+                       (progn
+                         (cl-decf window)
+                         (save-excursion
+                           (let* ((prev-tool-call (read (current-buffer)))
+                                  (prev-name (plist-get prev-tool-call :name))
+                                  (prev-args (plist-get prev-tool-call :args)))
+                             (when (and (string= name prev-name) (equal args prev-args))
+                               (setq result `(:block ,(format
+                                                       "You already called %s with the same args %d call(s) ago. Use the previous result."
+                                                       name (1+ (- fanshi/gptel-dedup-window window)))))))))
+                     (t
+                      (message (format "fanshi/gptel--dedup-immutable-tools: could not parse tool-call %s on line %s"
+                                       id (line-number-at-pos (point)))))))
+                  (_ nil)))
+              (ignore-errors (backward-char))))
+          result))))
+
+  (defun fanshi/gptel--dedup-mutable-tools (tool-call)
+    "`gptel-post-tool-call-functions' hook to block duplicate tool calls which are `fanshi/gptel-mutable-tools'.
+
+Returns (:block REASON) if the call should be blocked, or nil to
+proceed."
+    (let ((name (plist-get tool-call :name)))
+      (when (member name fanshi/gptel-mutable-tools)
+        (let* ((args (plist-get tool-call :args))
+               (buf (plist-get tool-call :buffer))
+               (prompt-buf (with-current-buffer buf
+                             (gptel--create-prompt-buffer (point-max))))
+               (window fanshi/gptel-dedup-window)
+               (tool-result (string-trim (or (plist-get tool-call :result) "")))
+               (result))
+          (with-current-buffer prompt-buf
+            (while (and (> window 0) (/= (point) (point-min)) (not result))
+              (let ((end (point))
+                    (start (goto-char (previous-single-property-change (point) 'gptel nil (point-min)))))
+                (pcase (get-char-property (point) 'gptel)
+                  (`(tool . ,id)
+                   (condition-case nil
+                       (progn
+                         (cl-decf window)
+                         (save-excursion
+                           (let* ((prev-tool-call (read (current-buffer)))
+                                  (prev-name (plist-get prev-tool-call :name))
+                                  (prev-args (plist-get prev-tool-call :args))
+                                  (prev-result (string-trim (buffer-substring-no-properties (point) end))))
+                             (when (and (string= name prev-name) (equal args prev-args)
+                                        (string= tool-result prev-result))
+                               (setq result `(:block ,(format
+                                                       "You already called %s with the same args %d call(s) ago and the result has not changed. Use the previous result."
+                                                       name (1+ (- fanshi/gptel-dedup-window window)))))))))
+                     (t
+                      (message (format "fanshi/gptel--dedup-mutable-tools: could not parse tool-call %s on line %s"
+                                       id (line-number-at-pos (point)))))))
+                  (_ nil)))
+              (ignore-errors (backward-char))))
+          result))))
+
+  ;; Register hooks.
+  (add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel--dedup-immutable-tools)
+  (add-to-list 'gptel-post-tool-call-functions #'fanshi/gptel--dedup-mutable-tools))
+#+end_src
 ** Inject TOOLS and TOOL_USAGE into Agent specification dynamically
 *** fanshi/gptel-agent--tool-system
 #+begin_src emacs-lisp :tangle yes
@@ -1817,8 +1929,7 @@ We load our own presets
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (gptel-make-preset 'scrum
-    :request-params '(:append (:top_k 40))
-    :model '(:eval (fanshi/gptel-select-model 'Jundot--MiniMax-M2.7-oQ2))
+    :model '(:eval (fanshi/gptel-select-model 'mlx-community--Qwen3.6-35B-A3B-bf16))
     :description "Scrum Master - orchestrates process flow, delegates to agents, does NOT code"
     :tools fanshi/scrum-tools
     :system (lambda ()
@@ -2169,7 +2280,7 @@ workspace cleanup.  For regular sessions, saves to `default-directory'."
                   (base-dir  (ignore-errors (string-trim (shell-command-to-string cmd)))))
             (if-let* ((dir (expand-file-name ".gptel-agent/" base-dir))
                       (timestamp (format-time-string "%Y%m%d-%H%M%S"))
-                      (filename ((s-chop-prefix "*gptel-agent:" (buffer-name)) "-" timestamp ".org")))
+                      (filename (concat (s-chop-prefix "*gptel-agent:" (buffer-name)) "-" timestamp ".org")))
                 (progn
                   (make-directory dir t)
                   (setq buffer-file-name
@@ -2714,6 +2825,25 @@ Return the number of requests aborted."
 #+begin_src emacs-lisp :tangle yes :lexical t
 (map! :map doom-leader-open-map "l l" #'fanshi/gptel-agent)
 (after! gptel
+  (defun fanshi/call-jj (&rest args)
+    "Call jj with ARGS, capturing stderr for better error messages.
+Returns exit code on success (0), signals an error with stderr on failure.
+Always passes --color never to avoid ANSI codes in error output."
+    (let ((buf (generate-new-buffer " *jj stderr*")))
+      (unwind-protect
+          (let ((status (apply #'call-process "jj" nil `(,buf t) nil args)))
+            (when (/= status 0)
+              (with-current-buffer buf
+                (ansi-color-apply-on-region (point-min) (point-max))
+                (let ((stderr (string-trim (buffer-substring-no-properties (point-min) (point-max)))))
+                  (error "jj %s failed (exit %d): %s"
+                         (mapconcat #'identity args " ")
+                         status
+                         (or (and (not (string-empty-p stderr)) stderr) "unknown error")))))
+            status)
+        (when (buffer-live-p buf)
+          (kill-buffer buf)))))
+
   (defun fanshi/gptel-agent ()
     (interactive)
     (let ((task-description (read-from-minibuffer "Task Description: "))
@@ -2723,54 +2853,50 @@ Return the number of requests aborted."
                              (string-trim (shell-command-to-string "jj workspace root --name default"))))
           (jj-current-root (ignore-errors
                              (string-trim (shell-command-to-string "jj workspace root")))))
-      (if (or (string-empty-p task-description)
+      (if (or (string-blank-p task-description)
               (not (and jj-default-root jj-current-root
                         (string= jj-default-root jj-current-root))))
           ;; Not a jj repo, or already inside a sub-workspace — use plain gptel-agent
-          (gptel-agent default-directory 'gptel-agent)
+          (let ((buf (gptel-agent default-directory 'gptel-agent)))
+            (when (not (string-blank-p task-description))
+              (with-current-buffer buf
+                (goto-char (point-max))
+                (insert (format "%s\n" task-description))))
+            buf)
         ;; We're in the default workspace of a jj repo — create a new workspace
         (let* ((name (->> task-description
+                          (s-replace "/" "-")
                           (s-replace " " "-")
                           (concat (projectile-project-name default-directory) "-")
                           (downcase)))
-               (dir (file-name-as-directory (expand-file-name name fanshi/breeding-ground-dir)))
-               (jj-add-workspace-cmd (list #'call-process "jj" nil nil nil "workspace" "add" "--name" name dir)))
-          (if (zerop (eval jj-add-workspace-cmd))
-              (let ((buf (gptel-agent dir 'gptel-agent)))
-                (with-current-buffer buf
-                  (when (string= doom-user-dir (file-name-as-directory jj-default-root))
-                    ;; Allow agent for the doomemacs config project to read modules & repos
-                    (setq-local fanshi/gptel-context-files
-                                `(,doom-modules-dir
-                                  ,(expand-file-name "straight/repos" doom-local-dir))))
-                  (when
-                      ;; NOTE: only forget "workspaces in the breeding ground". Is the unneeded though? better safe than sorry I guess.
-                      (s-prefix-p (expand-file-name fanshi/breeding-ground-dir) default-directory)
-                    (add-hook 'kill-buffer-hook (lambda ()
-                                                  (if ;; NOTE: only cleanup "workspaces without changes"
-                                                      (not (string-empty-p (shell-command-to-string "jj diff -s")))
-                                                      (message "Workspace %s kept (has uncommitted changes)" default-directory)
-                                                    (let ((current-jj-workspace-root-dir (file-name-as-directory (string-trim (shell-command-to-string "jj workspace root"))))
-                                                          (jj-abandon-cmd (list #'call-process "jj" nil nil nil "abandon"))
-                                                          (jj-workspace-forget-cmd (list #'call-process "jj" nil nil nil "workspace" "forget")))
-                                                      (if
-                                                          ;; NOTE: extra safe guard to ensure the default-directory is the root of this repo
-                                                          (not (string= current-jj-workspace-root-dir default-directory))
-                                                          (user-error "Unexpected: default-directory %s is not the workspace root %s. Clean up aborted!" default-directory current-jj-workspace-root)
-                                                        (if (zerop (eval jj-abandon-cmd))
-                                                            (if (zerop (eval jj-workspace-forget-cmd))
-                                                                (progn
-                                                                  (delete-directory default-directory t)
-                                                                  (setq default-directory root)
-                                                                  (message "Auto-cleaned workspace: %s" default-directory)
-                                                                  (projectile-switch-project-by-name root))
-                                                              (error "%s failed" jj-workspace-forget-cmd))
-                                                          (error "%s failed" jj-abandon-cmd))))))
-                              nil t))
-                  (let ((jj-new-task-cmd (list #'call-process "jj" nil nil nil "desc" "-m" task-description)))
-                    (unless (zerop (eval jj-new-task-cmd)) (error "%s failed" jj-new-task-cmd))))
-                buf)
-            (error "%s failed" jj-add-workspace-cmd)))))))
+               (dir (file-name-as-directory (expand-file-name name fanshi/breeding-ground-dir))))
+          (fanshi/call-jj "workspace" "add" "--name" name dir)
+          (let ((buf (gptel-agent dir 'gptel-agent)))
+            (with-current-buffer buf
+              (goto-char (point-max))
+              (insert (format "%s\n" task-description))
+              (when (string= doom-user-dir (file-name-as-directory jj-default-root))
+                ;; Allow agent for the doomemacs config project to read modules & repos
+                (setq-local fanshi/gptel-context-files
+                            `(,doom-modules-dir
+                              ,(expand-file-name "straight/repos" doom-local-dir))))
+              (when
+                  ;; NOTE: only forget "workspaces in the breeding ground". Is the unneeded though? better safe than sorry I guess.
+                  (s-prefix-p (expand-file-name fanshi/breeding-ground-dir) default-directory)
+                (add-hook 'kill-buffer-hook (lambda ()
+                                              (if ;; NOTE: only cleanup "workspaces without changes"
+                                                  (not (string-empty-p (shell-command-to-string "jj diff -s")))
+                                                  (message "Workspace %s kept (has uncommitted changes)" default-directory)
+                                                (let ((current-jj-workspace-root-dir (file-name-as-directory (string-trim (shell-command-to-string "jj workspace root")))))
+                                                  (let ((default-directory current-jj-workspace-root-dir))
+                                                    (fanshi/call-jj "workspace" "forget"))
+                                                  (setq default-directory root)
+                                                  (delete-directory current-jj-workspace-root-dir t)
+                                                  (message "Auto-cleaned workspace: %s" current-jj-workspace-root-dir)
+                                                  (projectile-switch-project-by-name root)))))
+                nil t))
+            (fanshi/call-jj "desc" "-m" task-description)
+            buf))))))
 #+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
@@ -3392,7 +3518,7 @@ adapted from
              when (or (string-prefix-p " *Echo Area" (buffer-name buf))
                       (string-prefix-p "*Shell Command" (buffer-name buf)))
              do (with-current-buffer buf
-                  (ansi-color-apply-on-region (point-min) (point-max) t)))))
+                  (ansi-color-apply-on-region (point-min) (point-max))))))
 
 (advice-add 'shell-command :after #'fanshi/ansi-colorize-jj-shell-command-output-a)
 #+end_src
