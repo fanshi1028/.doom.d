@@ -1200,6 +1200,7 @@ only the sections useful for an AI agent:
   - Source Code: the actual elisp source
 
 Symbol-Name is a string naming an Elisp function, variable, macro, or face."
+    (require 'helpful)
     (if-let ((symbol (intern-soft symbol-name)))
         (progn
           (when (and force-variable (not (boundp symbol)) (fboundp symbol))
