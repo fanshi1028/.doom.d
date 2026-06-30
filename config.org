@@ -2894,8 +2894,8 @@ Always passes --color never to avoid ANSI codes in error output."
                                                 (delete-directory current-jj-workspace-root-dir t)
                                                 (message "Auto-cleaned workspace: %s" current-jj-workspace-root-dir)
                                                 (projectile-switch-project-by-name root)))
-                          nil t)))
-            (fanshi/call-jj "desc" "-m" task-description)
+                          nil t))
+              (fanshi/call-jj "desc" "-m" task-description))
             buf))))))
 #+end_src
 * Literate recompilation only for config.org
