@@ -2032,6 +2032,8 @@ Each value is a list of tool name strings to add to the base coding tools.")
     :description "Preset for heavy task"
     :model '(:eval (fanshi/gptel-select-model 'mlx-community--Qwen3.6-27B-bf16))
     :include-reasoning t
+    ;; NOTE: Context Length: 262,144 natively and extensible up to 1,010,000 tokens.
+    :max-tokens 262144
     :request-params '(:append (:enable_thinking t
                                :chat_template_kwargs (:enable_thinking t
                                                       :preserve_thinking t)))))
