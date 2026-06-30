@@ -2804,11 +2804,29 @@ Return the number of requests aborted."
     (let ((buffer (or buffer (current-buffer)))
           (aborted 0))
       (with-demoted-errors "gptel-abort-all: %s"
-        (cl-loop for entry in gptel--request-alist
+        ;; Collect matching entries first to avoid modifying the alist during iteration.
+        ;; We bypass `gptel-abort' (and its advice) because:
+        ;; 1. `gptel-abort' expects a buffer arg, not a process.
+        ;; 2. The :before-until advice `fanshi/gptel-abort-at-point-a' intercepts
+        ;;    and returns nil when given a non-buffer arg, preventing the original
+        ;;    `gptel-abort' from running.
+        ;; So we abort directly using the FSM and abort closure from each entry.
+        (cl-loop for entry in (copy-sequence gptel--request-alist)
                  when (eq (plist-get (gptel-fsm-info (cadr entry)) :buffer)
                           buffer)
-                 do (gptel-abort (car entry))
-                 (cl-incf aborted))
+                 do (let* ((proc (car entry))
+                           (fsm (cadr entry))
+                           (fsm-info (gptel-fsm-info fsm))
+                           (abort-fn (cddr entry))
+                           (cb (plist-get fsm-info :callback)))
+                      ;; Run :callback with abort signal
+                      (when (functionp cb)
+                        (with-demoted-errors "Callback error: %S"
+                          (funcall cb 'abort fsm-info)))
+                      (funcall abort-fn)
+                      (setf (alist-get proc gptel--request-alist nil 'remove) nil)
+                      (gptel--fsm-transition fsm 'ABRT)
+                      (cl-incf aborted)))
         (if (> aborted 0)
             (message "Aborted %d gptel request(s) in %s." aborted buffer)
           (message "No active gptel request(s) to abort in %s." buffer))
