@@ -1665,7 +1665,7 @@ and marks them with gptel 'ignore so the LLM doesn't see them."
                 (let ((end (point))
                       (start (goto-char (previous-single-property-change (point) 'gptel nil (point-min)))))
                   (when-let* ((prop (get-char-property (point) 'gptel))
-                              (((eq (car-safe prop) 'tool))))
+                              (tool-p (eq (car-safe prop) 'tool)))
                     (condition-case result
                         (save-excursion
                           (let* ((tool-call-text (read (current-buffer)))
