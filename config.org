@@ -2922,6 +2922,37 @@ Always passes --color never to avoid ANSI codes in error output."
               (fanshi/call-jj "desc" "-m" task-description))
             buf))))))
 #+end_src
+** Marginalia annotation for gptel buffers
+Annotate gptel buffers with their last status message (Ready, Typing,
+Error, etc.) via marginalia, so you can see the state of each gptel
+session at a glance during buffer completion.
+
+*** Capture status from gptel--update-status
+#+begin_src emacs-lisp :tangle yes
+(defvar-local fanshi/gptel--status `("Ready" . 'success)
+  "Last status message set by `gptel--update-status' in this buffer.")
+
+(defun fanshi/gptel--update-status-a (msg &optional face)
+  "Capture the status MSG and optional FACE from `gptel--update-status'.
+
+Stores them in `fanshi/gptel--status' for marginalia annotation."
+  (when gptel-mode
+    (setq-local fanshi/gptel--status `(,(string-trim msg) . ,face))))
+
+(advice-add 'gptel--update-status :after #'fanshi/gptel--update-status-a)
+#+end_src
+
+*** Marginalia integration
+#+begin_src emacs-lisp :tangle yes
+(after! marginalia
+  (defun fanshi/gptel--annotate (candidate)
+    "Annotate CANDIDATE with its gptel status for marginalia display."
+    (pcase-let* ((buf (get-buffer candidate))
+                 (`(,status . ,face) (buffer-local-value 'fanshi/gptel--status buf)))
+      (when buf (concat " " (propertize status 'face face)))))
+  (add-to-list 'marginalia-annotators '(gptel-buffer fanshi/gptel--annotate))
+  (add-to-list 'marginalia-command-categories '(+llm/open-in-same-window . gptel-buffer)))
+#+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
