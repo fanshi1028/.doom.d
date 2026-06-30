@@ -788,70 +788,75 @@ Disable due to it seems to mess thing up when I use `fanshi/multisend'
 ** Auto continue on not finished responses
 *** Config
 #+begin_src emacs-lisp :tangle yes
-(defcustom fanshi/gptel-auto-continue-enabled nil
+(defcustom fanshi/gptel-auto-continue-enabled t
   "If non-nil, automatically detect and continue truncated responses."
   :type 'boolean
   :group 'gptel)
+
+(defcustom fanshi/gptel-auto-continue-max-retries 25
+  "Maximum number of auto-continues per response before giving up."
+  :type 'integer
+  :group 'gptel)
+
+(defvar-local fanshi/gptel--auto-continue-count nil
+  "Number of auto-continues for the current conversation turn.")
 #+end_src
 *** fanshi/gptel--not-done-auto-continue-or-notify
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
-  (defun fanshi/notify () (ns-do-applescript
-                           (format "display notification \"%s\" with title \"%s\" sound name \"Submerge\""
-                                   "Response complete" "GPTel")))
+  ;; --- Notification helper (macOS) ---
+  (defun fanshi/notify ()
+    "Send a macOS notification that the response is complete."
+    (setq-local fanshi/gptel--auto-continue-count nil)
+    (ignore-errors
+      (ns-do-applescript
+       (format "display notification \"%s\" with title \"%s\" sound name \"Submerge\""
+               "Response complete" "GPTel"))))
+
+  (defun fanshi/auto-continue ()
+    "FIXME TEMP: write the doc"
+    (unless fanshi/gptel--auto-continue-count
+      (setq-local fanshi/gptel--auto-continue-count 0))
+    (incf fanshi/gptel--auto-continue-count)
+    (let ((fanshi/prevent-duplicate-gptel-send nil))
+      (without-restriction
+        (delete-region (+ 1 (point)) (point-max))
+        (gptel-send))))
+
   (defun fanshi/gptel--not-done-auto-continue-or-notify (beg end)
     "Check if the just-inserted response appears truncated and auto-continue.
 Runs as a post-response hook, so the FSM is fully done and no
-re-entrancy corruption occurs. Uses run-at-time to avoid blocking."
-    (if (and fanshi/gptel-auto-continue-enabled
-             ;; TEMP FIXME: auto continue seems to not working well with multisend
-             ;; TEMP FIXME: This check probably I little bit too adhoc and hacky
-             (= 1 (cl-count-if (lambda (req)
-                                 (let ((fsm-info (gptel-fsm-info (cadr req))))
-                                   (eq (current-buffer) (plist-get fsm-info :buffer))))
-                               gptel--request-alist)))
-        (let ((response-text (buffer-substring-no-properties beg end)))
-          (when (and response-text (> (length response-text) 0))
-            (let ((classifier-prompt
-                   (format
-                    "Below is the END of an AI assistant's response, determine if it appears COMPLETE or TRUNCATED.
+re-entrancy corruption occurs.
 
-Respond with EXACTLY one word: \"complete\" or \"truncated\".
+Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
 
-Response ending:
----
-%s
----
-
-Your answer (one word):"
-                    (substring response-text (max 0 (- (length response-text) 500)))))
-                  (classification nil)
-                  (done nil)
-                  (retry-quota 3))
-              (while (and (not done) (> retry-quota 0))
-                (cl-decf retry-quota)
-                (condition-case err
-                    (let ((inner-fsm (gptel-make-fsm))
-                          (gptel-model 'mlx-community--gemma-4-E4B-it-bf16))
-                      (gptel-request classifier-prompt
-                        :callback (lambda (resp _info)
-                                    (setq classification resp)
-                                    (setq done t))
-                        :fsm inner-fsm)
-                      (while (and (not done) (> retry-quota 0))
-                        (sleep-for 0 200)))
-                  (error
-                   (message "gptel: truncation check failed (retry %d): %s"
-                            retry-quota err)
-                   (setq classification nil))))
-              (if (or (not (stringp classification))
-                      (string= (downcase (string-trim classification)) "complete"))
-                  (fanshi/notify)
-                (message "gptel: Response appears truncated, continuing...")
-                (let ((fanshi/prevent-duplicate-gptel-send nil)) (gptel-send))))))
-      (fanshi/notify)))
-
-  (add-hook 'gptel-post-response-functions #'fanshi/gptel--not-done-auto-continue-or-notify))
+    (if (not fanshi/gptel-auto-continue-enabled) (fanshi/notify)
+      ;; Check max retries to prevent infinite loops
+      (if (and fanshi/gptel--auto-continue-count (>= fanshi/gptel--auto-continue-count fanshi/gptel-auto-continue-max-retries))
+          (progn
+            (message "gptel: Max auto-continues reached (%d), stopping."
+                     fanshi/gptel-auto-continue-max-retries)
+            (fanshi/notify))
+        (save-excursion
+          (with-restriction beg end
+            (if (eq (count-words (point-min) (point-max)) 0)
+                (progn (message "gptel: empty response, skip auto continue")
+                       (fanshi/notify))
+              (goto-char (point-max))
+              (while (re-search-backward (rx (+ (any blank ?\n)) point) nil t) 1)
+              (cond
+               ((save-excursion (re-search-backward (rx ":" point) nil t))
+                (message "gptel: response ends with a colon suggesting an introduction to content that never arrived, auto continue")
+                (fanshi/auto-continue))
+               ((save-excursion (re-search-backward (rx (| "[" "(" "{" ) point) nil t))
+                (message "gptel: response ends with an open parenthesis/bracket, auto continue")
+                (fanshi/auto-continue))
+               ((save-excursion (re-search-backward (rx (any alnum) point) nil t))
+                (message "gptel: response ends mid-word: last char is alphanumeric with no trailing punctuation, auto continue")
+                (fanshi/auto-continue))
+               ;; --- No truncation detected ---
+               (t (fanshi/notify)))))))))
+  (add-to-list 'gptel-post-response-functions #'fanshi/gptel--not-done-auto-continue-or-notify))
 #+end_src
 ** Token Escape
 - ref :: https://github.com/ggml-org/llama.cpp/issues/19947#issuecomment-3971115828
