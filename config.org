@@ -2191,34 +2191,58 @@ workspace cleanup.  For regular sessions, saves to `default-directory'."
   (add-hook! 'gptel-mode-hook :append #'fanshi/gptel-agent--setup-auto-save))
 #+end_src
 ** Fix gptel--transform-apply-preset to handle the case where we resume from the middle of a agent response.
-#+begin_src emacs-lisp :tangle yes
+- The original `gptel--transform-apply-preset` only does a single
+  `text-property-search-backward`, which is not enough when we resume
+  from the middle of an agent response (org headings separate
+  responses from prompts).  We need to keep searching backward past
+  headings to find the actual user prompt.
+- The preset applies `gptel-tools` buffer-locally in the *prompt
+  buffer* (a temp buffer).  But `fanshi/gptel--validate-tool-args-hook`
+  reads `gptel-tools` from the *original* buffer.  So tools added by
+  presets (e.g., @coding) are invisible to the validator.  We fix this
+  by propagating the modified `gptel-tools` back to the original
+  buffer after applying presets.
+#+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
-  (defun fanshi/gptel--transform-apply-preset-a (_fsm)
+  (defun fanshi/gptel--transform-apply-preset-a (fsm)
     "Apply a gptel preset to the buffer depending on the prompt.
 
 If the last user prompt includes @foo, the preset foo is applied.
 Before applying the preset, \"@foo\" is removed from the prompt and
-point is placed at its position."
+point is placed at its position.
+
+After applying presets, propagate any modified `gptel-tools` back to
+the original buffer (from INFO :buffer) so that
+`fanshi/gptel--validate-tool-args-hook' can see the tools equipped
+by the preset."
     (when gptel--known-presets
-      (progn
-        (text-property-search-backward 'gptel nil t)
-        ;; NOTE: keep going to find the prompt!
-        (while (and (not (org-at-heading-p)) (not (bobp)))
-          (text-property-search-backward 'gptel nil t)))
-      (while (re-search-forward "@\\([^[:space:]]+\\)\\_>" nil t)
-        ;; The following convoluted check is because re-search is much faster if
-        ;; the search pattern begins with a non-whitespace char.
-        (when (or (= (match-beginning 0) (point-min))
-                  (memq (char-syntax (char-before (match-beginning 0))) '(32 62)))
-          (when-let* ((name (match-string 1))
-                      (preset (or (gptel-get-preset (intern-soft name))
-                                  (gptel-get-preset name))))
-            (delete-region (match-beginning 0) (match-end 0))
-            ;; Point must be after @foo when the preset is applied to allow for
-            ;; more advanced transformations.
-            (gptel--apply-preset preset
-                                 (lambda (sym val)
-                                   (set (make-local-variable sym) val))))))))
+      (let ((original-buffer (plist-get (gptel-fsm-info fsm) :buffer)))
+        (progn
+          (text-property-search-backward 'gptel nil t)
+          ;; NOTE: keep going to find the prompt!
+          (while (and (not (org-at-heading-p)) (not (bobp)))
+            (text-property-search-backward 'gptel nil t)))
+        (while (re-search-forward "@\\([^[:space:]]+\\)\\_>" nil t)
+          ;; The following convoluted check is because re-search is much faster if
+          ;; the search pattern begins with a non-whitespace char.
+          (when (or (= (match-beginning 0) (point-min))
+                    (memq (char-syntax (char-before (match-beginning 0))) '(32 62)))
+            (when-let* ((name (match-string 1))
+                        (preset (or (gptel-get-preset (intern-soft name))
+                                    (gptel-get-preset name))))
+              (delete-region (match-beginning 0) (match-end 0))
+              ;; Point must be after @foo when the preset is applied to allow for
+              ;; more advanced transformations.
+              (gptel--apply-preset preset
+                                   (lambda (sym val)
+                                     (set (make-local-variable sym) val))))))
+        ;; Propagate gptel-tools from the prompt buffer back to the original
+        ;; buffer so that tool validation hooks can see preset-equipped tools.
+        (if (buffer-live-p original-buffer)
+            (let ((tools gptel-tools))
+              (with-current-buffer original-buffer
+                (set (make-local-variable 'gptel-tools) tools)))
+          (display-warning '(gptel transform) (format "fanshi/gptel--transform-apply-preset-a: %s is not live" original-buffer))))))
   (advice-add 'gptel--transform-apply-preset :override  #'fanshi/gptel--transform-apply-preset-a))
 #+end_src
 ** Context add as org-link to last-accessed gptel-agent buffer
