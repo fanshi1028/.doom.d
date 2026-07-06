@@ -2217,7 +2217,7 @@ For each @NAME found that matches a known gptel preset:
 
 Only matches preceded by a space or at buffer start are considered,
 matching gptel's own convention to avoid triggering on e.g. user@host."
-    (while (re-search-forward "@\\([^[:space:]]+\\)\\_>" end t)
+    (while (re-search-forward (rx "@" (group (+ (not (any blank))))) end t)
       ;; The following convoluted check is because re-search is much faster if
       ;; the search pattern begins with a non-whitespace char.
       (when (or (= (match-beginning 0) (point-min))
@@ -2232,6 +2232,7 @@ matching gptel's own convention to avoid triggering on e.g. user@host."
             (gptel--apply-preset preset
                                  (lambda (sym val)
                                    (set (make-local-variable sym) val))))))))
+
   (defun fanshi/gptel--transform-apply-preset-a (fsm)
     "Apply a gptel preset to the buffer depending on the prompt.
 
@@ -2253,8 +2254,14 @@ directive noise into the prompt cache."
             (goto-char (point-max))
             (while-let ((_ (not (bobp)))
                         (match (text-property-search-backward 'gptel nil t)))
+              (goto-char (prop-match-beginning match))
               (save-excursion
-                (when (re-search-forward (rx (and point (literal prompt-prefix))) nil t 1)
+                (when (re-search-forward
+                       (rx (and
+                            point
+                            (* (any blank ?\n))
+                            (literal prompt-prefix)))
+                       nil t 1)
                   (fanshi/process-preset-til-end (prop-match-end match) last-prompt-preset-applied)
                   (setq last-prompt-preset-applied t)))))
         (goto-char (point-min))
