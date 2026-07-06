@@ -1428,7 +1428,7 @@ Project-specific tools are appended via gptel-mode-hook using setq-local.")
               (setf (alist-get old-category gptel--known-tools nil nil #'equal)
                     (assoc-delete-all toolname old-alist #'equal))))))))
 
-  (fanshi/update-tools-category "read-tools" '("Glob" "Imenu" "Read"))
+  (fanshi/update-tools-category "read-tools" '("Glob" "Imenu" "Read" "Grep"))
   (fanshi/update-tools-category "write-tools" '("Edit" "Write"))
   (fanshi/update-tools-category "web-read-tools" '("WebSearch" "WebFetch" "YouTube")))
 #+end_src
