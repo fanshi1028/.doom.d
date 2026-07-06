@@ -2552,7 +2552,7 @@ Creates a fresh gptel (or gptel-agent) buffer, inserts the prompt, and sends."
       (if-let* (((and gptel-backend (not (plist-get gptel-backend :protocol "https"))))
                 ((member gptel-model fanshi/main-models))
                 (active-model (fanshi/gptel--get-active-main-model))
-                ((not (eq active-model gptel-model))))
+                ((not (equal active-model gptel-model))))
           (let ((choice (completing-read
                          (format "Main model %s is already running. %s is requested. Choice: "
                                  active-model gptel-model)
