@@ -1501,7 +1501,9 @@ Returns a plist with :BLOCK on validation failure, or nil to proceed."
         ;; current session.  A tool can exist globally but not be available to
         ;; this agent, in which case we block it here so the post-tool handler
         ;; never sees a nil spec.
-        (if-let* ((tools (with-current-buffer buffer gptel-tools))
+        (if-let* ((tools (with-current-buffer buffer
+                           (or fanshi/last-presets-gptel-tools
+                               gptel-tools)))
                   (tool-spec (seq-find (lambda (tool) (equal name (gptel-tool-name tool))) tools)))
             ;; Check 3: Validate args
             (if-let ((errors (fanshi/gptel--validate-tool-args tool-spec (plist-get tool-call :args))))
@@ -2225,17 +2227,31 @@ workspace cleanup.  For regular sessions, saves to `default-directory'."
   from the middle of an agent response (org headings separate
   responses from prompts).  We need to keep searching backward past
   headings to find the actual user prompt.
-- The preset applies `gptel-tools` buffer-locally in the *prompt
-  buffer* (a temp buffer).  But `fanshi/gptel--validate-tool-args-hook`
-  reads `gptel-tools` from the *original* buffer.  So tools added by
-  presets (e.g., @coding) are invisible to the validator.  We fix this
-  by propagating the modified `gptel-tools` back to the original
-  buffer after applying presets.
+- The preset applies `gptel-tools` and `gptel-model` buffer-locally in
+  the *prompt buffer* (a temp buffer).  But downstream hooks read these
+  from the *original* buffer.  So tools/models added by presets (e.g.,
+  @coding) are invisible to the validator and model queue.  We fix this
+  by propagating the modified values back to the original buffer into
+  dedicated variables `fanshi/last-presets-gptel-tools` and
+  `fanshi/last-presets-gptel-model` to avoid puzzling interactions with
+  `gptel-tools` and `gptel-model` themselves.
 - Preset markers (e.g., @coding) left in *previous* user prompts in the
   conversation history are stripped so they don't pollute the prompt
   cache or confuse the LLM on subsequent turns.
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
+  (defvar-local fanshi/last-presets-gptel-tools nil
+    "Tools equipped by the last preset applied in this buffer.
+Used as a fallback when checking available tools, before falling back
+to `gptel-tools'.  Set by `fanshi/gptel--transform-apply-preset-a' when
+a preset modifies tools in the prompt buffer.")
+
+  (defvar-local fanshi/last-presets-gptel-model nil
+    "Model selected by the last preset applied in this buffer.
+Used as a fallback when checking the active model, before falling back
+to `gptel-model'.  Set by `fanshi/gptel--transform-apply-preset-a' when
+a preset modifies the model in the prompt buffer.")
+
   (defun fanshi/process-preset-til-end (&optional end only-remove)
     "Process @preset markers from point to END (or point-max if nil).
 
@@ -2269,10 +2285,13 @@ If the last user prompt includes @foo, the preset foo is applied.
 Before applying the preset, \"@foo\" is removed from the prompt and
 point is placed at its position.
 
-After applying presets, propagate any modified `gptel-tools` back to
-the original buffer (from INFO :buffer) so that
-`fanshi/gptel--validate-tool-args-hook' can see the tools equipped
-by the preset.
+After applying presets, propagate any modified `gptel-tools' and
+`gptel-model' back to the original buffer (from INFO :buffer) into
+dedicated variables `fanshi/last-presets-gptel-tools' and
+`fanshi/last-presets-gptel-model' so that downstream hooks like
+`fanshi/gptel--validate-tool-args-hook' and
+`fanshi/gptel-request-maybe-waiting-main-model-a' can see the
+preset-equipped tools and model.
 
 Finally, strip all @preset markers from the entire conversation
 (not just the last prompt) so previous turns don't carry stale
@@ -2296,14 +2315,20 @@ directive noise into the prompt cache."
         (goto-char (point-min))
         (fanshi/process-preset-til-end))
 
-      ;; Propagate gptel-tools from the prompt buffer back to the original
-      ;; buffer so that tool validation hooks can see preset-equipped tools.
+      ;; Propagate gptel-tools and gptel-model from the prompt buffer back
+      ;; to the original buffer so that downstream hooks can see
+      ;; preset-equipped tools and model.
       (if-let* ((original-buffer (plist-get (gptel-fsm-info fsm) :buffer))
-                (_ (buffer-live-p original-buffer))
-                (tools gptel-tools))
-          (with-current-buffer original-buffer
-            (set (make-local-variable 'gptel-tools) tools))
-        (display-warning '(gptel transform) (format "fanshi/gptel--transform-apply-preset-a: propagate tools to original buffer %s failed" original-buffer)))))
+                (_ (buffer-live-p original-buffer)))
+          (let ((tools gptel-tools)
+                (model gptel-model))
+            (with-current-buffer original-buffer
+              (when tools
+                (set (make-local-variable 'fanshi/last-presets-gptel-tools) tools))
+              (when model
+                (set (make-local-variable 'fanshi/last-presets-gptel-model) model))))
+        (display-warning '(gptel transform)
+                         (format "fanshi/gptel--transform-apply-preset-a: propagate preset to original buffer %s failed" original-buffer)))))
   (advice-add 'gptel--transform-apply-preset :override  #'fanshi/gptel--transform-apply-preset-a))
 #+end_src
 ** Context add as org-link to last-accessed gptel-agent buffer
@@ -2571,33 +2596,37 @@ Creates a fresh gptel (or gptel-agent) buffer, inserts the prompt, and sends."
           (fanshi/gptel--replay-queued-request next-request)))))
 
   (defun fanshi/gptel-request-maybe-waiting-main-model-a (orig-f &rest args)
-    "Advice for `gptel-send` to handle main model concurrency."
-    (with-mutex fanshi/gptel-send-mutex
-      (if-let* (((and gptel-backend (not (plist-get gptel-backend :protocol "https"))))
-                ((member gptel-model fanshi/main-models))
-                (active-model (fanshi/gptel--get-active-main-model))
-                ((not (equal active-model gptel-model))))
-          (pcase (completing-read
-                  (format "Main model %s is already running. %s is requested. Choice: "
-                          active-model gptel-model)
-                  '("Use active model" "Schedule later" "Cancel")
-                  nil t)
-            ("Use active model"
-             (let ((gptel-model active-model))
-               (message "Using currently active model %s" active-model)
-               (apply orig-f args)))
-            ("Schedule later"
-             (let ((project-dir (and (string-prefix-p "*gptel-agent:" (buffer-name))
-                                     default-directory)))
-               (push (list (buffer-substring (point-min) (point))
-                           :model gptel-model
-                           :backend gptel-backend
-                           :project-dir project-dir)
-                     fanshi/gptel--waiting-request-alist)
-               (message "Request scheduled. It will run when %s is taking a timeoff." active-model)))
-            (t (error "Request cancelled")))
-        ;; No conflicting main model, proceed normally
-        (apply orig-f args)))))
+    "Advice for `gptel-send` to handle main model concurrency.
+Checks `fanshi/last-presets-gptel-model' first, then falls back to
+`gptel-model'."
+    (let ((effective-model (or fanshi/last-presets-gptel-model
+                               gptel-model)))
+      (with-mutex fanshi/gptel-send-mutex
+        (if-let* (((and gptel-backend (not (plist-get gptel-backend :protocol "https"))))
+                  ((member effective-model fanshi/main-models))
+                  (active-model (fanshi/gptel--get-active-main-model))
+                  ((not (equal active-model effective-model))))
+            (pcase (completing-read
+                    (format "Main model %s is already running. %s is requested. Choice: "
+                            active-model effective-model)
+                    '("Use active model" "Schedule later" "Cancel")
+                    nil t)
+              ("Use active model"
+               (let ((gptel-model active-model))
+                 (message "Using currently active model %s" active-model)
+                 (apply orig-f args)))
+              ("Schedule later"
+               (let ((project-dir (and (string-prefix-p "*gptel-agent:" (buffer-name))
+                                       default-directory)))
+                 (push (list (buffer-substring (point-min) (point))
+                             :model effective-model
+                             :backend gptel-backend
+                             :project-dir project-dir)
+                       fanshi/gptel--waiting-request-alist)
+                 (message "Request scheduled. It will run when %s is taking a timeoff." active-model)))
+              (t (error "Request cancelled")))
+          ;; No conflicting main model, proceed normally
+          (apply orig-f args))))))
 
 (after! gptel
   (advice-add 'gptel-send :around #'fanshi/gptel-request-maybe-waiting-main-model-a)
