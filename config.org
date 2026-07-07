@@ -813,9 +813,10 @@ Disable due to it seems to mess thing up when I use `fanshi/multisend'
       (setq-local fanshi/gptel--aborted t)))
   (advice-add 'gptel-abort :before #'fanshi/gptel-abort--set-aborted-flag-a)
 
-  (defun fanshi/gptel-send--unset-aborted-flag-a (_)
+  (defun fanshi/gptel-send--unset-aborted-flag-a (&optional arg)
     "Set `fanshi/gptel--aborted' to nil"
-    (setq-local fanshi/gptel--aborted nil))
+    (unless arg
+      (setq-local fanshi/gptel--aborted nil)))
 
   (advice-add 'gptel-send :after #'fanshi/gptel-send--unset-aborted-flag-a))
 #+end_src
@@ -2444,7 +2445,7 @@ allow cloned subtrees to maintain their own history context."
          (cb (plist-get fsm-info :callback))
          ((functionp cb)))
       ;; Run :callback with abort signal
-      (with-demoted-errors "Callback error: %S" (funcall cb 'abort info))
+      (with-demoted-errors "Callback error: %S" (funcall cb 'abort fsm-info))
       (funcall abort-fn)
       (setf (alist-get proc gptel--request-alist nil 'remove) nil)
       (gptel--fsm-transition fsm 'ABRT)
