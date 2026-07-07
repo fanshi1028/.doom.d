@@ -2569,25 +2569,25 @@ Creates a fresh gptel (or gptel-agent) buffer, inserts the prompt, and sends."
                 ((member gptel-model fanshi/main-models))
                 (active-model (fanshi/gptel--get-active-main-model))
                 ((not (equal active-model gptel-model))))
-          (let ((choice (completing-read
-                         (format "Main model %s is already running. %s is requested. Choice: "
-                                 active-model gptel-model)
-                         '("Use active model" "Schedule later" "Cancel")
-                         nil t)))
-            (cond ("Use active model"
-                   (let ((gptel-model active-model))
-                     (message "Using currently active model %s" active-model)
-                     (apply orig-f args)))
-                  ("Schedule later"
-                   (let ((project-dir (and (string-prefix-p "*gptel-agent:" (buffer-name))
-                                           default-directory)))
-                     (push (list (buffer-substring (point-min) (point))
-                                 :model gptel-model
-                                 :backend gptel-backend
-                                 :project-dir project-dir)
-                           fanshi/gptel--waiting-request-alist)
-                     (message "Request scheduled. It will run when %s is taking a timeoff." active-model)))
-                  (t (error "Request cancelled"))))
+          (pcase (completing-read
+                  (format "Main model %s is already running. %s is requested. Choice: "
+                          active-model gptel-model)
+                  '("Use active model" "Schedule later" "Cancel")
+                  nil t)
+            ("Use active model"
+             (let ((gptel-model active-model))
+               (message "Using currently active model %s" active-model)
+               (apply orig-f args)))
+            ("Schedule later"
+             (let ((project-dir (and (string-prefix-p "*gptel-agent:" (buffer-name))
+                                     default-directory)))
+               (push (list (buffer-substring (point-min) (point))
+                           :model gptel-model
+                           :backend gptel-backend
+                           :project-dir project-dir)
+                     fanshi/gptel--waiting-request-alist)
+               (message "Request scheduled. It will run when %s is taking a timeoff." active-model)))
+            (t (error "Request cancelled")))
         ;; No conflicting main model, proceed normally
         (apply orig-f args)))))
 
