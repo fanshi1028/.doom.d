@@ -804,6 +804,21 @@ Disable due to it seems to mess thing up when I use `fanshi/multisend'
 (defvar-local fanshi/gptel--aborted nil
   "Non-nil if the last request was aborted. Used to skip auto-continue.")
 #+end_src
+*** fanshi/gptel--aborted related advices
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-abort--set-aborted-flag-a (buf)
+    "Set the aborted flag in BUF to skip auto-continue on next post-response."
+    (with-current-buffer (or buf (current-buffer))
+      (setq-local fanshi/gptel--aborted t)))
+  (advice-add 'gptel-abort :before #'fanshi/gptel-abort--set-aborted-flag-a)
+
+  (defun fanshi/gptel-send--unset-aborted-flag-a (_)
+    "Set `fanshi/gptel--aborted' to nil"
+    (setq-local fanshi/gptel--aborted nil))
+
+  (advice-add 'gptel-send :after #'fanshi/gptel-send--unset-aborted-flag-a))
+#+end_src
 *** fanshi/gptel--not-done-auto-continue-or-notify
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
@@ -2380,13 +2395,6 @@ allow cloned subtrees to maintain their own history context."
 *** gptel-abort aborts the request at point instead of the first one it found
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (defun fanshi/gptel-abort--set-aborted-flag-a (buf)
-    "Set the aborted flag in BUF to skip auto-continue on next post-response."
-    (with-current-buffer (or buf (current-buffer))
-      (setq-local fanshi/gptel--aborted t)))
-
-  (advice-add 'gptel-abort :before #'fanshi/gptel-abort--set-aborted-flag-a)
-
   (defun fanshi/gptel-abort-at-point-a (buf)
     "Abort the gptel request in BUF (current-buffer) at point (response at point if any). else return nil"
     (when-let*
