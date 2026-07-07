@@ -817,7 +817,10 @@ Disable due to it seems to mess thing up when I use `fanshi/multisend'
                "Response complete" "GPTel"))))
 
   (defun fanshi/auto-continue ()
-    "FIXME TEMP: write the doc"
+    "Continue a truncated GPTel response by re-sending the conversation.
+
+Increments `fanshi/gptel--auto-continue-count' to track retry depth,
+which is checked by `fanshi/gptel--not-done-auto-continue-or-notify'"
     (unless fanshi/gptel--auto-continue-count
       (setq-local fanshi/gptel--auto-continue-count 0))
     (incf fanshi/gptel--auto-continue-count)
