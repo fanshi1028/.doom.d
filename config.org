@@ -364,7 +364,7 @@ Corfu detected an error:
   (setopt org-gtd-user-types '((delegated :properties
                                 ((:project :org-property "SCOPED_PROJECT" :type text :required t :input-fn #'fanshi/org-gtd-ai-delegate-project-scope
                                   :prompt "Select project: " )))))
-  (advice-add #'org-gtd--path :filter-return (lambda (return-gtd-path)
+  (advice-add 'org-gtd--path :filter-return (lambda (return-gtd-path)
                                                "gtd file path .gpg appended when not inbox"
                                                (if (or (string-match org-gtd-inbox return-gtd-path) ;; inbox
                                                        (string-match "ai" return-gtd-path)) ;; for ai
@@ -426,8 +426,8 @@ Else call original evil-paste-after."
         (fanshi/evil-paste-image)
       (apply orig-fn args)))
 
-  (advice-add #'evil-paste-after :around #'fanshi/advice-evil-paste-image)
-  (advice-add #'evil-paste-before :around #'fanshi/advice-evil-paste-image))
+  (advice-add 'evil-paste-after :around #'fanshi/advice-evil-paste-image)
+  (advice-add 'evil-paste-before :around #'fanshi/advice-evil-paste-image))
 #+end_src
 
 * Projectile
@@ -524,7 +524,7 @@ Else call original evil-paste-after."
 - ref :: https://github.com/joaotavora/eglot/discussions/1151#discussioncomment-4689697
 #+begin_src emacs-lisp :tangle yes
 (after! eglot
-  (advice-add #'eglot--format-markup :around #'limit-argument-length)
+  (advice-add 'eglot--format-markup :around #'limit-argument-length)
   (defun limit-argument-length (orig input)
     "TEMP fix for eglot freeze with haskell-language-server"
     (let ((ty (plist-get input :kind))
@@ -544,7 +544,7 @@ Else call original evil-paste-after."
 #+begin_src emacs-lisp :tangle yes
 (use-package! consult-hoogle
   :defer t
-  :config (advice-add #'consult-hoogle :around #'inheritenv-apply))
+  :config (advice-add 'consult-hoogle :around #'inheritenv-apply))
 #+end_src
 ** Typescript
 - ref :: https://www.reddit.com/r/emacs/comments/b7rsxu/behold_orgbabelexecutetypescript/
@@ -617,7 +617,7 @@ Else call original evil-paste-after."
 *** lsp
 #+begin_src emacs-lisp :tangle no
 (setopt lsp-clients-lua-language-server-command "lua-language-server")
-(advice-add #'lsp-clients-lua-language-server-test :around (lambda (old &rest para) (or (executable-find lsp-clients-lua-language-server-command) (apply old para))))
+(advice-add 'lsp-clients-lua-language-server-test :around (lambda (old &rest para) (or (executable-find lsp-clients-lua-language-server-command) (apply old para))))
 #+end_src
 
 ** Fennel
@@ -907,7 +907,7 @@ Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
 ** For gptel-send with active region under org-mode
 gptel--insert-response use org-cycle to hide some block in response which in turn trigger +org-yas-expand-maybe-h unexpectedly
 #+begin_src emacs-lisp :tangle yes
-(advice-add #'gptel-send :after (lambda (&rest r) "call `deactivate-mark' after, to temp fix an unexpected trigger of snippet by org-cycle calls in reponse" (if (use-region-p) (deactivate-mark))))
+(advice-add 'gptel-send :after (lambda (&rest r) "call `deactivate-mark' after, to temp fix an unexpected trigger of snippet by org-cycle calls in reponse" (if (use-region-p) (deactivate-mark))))
 #+end_src
 ** Restrict tools
 *** restrict-to-projectile-files
@@ -2414,7 +2414,7 @@ allow cloned subtrees to maintain their own history context."
                (buffer-name buf))
       t))
 
-  (advice-add #'gptel-abort :before-until #'fanshi/gptel-abort-at-point-a))
+  (advice-add 'gptel-abort :before-until #'fanshi/gptel-abort-at-point-a))
 #+end_src
 ** fanshi/speak
 #+begin_src emacs-lisp :tangle yes
@@ -2589,7 +2589,7 @@ Creates a fresh gptel (or gptel-agent) buffer, inserts the prompt, and sends."
         (apply orig-f args)))))
 
 (after! gptel
-  (advice-add #'gptel-send :around #'fanshi/gptel-request-maybe-waiting-main-model-a)
+  (advice-add 'gptel-send :around #'fanshi/gptel-request-maybe-waiting-main-model-a)
   ;; Hook into gptel's response completion to trigger the queue
   (add-hook 'gptel-post-response-functions #'fanshi/gptel--process-waiting-requests 80))
 #+end_src
@@ -2885,7 +2885,7 @@ Always passes --color never to avoid ANSI codes in error output."
 (defun fanshi/only-config-file-save-trigger-literate-recompile ()
   "literate recompilation only for config.org."
   (string= (buffer-file-name (buffer-base-buffer)) (expand-file-name "config.org" doom-user-dir)))
-(advice-add #'+literate-recompile-maybe-h :before-while #'fanshi/only-config-file-save-trigger-literate-recompile)
+(advice-add '+literate-recompile-maybe-h :before-while #'fanshi/only-config-file-save-trigger-literate-recompile)
 #+end_src
 * Latex setup for Altacv
 #+begin_src emacs-lisp :tangle yes
