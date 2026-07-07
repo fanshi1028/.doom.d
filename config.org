@@ -800,6 +800,9 @@ Disable due to it seems to mess thing up when I use `fanshi/multisend'
 
 (defvar-local fanshi/gptel--auto-continue-count nil
   "Number of auto-continues for the current conversation turn.")
+
+(defvar-local fanshi/gptel--aborted nil
+  "Non-nil if the last request was aborted. Used to skip auto-continue.")
 #+end_src
 *** fanshi/gptel--not-done-auto-continue-or-notify
 #+begin_src emacs-lisp :tangle yes :lexical t
@@ -829,15 +832,18 @@ Runs as a post-response hook, so the FSM is fully done and no
 re-entrancy corruption occurs.
 
 Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
-
-    (if (not fanshi/gptel-auto-continue-enabled) (fanshi/notify)
-      ;; Check max retries to prevent infinite loops
-      (if (and fanshi/gptel--auto-continue-count (>= fanshi/gptel--auto-continue-count fanshi/gptel-auto-continue-max-retries))
-          (progn
-            (message "gptel: Max auto-continues reached (%d), stopping."
-                     fanshi/gptel-auto-continue-max-retries)
-            (fanshi/notify))
-        (save-excursion
+    (cond
+     ((not fanshi/gptel-auto-continue-enabled) (fanshi/notify))
+     (fanshi/gptel--aborted
+      (setq-local fanshi/gptel--aborted nil)
+      (message "gptel: request was aborted, skipping auto-continue")
+      (fanshi/notify))
+     ;; Check max retries to prevent infinite loops
+     ((and fanshi/gptel--auto-continue-count (>= fanshi/gptel--auto-continue-count fanshi/gptel-auto-continue-max-retries))
+      (message "gptel: Max auto-continues reached (%d), stopping."
+               fanshi/gptel-auto-continue-max-retries)
+      (fanshi/notify))
+     (t (save-excursion
           (with-restriction beg end
             (if (eq (count-words (point-min) (point-max)) 0)
                 (progn (message "gptel: empty response, skip auto continue")
@@ -2371,6 +2377,13 @@ allow cloned subtrees to maintain their own history context."
 *** gptel-abort aborts the request at point instead of the first one it found
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
+  (defun fanshi/gptel-abort--set-aborted-flag-a (buf)
+    "Set the aborted flag in BUF to skip auto-continue on next post-response."
+    (with-current-buffer (or buf (current-buffer))
+      (setq-local fanshi/gptel--aborted t)))
+
+  (advice-add 'gptel-abort :before #'fanshi/gptel-abort--set-aborted-flag-a)
+
   (defun fanshi/gptel-abort-at-point-a (buf)
     "Abort the gptel request in BUF (current-buffer) at point (response at point if any). else return nil"
     (when-let*
@@ -2382,8 +2395,8 @@ allow cloned subtrees to maintain their own history context."
                                        (and
                                         (eq buf (plist-get fsm-info :buffer))
                                         (when-let ((bounds (save-excursion
-                                                        (goto-char pos)
-                                                        (gptel--get-response-bounds))))
+                                                             (goto-char pos)
+                                                             (gptel--get-response-bounds))))
                                           (and (< (car bounds) pt) (> (cdr bounds) pt))))))
                                    gptel--request-alist))
          (proc (car req-at-point))
