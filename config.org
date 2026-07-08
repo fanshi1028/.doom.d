@@ -875,6 +875,8 @@ Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
                ((save-excursion (re-search-backward (rx (| "[" "(" "{" ) point) nil t))
                 (message "gptel: response ends with an open parenthesis/bracket, auto continue")
                 (fanshi/auto-continue))
+               ((save-excursion (re-search-backward (rx "#end_src") nil t))
+                (fanshi/notify))
                ((save-excursion (re-search-backward (rx (any alnum) point) nil t))
                 (message "gptel: response ends mid-word: last char is alphanumeric with no trailing punctuation, auto continue")
                 (fanshi/auto-continue))
