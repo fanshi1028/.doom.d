@@ -2581,8 +2581,26 @@ Creates a fresh gptel (or gptel-agent) buffer, inserts the prompt, and sends."
 (add-hook 'emacs-startup-hook #'fanshi/gptel--restore-queued-requests)
 
 (after! gptel
+  (defun fanshi/gptel--cleanup-dead-requests ()
+    "Remove entries from `gptel--request-alist' whose :buffer is no longer live.
+Returns the number of entries removed."
+    (interactive)
+    (let ((removed 0))
+      (cl-loop for entry in (copy-sequence gptel--request-alist)
+               for fsm-info = (gptel-fsm-info (cadr entry))
+               for buf = (plist-get fsm-info :buffer)
+               when (and buf (not (buffer-live-p buf)))
+               do (let ((proc (car entry)))
+                    (setf (alist-get proc gptel--request-alist nil 'remove) nil)
+                    (cl-incf removed)))
+      (when (> removed 0)
+        (message "Cleaned up %d dead gptel request(s) from gptel--request-alist" removed))
+      removed))
+
   (defun fanshi/gptel--get-active-main-model ()
-    "Return the main model currently running in any gptel request, if any."
+    "Return the main model currently running in any gptel request, if any.
+Cleans up lingering requests attached to dead buffers first."
+    (fanshi/gptel--cleanup-dead-requests)
     (cl-loop for req in gptel--request-alist
              for info = (gptel-fsm-info (cadr req))
              for model = (plist-get info :model)
