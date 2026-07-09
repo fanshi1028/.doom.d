@@ -2645,7 +2645,7 @@ Checks `fanshi/last-presets-gptel-model' first, then falls back to
                              :project-dir project-dir)
                        fanshi/gptel--waiting-request-alist)
                  (message "Request scheduled. It will run when %s is taking a timeoff." active-model)))
-              (t (error "Request cancelled")))
+              (_ (error "Request cancelled")))
           ;; No conflicting main model, proceed normally
           (apply orig-f args))))))
 
