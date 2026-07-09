@@ -2915,7 +2915,7 @@ Always passes --color never to avoid ANSI codes in error output."
                                                 (let ((default-directory current-jj-workspace-root-dir))
                                                   (fanshi/call-jj "workspace" "forget"))
                                                 (setq default-directory root)
-                                                (delete-directory current-jj-workspace-root-dir t)
+                                                (system-move-file-to-trash current-jj-workspace-root-dir t)
                                                 (message "Auto-cleaned workspace: %s" current-jj-workspace-root-dir)
                                                 (projectile-switch-project-by-name root)))
                           nil t))
@@ -3358,7 +3358,7 @@ Abandons the working-copy commit and removes the workspace."
             (let ((default-directory worktree-dir))
               (call-process "jj" nil t nil "abandon" "@")))
           ;; Remove the workspace directory
-          (delete-directory worktree-dir t)
+          (system-move-file-to-trash worktree-dir t)
           (message "Discarded changes from task %s" task-id)
           (format "Discarded changes and removed workspace for task %s" task-id))))
     (error "No workspace found for task %s" task-id))
