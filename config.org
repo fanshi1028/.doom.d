@@ -2006,7 +2006,6 @@ Each value is a list of tool name strings to add to the base coding tools.")
   (gptel-make-preset 'heavy
     :description "Preset for heavy task"
     :model '(:eval (fanshi/gptel-select-model 'mlx-community--Qwen3.6-27B-bf16))
-    :include-reasoning t
     ;; NOTE: Context Length: 262,144 natively and extensible up to 1,010,000 tokens.
     :max-tokens 262144
     :request-params '(:append (:enable_thinking t
