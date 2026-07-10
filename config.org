@@ -177,7 +177,9 @@ Corfu detected an error:
 ** Agenda
 *** fanshi/make-line
 #+begin_src emacs-lisp :tangle yes
-(defun fanshi/make-line () "" (concat "\n" (make-string (window-width) 9472)))
+(defun fanshi/make-line ()
+  "make a line of window-width in the next line"
+  (concat "\n" (make-string (window-width) 9472)))
 #+end_src
 
 *** Org-Agenda
