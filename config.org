@@ -1434,6 +1434,32 @@ Project-specific tools are appended via gptel-mode-hook using setq-local.")
 - and make sure it safely return error detail about the wrong args during tool call to hint about the right usage.
 *** fanshi/gptel--validate-tool-args-hook
 #+begin_src emacs-lisp :tangle yes
+(defun fanshi/gptel--validate-tool-args-hook (tool-call)
+    "Validate TOOL-CALL args via `gptel-pre-tool-call-functions'.
+
+Returns a plist with :BLOCK on validation failure, or nil to proceed."
+    (let ((name (plist-get tool-call :name))
+          (buffer (plist-get tool-call :buffer)))
+      (cond
+       ((not name) `(:block "Error: tool called with empty name"))
+       ;; Check 1: Does the tool exist globally?
+       ((not (gptel-get-tool name)) `(:block ,(format "Error: Unknown tool called: %s" name)))
+
+       (t
+        ;; Check 2: Is the tool equipped to the current agent session?
+        ;; `gptel-tools' is buffer-local and stores the equipped tools for the
+        ;; current session.  A tool can exist globally but not be available to
+        ;; this agent, in which case we block it here so the post-tool handler
+        ;; never sees a nil spec.
+        (if-let* ((tools (with-current-buffer buffer
+                           (or fanshi/last-presets-gptel-tools
+                               gptel-tools)))
+                  (tool-spec (seq-find (lambda (tool) (equal name (gptel-tool-name tool))) tools)))
+            ;; Check 3: Validate args
+            (if-let ((errors (fanshi/gptel--validate-tool-args tool-spec (plist-get tool-call :args))))
+                (unless (string= errors "") `(:block ,errors))
+              (when (member name fanshi/safe-tool) `(:confirm nil)))
+          `(:block ,(format "Error: tool %s is not available" name)))))))
 (after! gptel
   (defun fanshi/gptel--validate-simple-tool-arg-type (type arg)
     (pcase type
@@ -1506,9 +1532,10 @@ Returns a plist with :BLOCK on validation failure, or nil to proceed."
                                gptel-tools)))
                   (tool-spec (seq-find (lambda (tool) (equal name (gptel-tool-name tool))) tools)))
             ;; Check 3: Validate args
-            (if-let ((errors (fanshi/gptel--validate-tool-args tool-spec (plist-get tool-call :args))))
-                (unless (string= errors "") `(:block ,errors))
-              (when (member name fanshi/safe-tool) `(:confirm nil)))
+            (let ((errors (fanshi/gptel--validate-tool-args tool-spec (plist-get tool-call :args))))
+                (if (string= errors "")
+                    (when (member name fanshi/safe-tool) `(:confirm nil))
+                  `(:block ,errors)))
           `(:block ,(format "Error: tool %s is not available" name)))))))
 
   (add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel--validate-tool-args-hook))
