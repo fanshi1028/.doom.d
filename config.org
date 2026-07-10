@@ -471,36 +471,36 @@ Else call original evil-paste-after."
 
 ** fanshi/clone-from-project
 #+begin_src emacs-lisp :tangle yes
-(defun fanshi/clone-from-project (dir)
-  "Clone the infrastructure of an existing project DIR to make a new project"
-  (require 'projectile)
-  (if-let ((project-type (projectile-project-type dir))
-           (project-files-to-copy (symbol-value (intern-soft (concat "fanshi/project-files-to-copy/" (prin1-to-string project-type)))))
-           (new-project-directory (file-name-as-directory (read-directory-name "Create new project at directory: "))))
-      (progn
-        ;; NOTE: make new directory
-        (make-directory new-project-directory t)
-        ;; NOTE: copy files
-        (dolist (wildcards-or-file project-files-to-copy)
-          (dolist (file (projectile-verify-file-wildcard wildcards-or-file dir))
-                  (dired-copy-file file new-project-directory 1)))
-        ;; NOTE: init project
-        (fanshi/init-new-project new-project-directory)
-        ;; NOTE: switch to the new project
-        (projectile-switch-project-by-name new-project-directory))
-    (user-error (concat "Unsupported project type to clones: " (prin1-to-string project) " + " (prin1-to-string project-type) " + " (prin1-to-string project-files-to-copy)))))
+(after! projectile
+  (defun fanshi/clone-from-project (dir)
+    "Clone the infrastructure of an existing project DIR to make a new project"
+    (if-let* ((project-type (projectile-project-type dir))
+              (project-files-to-copy (symbol-value (intern-soft (format "fanshi/project-files-to-copy/%s" project-type))))
+              (new-project-directory (file-name-as-directory (read-directory-name "Create new project at directory: "))))
+        (progn
+          ;; NOTE: make new directory
+          (make-directory new-project-directory t)
+          ;; NOTE: copy files
+          (dolist (wildcards-or-file project-files-to-copy)
+            (dolist (file (projectile-verify-file-wildcard wildcards-or-file dir))
+              (dired-copy-file file new-project-directory 1)))
+          ;; NOTE: init project
+          (fanshi/init-new-project new-project-directory)
+          ;; NOTE: switch to the new project
+          (projectile-switch-project-by-name new-project-directory))
+      (user-error "Unsupported project type to clones: %s, %s" project-type project-files-to-copy))))
 #+end_src
 ** fanshi/choose-and-clone-for-new-project
 #+begin_src emacs-lisp :tangle yes
-(defun fanshi/choose-and-clone-for-new-project ()
-  "To choose an existing porject, and clone the infrastructure of it to make a new project"
-  (interactive )
-  (require 'projectile)
-  (if-let ((project-type (completing-read "Project type to clone: " fanshi/clonable-project-types))
-           (projects (cl-remove-if (lambda (p) (progn (message p) (not (string-equal project-type (projectile-project-type p)))))
-                                    projectile-known-projects)))
-      (projectile-completing-read "Clone project: " projects :action #'fanshi/clone-from-project)
-    (user-error "There are no clonable projects")))
+(after! projectile
+  (defun fanshi/choose-and-clone-for-new-project ()
+    "To choose an existing porject, and clone the infrastructure of it to make a new project"
+    (interactive)
+    (if-let* ((project-type (completing-read "Project type to clone: " fanshi/clonable-project-types))
+              (projects (cl-remove-if (lambda (p) (not (string-equal project-type (projectile-project-type p))))
+                                      projectile-known-projects)))
+        (projectile-completing-read "Clone project: " projects :action #'fanshi/clone-from-project)
+      (user-error "There are no clonable projects for project-type %s" project-type))))
 #+end_src
 
 * Langs
