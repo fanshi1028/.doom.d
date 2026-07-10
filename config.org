@@ -568,12 +568,8 @@ Else call original evil-paste-after."
               (org-babel-execute:js (buffer-string) params)))
         (buffer-string)))))
 
-;; NOTE when async
-;; executing Typescript code block...
-;; error in process sentinel: async-handle-result: Cannot open load file: No such file or directory, ob-typescript
 ;; maybe related? https://github.com/hlissner/doom-emacs/issues/2198
-;; TEMP FIXME
-(setq ob-async-no-async-languages-alist '("typescript"))
+(add-to-list 'ob-async-no-async-languages-alist "typescript")
 #+end_src
 ** Python
 #+begin_src emacs-lisp :tangle yes
