@@ -284,7 +284,9 @@ Corfu detected an error:
 ***** fanshi/org-private-agenda-file-regexp (include GPG for private agenda)
 [[https://emacs.stackexchange.com/a/36543][org mode - Include .org.gpg files in org-agenda - Emacs Stack Exchange]]
 #+begin_src emacs-lisp :tangle yes
-(setopt fanshi/org-private-agenda-file-regexp "\\`[^.].*\\.org\\\(\\.gpg\\\)?\\'")
+(after! org-agenda
+  (defconst fanshi/org-private-agenda-file-regexp
+    (rx (regexp (s-chop-suffix "\\'" (custom--standard-value 'org-agenda-file-regexp))) (opt ".gpg") eos)))
 #+end_src
 
 ***** Use Org Super Agenda
@@ -337,13 +339,10 @@ Corfu detected an error:
 (after! org-journal (setopt org-journal-encrypt-journal t))
 #+end_src
 ** GTD
-*** Encryption Setup
-#+begin_src emacs-lisp :tangle yes
-(progn
-  (setopt fanshi/org-private-agenda-file-regexp "\\`[^.].*\\.org\\\(\\.gpg\\\)?\\'")
-  (setopt org-agenda-file-regexp fanshi/org-private-agenda-file-regexp))
+#+begin_src emacs-lisp :tangle no
+;; TEMP FIXME do we need to set the org-agenda-file-regexp to fanshi/org-private-agenda-file-regexp permanently for the GTD setup?
+;; (setopt org-agenda-file-regexp fanshi/org-private-agenda-file-regexp)
 #+end_src
-*** Setup
 #+begin_src emacs-lisp :tangle yes
 (use-package! org-gtd
   :after org
