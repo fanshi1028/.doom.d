@@ -2966,8 +2966,9 @@ Always passes --color never to avoid ANSI codes in error output."
 #+end_src
 ** Marginalia annotation for gptel buffers
 Annotate gptel buffers with their last status message (Ready, Typing,
-Error, etc.) via marginalia, so you can see the state of each gptel
-session at a glance during buffer completion.
+Error, etc.), model name, token usage, and tools via marginalia, so you
+can see the state of each gptel session at a glance during buffer
+completion.
 
 *** Capture status from gptel--update-status
 #+begin_src emacs-lisp :tangle yes
@@ -2988,10 +2989,35 @@ Stores them in `fanshi/gptel--status' for marginalia annotation."
 #+begin_src emacs-lisp :tangle yes
 (after! marginalia
   (defun fanshi/gptel--annotate (candidate)
-    "Annotate CANDIDATE with its gptel status for marginalia display."
+    "Annotate CANDIDATE with its gptel status, model, tools, and token usage."
     (pcase-let* ((buf (get-buffer candidate))
-                 (`(,status . ,face) (buffer-local-value 'fanshi/gptel--status buf)))
-      (when buf (concat " " (propertize status 'face face)))))
+                 (`(,status . ,face) (buffer-local-value 'fanshi/gptel--status buf))
+                 (model (or (buffer-local-value 'fanshi/last-presets-gptel-model buf)
+                            (buffer-local-value 'gptel-model buf)))
+                 (tools (or (buffer-local-value 'fanshi/last-presets-gptel-tools buf)
+                            (buffer-local-value 'gptel-tools buf)))
+                 (token-strings (buffer-local-value 'gptel--token-usage-strings buf))
+                 (auto-continue (buffer-local-value 'fanshi/gptel--auto-continue-count buf)))
+      (when buf
+        (concat " "
+                (propertize status 'face face)
+                (when model
+                  (concat " " (propertize (gptel--to-string model)
+                                          'face 'marginalia-symbol)))
+                (when (and token-strings (nth 1 token-strings))
+                  (concat " " (propertize (nth 1 token-strings)
+                                          'face 'marginalia-documentation)))
+                (when tools
+                  (concat " "
+                          (propertize (format "(%s)"
+                                              (mapconcat #'gptel--to-string
+                                                         (mapcar #'gptel-tool-name tools)
+                                                         ","))
+                                      'face 'marginalia-argument)))
+                (when auto-continue
+                  (concat " "
+                          (propertize (format "(AC:%d)" auto-continue)
+                                      'face 'marginalia-documentation)))))))
   (add-to-list 'marginalia-annotators '(gptel-buffer fanshi/gptel--annotate))
   (add-to-list 'marginalia-command-categories '(+llm/open-in-same-window . gptel-buffer)))
 #+end_src
