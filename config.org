@@ -1435,31 +1435,31 @@ Project-specific tools are appended via gptel-mode-hook using setq-local.")
 *** fanshi/gptel--validate-tool-args-hook
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/gptel--validate-tool-args-hook (tool-call)
-    "Validate TOOL-CALL args via `gptel-pre-tool-call-functions'.
+  "Validate TOOL-CALL args via `gptel-pre-tool-call-functions'.
 
 Returns a plist with :BLOCK on validation failure, or nil to proceed."
-    (let ((name (plist-get tool-call :name))
-          (buffer (plist-get tool-call :buffer)))
-      (cond
-       ((not name) `(:block "Error: tool called with empty name"))
-       ;; Check 1: Does the tool exist globally?
-       ((not (gptel-get-tool name)) `(:block ,(format "Error: Unknown tool called: %s" name)))
+  (let ((name (plist-get tool-call :name))
+        (buffer (plist-get tool-call :buffer)))
+    (cond
+     ((not name) `(:block "Error: tool called with empty name"))
+     ;; Check 1: Does the tool exist globally?
+     ((not (gptel-get-tool name)) `(:block ,(format "Error: Unknown tool called: %s" name)))
 
-       (t
-        ;; Check 2: Is the tool equipped to the current agent session?
-        ;; `gptel-tools' is buffer-local and stores the equipped tools for the
-        ;; current session.  A tool can exist globally but not be available to
-        ;; this agent, in which case we block it here so the post-tool handler
-        ;; never sees a nil spec.
-        (if-let* ((tools (with-current-buffer buffer
-                           (or fanshi/last-presets-gptel-tools
-                               gptel-tools)))
-                  (tool-spec (seq-find (lambda (tool) (equal name (gptel-tool-name tool))) tools)))
-            ;; Check 3: Validate args
-            (if-let ((errors (fanshi/gptel--validate-tool-args tool-spec (plist-get tool-call :args))))
-                (unless (string= errors "") `(:block ,errors))
-              (when (member name fanshi/safe-tool) `(:confirm nil)))
-          `(:block ,(format "Error: tool %s is not available" name)))))))
+     (t
+      ;; Check 2: Is the tool equipped to the current agent session?
+      ;; `gptel-tools' is buffer-local and stores the equipped tools for the
+      ;; current session.  A tool can exist globally but not be available to
+      ;; this agent, in which case we block it here so the post-tool handler
+      ;; never sees a nil spec.
+      (if-let* ((tools (with-current-buffer buffer
+                         (or fanshi/last-presets-gptel-tools
+                             gptel-tools)))
+                (tool-spec (seq-find (lambda (tool) (equal name (gptel-tool-name tool))) tools)))
+          ;; Check 3: Validate args
+          (if-let ((errors (fanshi/gptel--validate-tool-args tool-spec (plist-get tool-call :args))))
+              (unless (string= errors "") `(:block ,errors))
+            (when (member name fanshi/safe-tool) `(:confirm nil)))
+        `(:block ,(format "Error: tool %s is not available" name)))))))
 (after! gptel
   (defun fanshi/gptel--validate-simple-tool-arg-type (type arg)
     (pcase type
@@ -1533,9 +1533,9 @@ Returns a plist with :BLOCK on validation failure, or nil to proceed."
                   (tool-spec (seq-find (lambda (tool) (equal name (gptel-tool-name tool))) tools)))
             ;; Check 3: Validate args
             (let ((errors (fanshi/gptel--validate-tool-args tool-spec (plist-get tool-call :args))))
-                (if (string= errors "")
-                    (when (member name fanshi/safe-tool) `(:confirm nil))
-                  `(:block ,errors)))
+              (if (string= errors "")
+                  (when (member name fanshi/safe-tool) `(:confirm nil))
+                `(:block ,errors)))
           `(:block ,(format "Error: tool %s is not available" name)))))))
 
   (add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel--validate-tool-args-hook))
@@ -2957,7 +2957,7 @@ Always passes --color never to avoid ANSI codes in error output."
                                                 (let ((default-directory current-jj-workspace-root-dir))
                                                   (fanshi/call-jj "workspace" "forget"))
                                                 (setq default-directory root)
-                                                (system-move-file-to-trash current-jj-workspace-root-dir t)
+                                                (system-move-file-to-trash current-jj-workspace-root-dir)
                                                 (message "Auto-cleaned workspace: %s" current-jj-workspace-root-dir)
                                                 (projectile-switch-project-by-name root)))
                           nil t))
@@ -3400,7 +3400,7 @@ Abandons the working-copy commit and removes the workspace."
             (let ((default-directory worktree-dir))
               (call-process "jj" nil t nil "abandon" "@")))
           ;; Remove the workspace directory
-          (system-move-file-to-trash worktree-dir t)
+          (system-move-file-to-trash worktree-dir)
           (message "Discarded changes from task %s" task-id)
           (format "Discarded changes and removed workspace for task %s" task-id))))
     (error "No workspace found for task %s" task-id))
