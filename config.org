@@ -2272,6 +2272,13 @@ Used as a fallback when checking available tools, before falling back
 to `gptel-tools'.  Set by `fanshi/gptel--transform-apply-preset-a' when
 a preset modifies tools in the prompt buffer.")
 
+  (defvar-local fanshi/last-gptel-presets nil
+    "List of preset names applied by the last prompt in this buffer.
+E.g., (coding editor) when @coding and @editor were used.
+Used to display which presets were active.
+Set by `fanshi/gptel--transform-apply-preset-a' when presets are
+applied in the prompt buffer.")
+
   (defvar-local fanshi/last-presets-gptel-model nil
     "Model selected by the last preset applied in this buffer.
 Used as a fallback when checking the active model, before falling back
@@ -2287,22 +2294,27 @@ For each @NAME found that matches a known gptel preset:
   (setting gptel-* variables via `make-local-variable').
 
 Only matches preceded by a space or at buffer start are considered,
-matching gptel's own convention to avoid triggering on e.g. user@host."
-    (while (re-search-forward (rx "@" (group (+ (not (any blank))))) end t)
-      ;; The following convoluted check is because re-search is much faster if
-      ;; the search pattern begins with a non-whitespace char.
-      (when (or (= (match-beginning 0) (point-min))
-                (memq (char-syntax (char-before (match-beginning 0))) '(32 62)))
-        (when-let* ((name (match-string 1))
-                    (preset (or (gptel-get-preset (intern-soft name))
-                                (gptel-get-preset name))))
-          (delete-region (match-beginning 0) (match-end 0))
-          ;; Point must be after @foo when the preset is applied to allow for
-          ;; more advanced transformations.
-          (unless only-remove
-            (gptel--apply-preset preset
-                                 (lambda (sym val)
-                                   (set (make-local-variable sym) val))))))))
+matching gptel's own convention to avoid triggering on e.g. user@host.
+
+Returns a list of preset names found (symbols or strings)."
+    (let ((presets-found))
+      (while (re-search-forward (rx "@" (group (+ (not (any blank))))) end t)
+        ;; The following convoluted check is because re-search is much faster if
+        ;; the search pattern begins with a non-whitespace char.
+        (when (or (= (match-beginning 0) (point-min))
+                  (memq (char-syntax (char-before (match-beginning 0))) '(32 62)))
+          (when-let* ((name (match-string 1))
+                      (preset (or (gptel-get-preset (intern-soft name))
+                                  (gptel-get-preset name))))
+            (delete-region (match-beginning 0) (match-end 0))
+            ;; Point must be after @foo when the preset is applied to allow for
+            ;; more advanced transformations.
+            (unless only-remove
+              (push name presets-found)
+              (gptel--apply-preset preset
+                                   (lambda (sym val)
+                                     (set (make-local-variable sym) val)))))))
+      (nreverse presets-found)))
 
   (defun fanshi/gptel--transform-apply-preset-a (fsm)
     "Apply a gptel preset to the buffer depending on the prompt.
@@ -2323,38 +2335,42 @@ Finally, strip all @preset markers from the entire conversation
 (not just the last prompt) so previous turns don't carry stale
 directive noise into the prompt cache."
     (when gptel--known-presets
-      (if-let ((prompt-prefix (alist-get gptel-default-mode gptel-prompt-prefix-alist)))
-          (let ((last-prompt-preset-applied))
-            (goto-char (point-max))
-            (while-let ((_ (not (bobp)))
-                        (match (text-property-search-backward 'gptel nil t)))
-              (goto-char (prop-match-beginning match))
-              (save-excursion
-                (when (re-search-forward
-                       (rx (and
-                            point
-                            (* (any blank ?\n))
-                            (literal prompt-prefix)))
-                       nil t 1)
-                  (fanshi/process-preset-til-end (prop-match-end match) last-prompt-preset-applied)
-                  (setq last-prompt-preset-applied t)))))
-        (goto-char (point-min))
-        (fanshi/process-preset-til-end))
-
-      ;; Propagate gptel-tools and gptel-model from the prompt buffer back
-      ;; to the original buffer so that downstream hooks can see
-      ;; preset-equipped tools and model.
-      (if-let* ((original-buffer (plist-get (gptel-fsm-info fsm) :buffer))
-                (_ (buffer-live-p original-buffer)))
-          (let ((tools gptel-tools)
-                (model gptel-model))
-            (with-current-buffer original-buffer
-              (when tools
-                (set (make-local-variable 'fanshi/last-presets-gptel-tools) tools))
-              (when model
-                (set (make-local-variable 'fanshi/last-presets-gptel-model) model))))
-        (display-warning '(gptel transform)
-                         (format "fanshi/gptel--transform-apply-preset-a: propagate preset to original buffer %s failed" original-buffer)))))
+      (let ((preset-applied
+             (if-let ((prompt-prefix (alist-get gptel-default-mode gptel-prompt-prefix-alist)))
+                 (let ((last-prompt-preset-applied))
+                   (goto-char (point-max))
+                   (while-let ((_ (not (bobp)))
+                               (match (text-property-search-backward 'gptel nil t)))
+                     (goto-char (prop-match-beginning match))
+                     (save-excursion
+                       (when (re-search-forward
+                              (rx (and
+                                   point
+                                   (* (any blank ?\n))
+                                   (literal prompt-prefix)))
+                              nil t 1)
+                         (prog1
+                             (fanshi/process-preset-til-end
+                              (prop-match-end match) last-prompt-preset-applied)
+                           (setq last-prompt-preset-applied t))))))
+               (goto-char (point-min))
+               (fanshi/process-preset-til-end))))
+        ;; Propagate gptel-tools, gptel-model, and preset list from the prompt
+        ;; buffer back to the original buffer so that downstream hooks can see
+        ;; preset-equipped tools and model.
+        (if-let* ((original-buffer (plist-get (gptel-fsm-info fsm) :buffer))
+                  (_ (buffer-live-p original-buffer)))
+            (let ((tools gptel-tools)
+                  (model gptel-model))
+              (with-current-buffer original-buffer
+                (when preset-applied
+                  (set (make-local-variable 'fanshi/last-gptel-presets) preset-applied))
+                (when tools
+                  (set (make-local-variable 'fanshi/last-presets-gptel-tools) tools))
+                (when model
+                  (set (make-local-variable 'fanshi/last-presets-gptel-model) model))))
+          (display-warning '(gptel transform)
+                           (format "fanshi/gptel--transform-apply-preset-a: propagate preset to original buffer %s failed" original-buffer))))))
   (advice-add 'gptel--transform-apply-preset :override  #'fanshi/gptel--transform-apply-preset-a))
 #+end_src
 ** Context add as org-link to last-accessed gptel-agent buffer
@@ -2986,12 +3002,13 @@ Stores them in `fanshi/gptel--status' for marginalia annotation."
 #+end_src
 
 *** Marginalia integration
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle yes :lexical t
 (after! marginalia
   (defun fanshi/gptel--annotate (candidate)
-    "Annotate CANDIDATE with its gptel status, model, tools, and token usage."
+    "Annotate CANDIDATE with its gptel status, preset, model, tools, and token usage."
     (pcase-let* ((buf (get-buffer candidate))
                  (`(,status . ,face) (buffer-local-value 'fanshi/gptel--status buf))
+                 (presets (buffer-local-value 'fanshi/last-gptel-presets buf))
                  (model (or (buffer-local-value 'fanshi/last-presets-gptel-model buf)
                             (buffer-local-value 'gptel-model buf)))
                  (tools (or (buffer-local-value 'fanshi/last-presets-gptel-tools buf)
@@ -3001,6 +3018,10 @@ Stores them in `fanshi/gptel--status' for marginalia annotation."
       (when buf
         (concat " "
                 (propertize status 'face face)
+                (when presets
+                  (concat " " (propertize (mapconcat (lambda (p) (format "@%s" (gptel--to-string p)))
+                                                     presets ","))
+                          'face 'marginalia-keyword))
                 (when model
                   (concat " " (propertize (gptel--to-string model)
                                           'face 'marginalia-symbol)))
