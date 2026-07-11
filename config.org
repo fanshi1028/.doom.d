@@ -800,6 +800,19 @@ Disable due to it seems to mess thing up when I use `fanshi/multisend'
 
 (defvar-local fanshi/gptel--aborted nil
   "Non-nil if the last request was aborted. Used to skip auto-continue.")
+
+(defcustom fanshi/gptel-let-me-action-verbs
+  '("refactor" "rewrite" "write" "create" "edit" "update" "implement"
+    "add" "fix" "change" "modify" "generate" "build" "make" "setup"
+    "format" "clean" "organize" "improve" "optimize" "adjust"
+    "correct" "resolve" "extract" "convert" "transform")
+  "List of action verbs that commonly follow \"Let me\" in agent responses.
+
+When the agent says \"Let me [verb]\" but no write-tools (Edit, Write)
+are called afterward, the response is considered incomplete and will
+be auto-continued."
+  :type '(repeat string)
+  :group 'gptel)
 #+end_src
 *** fanshi/gptel--aborted related advices
 #+begin_src emacs-lisp :tangle yes
@@ -872,6 +885,14 @@ Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
                 (fanshi/auto-continue))
                ((save-excursion (re-search-backward (rx (| "[" "(" "{" ) point) nil t))
                 (message "gptel: response ends with an open parenthesis/bracket, auto continue")
+                (fanshi/auto-continue))
+               ((save-excursion
+                  (re-search-backward
+                   (rx "Let me " (regexp (regexp-opt fanshi/gptel-let-me-action-verbs t)))
+                   nil t))
+                (message
+                 "gptel: 'Let me %s' detected without tool call to follow up, auto continue"
+                 (match-string 1))
                 (fanshi/auto-continue))
                ((save-excursion (re-search-backward (rx "#end_src" point) nil t))
                 (fanshi/notify))
