@@ -3001,6 +3001,54 @@ Always passes --color never to avoid ANSI codes in error output."
               (fanshi/call-jj "desc" "-m" task-description))
             buf))))))
 #+end_src
+** Sub-agent buffers
+Each sub-agent buffer stores a pointer to its parent agent buffer via
+`fanshi/gptel-agent-parent`.  Discovery of children is done by scanning
+all buffers and filtering on this parent pointer — no need for the
+parent to maintain a list.
+
+Properties of each sub-agent are stored as buffer-local variables on
+the sub-agent buffer itself.
+
+*** Local variables for sub-agent metadata
+#+begin_src emacs-lisp :tangle yes
+(defvar-local fanshi/gptel-agent-parent nil
+  "The parent gptel-agent buffer that created this buffer, or nil.")
+
+(defvar-local fanshi/gptel-agent-task nil
+  "Task description string for this sub-agent buffer.")
+
+(defvar-local fanshi/gptel-agent-intention nil
+  "Intention string for this sub-agent buffer.")
+
+(defvar-local fanshi/gptel-agent-verification nil
+  "Verification criteria string for this sub-agent buffer.")
+#+end_src
+
+*** Advice +llm/open-in-same-window to narrow to sub-agents
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/+llm/open-in-same-window--sub-agents-a ()
+    "Advice for `+llm/open-in-same-window' to narrow buffer choice.
+
+When called with a universal prefix argument, scan all live gptel
+buffers and select those whose `fanshi/gptel-agent-parent' points to
+the current buffer.  Without prefix, delegates to ORIG-FN."
+    (when current-prefix-arg
+      (if-let* ((chosen (read-buffer "Select sub gptel-agent buffer: " nil t
+                                     (lambda (b)
+                                       (and-let* (;; NOTE: https://github.com/karthink/gptel/issues/450
+                                                  (buf (get-buffer (or (car-safe b) b)))
+                                                  ((buffer-local-value 'gptel-mode buf))
+                                                  (parent (buffer-local-value 'fanshi/gptel-agent-parent buf))
+                                                  ((equal parent (current-buffer)))))))))
+          (let ((gptel-display-buffer-action '(display-buffer-same-window)))
+            (gptel chosen nil nil t))
+        (user-error "No sub-agent buffers found/selected for current buffer"))))
+
+  (advice-add '+llm/open-in-same-window :before-until
+              #'fanshi/+llm/open-in-same-window--sub-agents-a))
+#+end_src
 ** Marginalia annotation for gptel buffers
 Annotate gptel buffers with their last status message (Ready, Typing,
 Error, etc.), model name, token usage, and tools via marginalia, so you
