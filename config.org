@@ -805,7 +805,7 @@ Disable due to it seems to mess thing up when I use `fanshi/multisend'
   '("refactor" "rewrite" "write" "create" "edit" "update" "implement"
     "add" "fix" "change" "modify" "generate" "build" "make" "setup"
     "format" "clean" "organize" "improve" "optimize" "adjust"
-    "correct" "resolve" "extract" "convert" "transform")
+    "correct" "resolve" "extract" "convert" "transform" "revert")
   "List of action verbs that commonly follow \"Let me\" in agent responses.
 
 When the agent says \"Let me [verb]\" but no write-tools (Edit, Write)
