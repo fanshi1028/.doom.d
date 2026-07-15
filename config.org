@@ -895,7 +895,7 @@ Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
                  (match-string 1))
                 (fanshi/auto-continue))
                ((and (member 'coding fanshi/last-gptel-presets)
-                     (save-excursion (re-search-backward (rx "* Code Report") nil t)))
+                     (save-excursion (re-search-backward (rx "Code Report" (+ anychar) "Summary" (+ anychar) "Changes Made") nil t)))
                 (message "gptel: Code Report detected, skip auto continue")
                 (fanshi/notify))
                ((save-excursion (re-search-backward (rx "#end_src" point) nil t))
