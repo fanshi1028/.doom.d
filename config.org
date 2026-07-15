@@ -2996,17 +2996,22 @@ Always passes --color never to avoid ANSI codes in error output."
               (when
                   ;; NOTE: only forget "workspaces in the breeding ground". Is the unneeded though? better safe than sorry I guess.
                   (s-prefix-p (expand-file-name fanshi/breeding-ground-dir) default-directory)
-                (add-hook 'kill-buffer-hook (lambda ()
-                                              (let ((current-jj-workspace-root-dir (file-name-as-directory (string-trim (shell-command-to-string "jj workspace root")))))
-                                                (let ((default-directory current-jj-workspace-root-dir))
-                                                  (fanshi/call-jj "workspace" "forget"))
+                (let ((parent-buf (current-buffer)))
+                  (add-hook 'kill-buffer-hook (lambda ()
+                                                ;; Kill child buffers first
+                                                (dolist (buf (buffer-list))
+                                                  (with-current-buffer buf
+                                                    (when (eq fanshi/gptel-agent-parent parent-buf)
+                                                      (kill-buffer buf))))
+                                                (let ((default-directory dir))
+                                                  (ignore-errors (fanshi/call-jj "workspace" "forget")))
                                                 (setq default-directory root)
-                                                (system-move-file-to-trash current-jj-workspace-root-dir)
-                                                (message "Auto-cleaned workspace: %s" current-jj-workspace-root-dir)
-                                                (projectile-switch-project-by-name root)))
-                          nil t))
-              (fanshi/call-jj "desc" "-m" task-description))
-            buf))))))
+                                                (system-move-file-to-trash dir)
+                                                (message "Auto-cleaned workspace: %s" dir)
+                                                (projectile-switch-project-by-name root))
+                            nil t)))
+              (fanshi/call-jj "desc" "-m" task-description)))
+          buf)))))
 #+end_src
 ** Sub-agent buffers
 Each sub-agent buffer stores a pointer to its parent agent buffer via
