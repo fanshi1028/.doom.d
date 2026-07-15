@@ -1038,7 +1038,7 @@ COMMAND is the bash command string to execute."
           (make-process
            :name "gptel-agent-bash"
            :buffer output-buffer
-           :command (append (list fanshi/nono "run" "--allow" root
+           :command (append (list fanshi/nono "-v" "run" "--allow" root
                                   "--allow" (expand-file-name "~/.cache/nix")
                                   "--read-file" (expand-file-name "~/.gitconfig"))
                             (fanshi/nono-context-allow-read-file-args-list)
@@ -1088,7 +1088,7 @@ Raises an error if PATTERN is empty, PATH is not readable, or the
       (unless root
         (error "Error: Project root not found. This tool cannot be used"))
       (with-temp-buffer
-        (let* ((args (append (list "run" "--allow" root)
+        (let* ((args (append (list "-v" "run" "--allow" root)
                              (fanshi/nono-context-allow-read-file-args-list)
                              (list "--" "tree" "-l" "-f" "-i" "-I" ".git"
                                    "--sort=mtime" "--ignore-case"
@@ -1151,7 +1151,7 @@ file.  Results are sorted by modification time."
                                   "--line-number" "--regexp" regex
                                   (expand-file-name (substitute-in-file-name path)))))
                  (t (error "Error: failed to identify grepper"))))
-               (args (append (list "run" "--allow" root)
+               (args (append (list "run" "-v" "--allow" root)
                              (fanshi/nono-context-allow-read-file-args-list)
                              (list "--" grepper) args))
                (exit-code (apply #'call-process fanshi/nono nil '(t t) nil args)))
