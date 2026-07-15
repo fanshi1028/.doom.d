@@ -2965,10 +2965,9 @@ Always passes --color never to avoid ANSI codes in error output."
         (when (buffer-live-p buf)
           (kill-buffer buf)))))
 
-  (defun fanshi/gptel-agent ()
-    (interactive)
-    (let ((task-description (read-from-minibuffer "Task Description: "))
-          (root (projectile-project-root))
+  (defun fanshi/gptel-agent (task-description)
+    (interactive "sTask Description: ")
+    (let ((root (projectile-project-root))
           (default-directory (projectile-project-root))
           (jj-default-root (ignore-errors
                              (string-trim (shell-command-to-string "jj workspace root --name default"))))
@@ -3048,6 +3047,72 @@ the sub-agent buffer itself.
 
 (defvar-local fanshi/gptel-agent-verification nil
   "Verification criteria string for this sub-agent buffer.")
+
+(defvar-local fanshi/gptel-agent-task-callback nil
+  "Main callback function for the sub-agent buffer.
+
+Called with the result string when the sub-agent completes.")
+#+end_src
+
+*** Override gptel-agent--task to spawn its own gptel buffer
+Instead of the inline overlay approach, spawn a dedicated gptel buffer
+for each sub-agent task.  This integrates with `fanshi/gptel-agent-parent'
+and the marginalia annotation system.
+
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel-agent
+  (defun fanshi/gptel-agent--task (main-cb agent-preset description prompt)
+    "Spawn a dedicated gptel buffer for a sub-agent task.
+
+MAIN-CB is the callback to invoke with the result when done.
+AGENT-PRESET is the name of the agent preset.
+DESCRIPTION is a short description of the task.
+PROMPT is the detailed prompt for the agent."
+    (if (gptel-get-preset (intern-soft agent-preset))
+        ;; FIXME: Maybe also check if the sub-agent could be called by the current agent.
+        (let* ((parent-buf (current-buffer))
+               (sub-agent-buf (fanshi/gptel-agent description)))
+          ;; Configure the child buffer with parent pointer and metadata
+          (with-current-buffer sub-agent-buf
+            (setq-local fanshi/gptel-agent-parent parent-buf
+                        fanshi/gptel-agent-task description
+                        fanshi/gptel-agent-task-callback main-cb)
+            ;; Insert the prompt and send
+            (goto-char (point-max))
+            (insert "@" agent-preset " " description "\n" prompt "\n")
+            ;; Set up completion detection
+            (add-hook 'gptel-post-response-functions
+                      #'fanshi/gptel-agent--sub-agent-done nil t)
+            (gptel-send))
+          (message "Spawned sub-agent %s: %s" agent-preset (buffer-name sub-agent-buf)))
+      (funcall main-cb
+               (format "Error: Sub-agent task failed. Agent %s not found" agent-preset))))
+
+  (defun fanshi/gptel-agent--sub-agent-done (beg end)
+    "Check if the sub-agent task is done and call the main callback.
+
+Runs in the sub-agent buffer after each response.
+BEG and END are the buffer positions of the response (unused)."
+    (when (and fanshi/gptel-agent-task-callback
+               fanshi/gptel-agent-parent
+               (buffer-live-p fanshi/gptel-agent-parent))
+      ;; Check if there are pending tool calls — if not, we're done
+      (if (eq beg end)
+          (funcall fanshi/gptel-agent-task-callback
+                   (format "Error: Sub-agent task failed. %S"
+                           (if-let* ((fsm-info (gptel-fsm-info gptel--fsm-last))
+                                     (tool-use (plist-get fsm-info :tool-use))
+                                     (err (plist-get fsm-info :error)))
+                               err
+                             "empty response")))
+        (funcall fanshi/gptel-agent-task-callback
+                 (format "Result for the task:\n\n%s"
+                         (string-trim (buffer-substring-no-properties beg end)))))
+      ;; Clean up
+      (setq-local fanshi/gptel-agent-task-callback nil)
+      (remove-hook 'gptel-post-response-functions
+                   #'fanshi/gptel-agent--sub-agent-done t)))
+  (advice-add 'gptel-agent--task :override #'fanshi/gptel-agent--task))
 #+end_src
 
 *** Advice +llm/open-in-same-window to narrow to sub-agents
