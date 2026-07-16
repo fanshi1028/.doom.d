@@ -2323,25 +2323,25 @@ For each @NAME found that matches a known gptel preset:
 Only matches preceded by a space or at buffer start are considered,
 matching gptel's own convention to avoid triggering on e.g. user@host.
 
-Returns a list of preset names found (symbols or strings)."
-    (let ((presets-found))
+Returns a list of names of preset applied (symbols or strings)."
+    (let ((presets-applied))
       (while (re-search-forward (rx "@" (group (+ (not (any blank))))) end t)
         ;; The following convoluted check is because re-search is much faster if
         ;; the search pattern begins with a non-whitespace char.
         (when (or (= (match-beginning 0) (point-min))
                   (memq (char-syntax (char-before (match-beginning 0))) '(32 62)))
-          (when-let* ((name (match-string 1))
+          (when-let* ((name (match-string-no-properties 1))
                       (preset (or (gptel-get-preset (intern-soft name))
                                   (gptel-get-preset name))))
             (delete-region (match-beginning 0) (match-end 0))
             ;; Point must be after @foo when the preset is applied to allow for
             ;; more advanced transformations.
             (unless only-remove
-              (push name presets-found)
+              (push name presets-applied)
               (gptel--apply-preset preset
                                    (lambda (sym val)
                                      (set (make-local-variable sym) val)))))))
-      (nreverse presets-found)))
+      (nreverse presets-applied)))
 
   (defun fanshi/gptel--transform-apply-preset-a (fsm)
     "Apply a gptel preset to the buffer depending on the prompt.
@@ -2376,10 +2376,11 @@ directive noise into the prompt cache."
                                    (* (any blank ?\n))
                                    (literal prompt-prefix)))
                               nil t 1)
-                         (prog1
-                             (fanshi/process-preset-til-end
-                              (prop-match-end match) last-prompt-preset-applied)
-                           (setq last-prompt-preset-applied t))))))
+                         (when-let ((presets (fanshi/process-preset-til-end
+                                              (prop-match-end match)
+                                              last-prompt-preset-applied)))
+                           (or last-prompt-preset-applied (setq last-prompt-preset-applied presets))))))
+                   last-prompt-preset-applied)
                (goto-char (point-min))
                (fanshi/process-preset-til-end))))
         ;; Propagate gptel-tools, gptel-model, and preset list from the prompt
