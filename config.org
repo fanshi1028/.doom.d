@@ -3095,9 +3095,9 @@ Stores them in `fanshi/gptel--status' for marginalia annotation."
         (concat " "
                 (propertize status 'face face)
                 (when presets
-                  (concat " " (propertize (mapconcat (lambda (p) (format "@%s" (gptel--to-string p)))
-                                                     presets ","))
-                          'face 'marginalia-keyword))
+                  (concat " " (propertize (format "(%s)" (mapconcat (lambda (p) (format "@%s" (gptel--to-string p)))
+                                                                    presets ","))
+                                          'face 'marginalia-list)))
                 (when model
                   (concat " " (propertize (gptel--to-string model)
                                           'face 'marginalia-symbol)))
