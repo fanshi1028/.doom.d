@@ -550,26 +550,27 @@ Else call original evil-paste-after."
 ** Typescript
 - ref :: https://www.reddit.com/r/emacs/comments/b7rsxu/behold_orgbabelexecutetypescript/
 #+begin_src emacs-lisp :tangle yes
-(defun org-babel-execute:typescript (body params)
-  "babel execute typescript"
-  (let* ((tmp-ts-file (org-babel-temp-file "scripts" ".ts"))
-         (tmp-js-file (concat (substring tmp-ts-file 0 -2) "js"))
-         (strict (if (assq :strict params) "--strict " ""))
-         (target (if (assq :target params) (format " -t %s " (cdr (assq :target params))) ""))
-         (cmd (concat "tsc " strict target (shell-quote-argument tmp-ts-file))))
-    (with-temp-file tmp-ts-file (insert body))
-    (with-temp-buffer
-      (if (eq (call-process-shell-command cmd nil t) 0)
-          (progn
-            (insert-file-contents tmp-js-file)
-            (if (assq :js params)
-                (buffer-string)
-              (require 'ob-js)
-              (org-babel-execute:js (buffer-string) params)))
-        (buffer-string)))))
+(after! (org ob-async)
+  (defun org-babel-execute:typescript (body params)
+    "babel execute typescript"
+    (let* ((tmp-ts-file (org-babel-temp-file "scripts" ".ts"))
+           (tmp-js-file (concat (substring tmp-ts-file 0 -2) "js"))
+           (strict (if (assq :strict params) "--strict " ""))
+           (target (if (assq :target params) (format " -t %s " (cdr (assq :target params))) ""))
+           (cmd (concat "tsc " strict target (shell-quote-argument tmp-ts-file))))
+      (with-temp-file tmp-ts-file (insert body))
+      (with-temp-buffer
+        (if (eq (call-process-shell-command cmd nil t) 0)
+            (progn
+              (insert-file-contents tmp-js-file)
+              (if (assq :js params)
+                  (buffer-string)
+                (require 'ob-js)
+                (org-babel-execute:js (buffer-string) params)))
+          (buffer-string)))))
 
-;; maybe related? https://github.com/hlissner/doom-emacs/issues/2198
-(add-to-list 'ob-async-no-async-languages-alist "typescript")
+  ;; maybe related? https://github.com/hlissner/doom-emacs/issues/2198
+  (add-to-list 'ob-async-no-async-languages-alist "typescript"))
 #+end_src
 ** Python
 #+begin_src emacs-lisp :tangle yes
@@ -3140,7 +3141,7 @@ Stores them in `fanshi/gptel--status' for marginalia annotation."
 * Draw things
 ** org-babel-language:draw
 #+begin_src emacs-lisp :tangle yes :lexical yes
-(after! org
+(after! (org ob-async)
   (add-to-list 'ob-async-no-async-languages-alist "draw")
   (add-to-list 'org-src-lang-modes '("draw" . text))
   ;; (add-to-list 'async-inject-variables-exclude-regexps "org-babel-hide-result-overlays\\'")
