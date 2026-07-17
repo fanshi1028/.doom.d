@@ -2996,13 +2996,17 @@ Always passes --color never to avoid ANSI codes in error output."
               (when
                   ;; NOTE: only forget "workspaces in the breeding ground". Is the unneeded though? better safe than sorry I guess.
                   (s-prefix-p (expand-file-name fanshi/breeding-ground-dir) default-directory)
-                (let ((parent-buf (current-buffer)))
+                (when-let ((parent-buf (current-buffer)))
                   (add-hook 'kill-buffer-hook (lambda ()
-                                                ;; Kill child buffers first
                                                 (dolist (buf (buffer-list))
-                                                  (with-current-buffer buf
-                                                    (when (eq fanshi/gptel-agent-parent parent-buf)
-                                                      (kill-buffer buf))))
+                                                  (when (or
+                                                         ;; Kill child buffers
+                                                         (when-let (parent (buffer-local-value 'fanshi/gptel-agent-parent buf))
+                                                           (eq parent parent-buf))
+                                                         ;; Kill buffers visiting files in the workspace
+                                                         (when-let ((fname (buffer-local-value 'buffer-file-name buf)))
+                                                           (s-prefix-p dir fname)))
+                                                    (kill-buffer buf)))
                                                 (let ((default-directory dir))
                                                   (ignore-errors (fanshi/call-jj "workspace" "forget")))
                                                 (setq default-directory root)
