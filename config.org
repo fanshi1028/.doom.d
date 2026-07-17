@@ -3738,7 +3738,7 @@ adapted from
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/ansi-colorize-jj-shell-command-output-a (cmd &rest _args)
   "Colorize `shell-command' output."
-  (when (string-prefix-p "jj" cmd)
+  (when (string-prefix-p "jj" (s-trim cmd))
     (cl-loop for buf in (buffer-list)
              when (or (string-prefix-p " *Echo Area" (buffer-name buf))
                       (string-prefix-p "*Shell Command" (buffer-name buf)))
