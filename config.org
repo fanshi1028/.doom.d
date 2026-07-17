@@ -1004,7 +1004,11 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
 **** fanshi/handle_nono_output
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/handle_nono_output (exit-code)
-  "Handle nono wrapped command output in the buffer. EXIT-CODE is from the nono process"
+  "Handle nono wrapped command output in the buffer. EXIT-CODE is from the nono process
+
+Strips ANSI escape codes and nono's structured logging output from the buffer
+to ensure clean tool results."
+  (ansi-color-apply-on-region (point-min) (point-max))
   (save-excursion
     (goto-char (point-min))
     (if (zerop exit-code)
