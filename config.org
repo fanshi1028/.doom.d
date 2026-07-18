@@ -2261,7 +2261,11 @@ workspace cleanup.  For regular sessions, saves to `default-directory'."
                   (base-dir  (ignore-errors (string-trim (shell-command-to-string cmd)))))
             (if-let* ((dir (expand-file-name ".gptel-agent/" base-dir))
                       (timestamp (format-time-string "%Y%m%d-%H%M%S"))
-                      (filename (concat (s-chop-prefix "*gptel-agent:" (buffer-name)) "-" timestamp ".org")))
+                      (filename (concat
+                                 (->> (buffer-name)
+                                      (s-chop-suffix "*")
+                                      (s-chop-prefix "*gptel-agent:"))
+                                 "-" timestamp ".org")))
                 (progn
                   (make-directory dir t)
                   (setq buffer-file-name
