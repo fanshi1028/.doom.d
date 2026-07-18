@@ -2988,6 +2988,7 @@ Always passes --color never to avoid ANSI codes in error output."
         (let* ((name (->> task-description
                           (s-replace "/" "-")
                           (s-replace " " "-")
+                          (s-replace ":" "-")
                           (concat (projectile-project-name default-directory) "-")
                           (downcase)))
                (dir (file-name-as-directory (expand-file-name name fanshi/breeding-ground-dir))))
