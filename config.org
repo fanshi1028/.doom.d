@@ -2410,7 +2410,7 @@ directive noise into the prompt cache."
 (defvar fanshi/gptel-last-agent-buffer nil
   "Last visited gptel-agent buffer.")
 
-(defvar fanshi/gptel-context-files nil
+(defvar-local fanshi/gptel-context-files nil
   "File paths extracted from org-links added via gptel-context-add.
 Used by `restrict-to-projectile-files-plus-context-a' and `fanshi/nono-context-allow-read-file-args-list' to allow reading these
 files through the sandboxed tool.")
@@ -2440,12 +2440,12 @@ Also appends an Org-mode link to the prompt."
     (unless (buffer-live-p fanshi/gptel-last-agent-buffer)
       (user-error "%s is not alive to add context link to." fanshi/gptel-last-agent-buffer))
     (call-interactively #'org-store-link)
-    (when buffer-file-name
-      (push buffer-file-name fanshi/gptel-context-files))
-    (with-current-buffer fanshi/gptel-last-agent-buffer
-      (goto-char (point-max))
-      (org-insert-link)
-      (current-buffer)))
+    (let ((fname buffer-file-name))
+      (with-current-buffer fanshi/gptel-last-agent-buffer
+        (when fname (push fname fanshi/gptel-context-files))
+        (goto-char (point-max))
+        (org-insert-link)
+        (current-buffer))))
 
   (advice-add 'gptel-context-add :override #'fanshi/gptel-context-add-a))
 #+end_src
