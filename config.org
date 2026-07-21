@@ -3684,6 +3684,132 @@ kill-new: Wrong type argument: stringp, nil
   (add-hook! 'after-change-major-mode-hook :local
     (setq-local tab-width 8)))
 #+end_src
+** make gptel--stream-convert-markdown->org gptel-post-response-function hook buffer local
+- https://github.com/karthink/gptel/pull/1488
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defun fanshi/gptel--stream-convert-markdown->org-a (start-marker)
+    "Return a Markdown to Org converter.
+
+This function parses a stream of Markdown text to Org
+continuously when it is called with successive chunks of the
+text stream.
+
+START-MARKER is used to identify the corresponding process when
+cleaning up after."
+    (letrec ((in-src-block nil)           ;explicit nil to address BUG #183
+             (in-org-src-block nil)
+             (temp-buf ; NOTE: Switch to `generate-new-buffer' after we drop Emacs 27.1
+              (gptel--temp-buffer " *gptel-temp*"))
+             (start-pt (make-marker))
+             (ticks-total 0)      ;MAYBE should we let-bind case-fold-search here?
+             (cleanup-fn
+              (lambda (beg _)
+                (when (and (equal beg (marker-position start-marker))
+                           (eq (current-buffer) (marker-buffer start-marker)))
+                  (when (buffer-live-p (get-buffer temp-buf))
+                    (set-marker start-pt nil)
+                    (kill-buffer temp-buf))
+                  (remove-hook 'gptel-post-response-functions cleanup-fn t)))))
+      (add-hook 'gptel-post-response-functions cleanup-fn nil t)
+      (lambda (str)
+        (let ((noop-p) (ticks 0))
+          (with-current-buffer (get-buffer temp-buf)
+            (save-excursion (goto-char (point-max)) (insert str))
+            (when (marker-position start-pt) (goto-char start-pt))
+            (when in-src-block (setq ticks ticks-total))
+            (save-excursion
+              (while (re-search-forward "`\\|\\*\\{1,2\\}\\|_\\|^#+" nil t)
+                (pcase (match-string 0)
+                  ("`"
+                   ;; Count number of consecutive backticks
+                   (backward-char)
+                   (while (and (char-after) (eq (char-after) ?`))
+                     (forward-char)
+                     (if in-src-block (cl-decf ticks) (cl-incf ticks)))
+                   ;; Set the verbatim state of the parser
+                   (if (and (eobp)
+                            ;; Special case heuristic: If the response ends with
+                            ;; ^``` we don't wait for more input.
+                            ;; FIXME: This can have false positives.
+                            (not (save-excursion (beginning-of-line)
+                                                 (looking-at "^```$"))))
+                       ;; End of input => there could be more backticks coming,
+                       ;; so we wait for more input
+                       (progn (setq noop-p t) (set-marker start-pt (match-beginning 0)))
+                     ;; We reached a character other than a backtick
+                     (cond
+                      ;; Ticks balanced, end src block
+                      ((= ticks 0)
+                       (progn (setq in-src-block nil)
+                              (gptel--replace-source-marker ticks-total 'end)))
+                      ;; Positive number of ticks, start an src block
+                      ((and (> ticks 0) (not in-src-block))
+                       (setq ticks-total ticks
+                             in-src-block t)
+                       (gptel--replace-source-marker ticks-total))
+                      ;; Negative number of ticks or in a src block already,
+                      ;; reset ticks
+                      (t (setq ticks ticks-total)))))
+                  ;; Handle headings and misguided #+begin_src text
+                  ((and (guard (and (eq (char-before) ?#) (or (not in-src-block) in-org-src-block)))
+                        heading)
+                   (if in-org-src-block
+                       ;; If we are inside an Org-style src block, look for #+end_src
+                       (cond
+                        ((< (- (point-max) (point)) 8) ;not enough information to close Org src block
+                         (setq noop-p t) (set-marker start-pt (match-beginning 0)))
+                        ((looking-at "\\+end_src") ;Close Org src block
+                         (setq in-src-block nil in-org-src-block nil)))
+                     ;; Otherwise check for Markdown headings, or for #+begin_src
+                     (cond
+                      ((eobp)       ; Not enough information about the heading yet
+                       (setq noop-p t) (set-marker start-pt (match-beginning 0)))
+                      ((looking-at "[[:space:]]") ; Convert markdown heading to Org heading
+                       (delete-region (line-beginning-position) (point))
+                       (insert (make-string (length heading) ?*)))
+                      ((< (- (point-max) (point)) 11) ;Not enough information to check if Org src block
+                       (setq noop-p t) (set-marker start-pt (match-beginning 0)))
+                      ((looking-at "\\+begin_src ") ;Overeager LLM switched to using Org src blocks
+                       (setq in-src-block t in-org-src-block t)))))
+                  ;; Handle other chars: emphasis, bold and bullet items
+                  ((and "**" (guard (not in-src-block)))
+                   (cond
+                    ;; TODO Not sure why this branch was needed
+                    ;; ((looking-at "\\*\\(?:[[:word:]]\\|\s\\)") (delete-char 1))
+
+                    ;; Looking back at "w**" or " **"
+                    ((looking-back "\\(?:[[:word:][:punct:]\n]\\|\s\\)\\*\\{2\\}"
+                                   (max (- (point) 3) (point-min)))
+                     (delete-char -1))))
+                  ((and "*" (guard (not in-src-block)))
+                   (if (eobp)
+                       ;; Not enough information about the "*" yet
+                       (progn (setq noop-p t) (set-marker start-pt (match-beginning 0)))
+                     ;; "*" is either emphasis or a bullet point
+                     (save-match-data
+                       (save-excursion
+                         (ignore-errors (backward-char 2))
+                         (cond
+                          ((and     ; At bob, underscore/asterisk followed by word
+                            (or (and (bobp) (looking-at "\\(?:_\\|\\*\\)\\([^[:space:][:punct:]]\\|$\\)"))
+                                (looking-at ; word followed by underscore/asterisk
+                                 "[^[:space:]\n]\\(?:_\\|\\*\\)\\(?:[[:space:][:punct:]]\\|$\\)")
+                                (looking-at ; underscore/asterisk followed by word
+                                 "\\(?:[[:space:]]\\)\\(?:_\\|\\*\\)\\([^[:space:]]\\|$\\)"))
+                            (not (looking-at "[[:punct:]]\\(?:_\\|\\*\\)[[:punct:]]")))
+                           ;; Emphasis, replace with slashes
+                           (forward-char (if (bobp) 1 2)) (delete-char -1) (insert "/"))
+                          ((or (and (bobp) (looking-at "\\*[[:space:]]"))
+                               (looking-at "\\(?:$\\|\\`\\)\n\\*[[:space:]]"))
+                           ;; Bullet point, replace with hyphen
+                           (forward-char (if (bobp) 1 2)) (delete-char -1) (insert "-"))))))))))
+            (if noop-p
+                (buffer-substring (point) start-pt)
+              (prog1 (buffer-substring (point) (point-max))
+                (set-marker start-pt (point-max)))))))))
+  (advice-add 'gptel--stream-convert-markdown->org :override #'fanshi/gptel--stream-convert-markdown->org-a))
+#+end_src
 * Use spatial-window
 #+begin_src emacs-lisp :tangle yes
 (use-package! spatial-window
