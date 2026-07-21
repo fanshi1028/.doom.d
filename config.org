@@ -1092,17 +1092,17 @@ Raises an error if PATTERN is empty, PATH is not readable, or the
           (root (projectile-project-root)))
       (unless root
         (error "Error: Project root not found. This tool cannot be used"))
-      (with-temp-buffer
-        (let* ((args (append (list "run" "--allow" root)
-                             (fanshi/nono-context-allow-read-file-args-list)
-                             (list "--" "tree" "-l" "-f" "-i" "-I" ".git"
-                                   "--sort=mtime" "--ignore-case"
-                                   "--prune" "-P" pattern full-path)))
-               (args (if (natnump depth)
-                         (nconc args (list "-L" (number-to-string depth)))
-                       args))
-               (exit-code (apply #'call-process fanshi/nono nil '(t t) nil args)))
-          (fanshi/handle_nono_output exit-code)
+      (let* ((args (append (list "run" "--allow" root)
+                           (fanshi/nono-context-allow-read-file-args-list)
+                           (list "--" "tree" "-l" "-f" "-i" "-I" ".git"
+                                 "--sort=mtime" "--ignore-case"
+                                 "--prune" "-P" pattern full-path)))
+             (args (if (natnump depth)
+                       (nconc args (list "-L" (number-to-string depth)))
+                     args)))
+        (with-temp-buffer
+          (fanshi/handle_nono_output
+           (apply #'call-process fanshi/nono nil '(t t) nil args))
           (gptel-agent--truncate-buffer "glob")
           (buffer-string)))))
   (advice-add 'gptel-agent--glob :override #'fanshi/gptel-agent--glob-a))
@@ -1134,33 +1134,33 @@ file.  Results are sorted by modification time."
         (error "Error: project root not found, this tool cannot be used"))
       (unless grepper
         (error "Error: ripgrep/grep not available, this tool cannot be used"))
-      (with-temp-buffer
-        (let* ((cmd (file-name-sans-extension (file-name-nondirectory grepper)))
-               (args
-                (cond
-                 ((string= "rg" cmd)
-                  (delq nil (list "--sort=modified"
-                                  (and (natnump context-lines)
-                                       (format "--context=%d" context-lines))
-                                  (and glob (format "--glob=%s" glob))
-                                  ;; "--files-with-matches"
-                                  "--max-count=1000"
-                                  "--heading" "--line-number" "-e" regex
-                                  (expand-file-name (substitute-in-file-name path)))))
-                 ((string= "grep" cmd)
-                  (delq nil (list "--recursive"
-                                  (and (natnump context-lines)
-                                       (format "--context=%d" context-lines))
-                                  (and glob (format "--include=%s" glob))
-                                  "--max-count=1000"
-                                  "--line-number" "--regexp" regex
-                                  (expand-file-name (substitute-in-file-name path)))))
-                 (t (error "Error: failed to identify grepper"))))
-               (args (append (list "run" "--allow" root)
-                             (fanshi/nono-context-allow-read-file-args-list)
-                             (list "--" grepper) args))
-               (exit-code (apply #'call-process fanshi/nono nil '(t t) nil args)))
-          (fanshi/handle_nono_output exit-code)
+      (let* ((cmd (file-name-sans-extension (file-name-nondirectory grepper)))
+             (args
+              (cond
+               ((string= "rg" cmd)
+                (delq nil (list "--sort=modified"
+                                (and (natnump context-lines)
+                                     (format "--context=%d" context-lines))
+                                (and glob (format "--glob=%s" glob))
+                                ;; "--files-with-matches"
+                                "--max-count=1000"
+                                "--heading" "--line-number" "-e" regex
+                                (expand-file-name (substitute-in-file-name path)))))
+               ((string= "grep" cmd)
+                (delq nil (list "--recursive"
+                                (and (natnump context-lines)
+                                     (format "--context=%d" context-lines))
+                                (and glob (format "--include=%s" glob))
+                                "--max-count=1000"
+                                "--line-number" "--regexp" regex
+                                (expand-file-name (substitute-in-file-name path)))))
+               (t (error "Error: failed to identify grepper"))))
+             (args (append (list "run" "--allow" root)
+                           (fanshi/nono-context-allow-read-file-args-list)
+                           (list "--" grepper) args)))
+        (with-temp-buffer
+          (fanshi/handle_nono_output
+           (apply #'call-process fanshi/nono nil '(t t) nil args))
           (gptel-agent--truncate-buffer "grep")
           (buffer-string)))))
   (advice-add 'gptel-agent--grep :override #'fanshi/gptel-agent--grep-a))
