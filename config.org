@@ -2446,7 +2446,7 @@ Also appends an Org-mode link to the prompt."
     (call-interactively #'org-store-link)
     (let ((fname buffer-file-name))
       (with-current-buffer fanshi/gptel-last-agent-buffer
-        (when fname (push fname fanshi/gptel-context-files))
+        (when fname (add-to-list 'fanshi/gptel-context-files fname))
         (goto-char (point-max))
         (org-insert-link)
         (current-buffer))))
