@@ -3120,7 +3120,26 @@ BEG and END are the buffer positions of the response (unused)."
                    #'fanshi/gptel-agent--sub-agent-done t)))
   (advice-add 'gptel-agent--task :override #'fanshi/gptel-agent--task))
 #+end_src
-
+*** Adapt Agent tool to use valid preset names
+The original Agent tool uses enum values ["researcher" "introspector"] for
+=subagent_type=, but the override expects these to be valid gptel preset
+names. Redefine with presets that actually exist.
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel-agent
+  (when-let* ((agent-tool (gptel-get-tool "Agent")))
+    (aset agent-tool 4
+          (mapcar (lambda (arg)
+                    (if  (string= (plist-get arg :name) "subagent_type")
+                        (plist-put arg :enum ["research" "coding" "problem-solve"])
+                      arg
+                      ))
+                  (aref agent-tool 4)))
+    (setf
+     (alist-get "Agent"
+                (alist-get (gptel-tool-category (gptel-get-tool "Agent")) gptel--known-tools nil nil #'equal)
+                nil nil #'equal)
+     agent-tool)))
+#+end_src
 *** Advice +llm/open-in-same-window to narrow to sub-agents
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
