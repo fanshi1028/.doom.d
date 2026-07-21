@@ -3195,7 +3195,7 @@ Stores them in `fanshi/gptel--status' for marginalia annotation."
                                               (mapconcat #'gptel--to-string
                                                          (mapcar #'gptel-tool-name tools)
                                                          ","))
-                                      'face 'marginalia-argument)))
+                                      'face 'marginalia-list)))
                 (when auto-continue
                   (concat " "
                           (propertize (format "(AC:%d)" auto-continue)
