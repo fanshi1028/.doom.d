@@ -978,9 +978,11 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
   (defun fanshi/restrict-to-projectile-files-plus-context-a (&rest args)
     "Restrict file reads to project root, except for files in gptel context."
     ;; Allow files explicitly added as gptel context
-    (unless (cl-find-if (lambda (context) (if (file-directory-p context)
-                                              (file-in-directory-p (car args) context)
-                                            (string= (car args) context)))
+    (unless (cl-find-if (lambda (context)
+                          (let ((fname (expand-file-name context)))
+                            (if (file-directory-p context)
+                                (file-in-directory-p (car args) fname)
+                              (string= (car args) fname))))
                         fanshi/gptel-context-files)
       (apply #'fanshi/restrict-to-projectile-files-a args)))
   (advice-add 'gptel-agent--read-file-lines :before #'fanshi/restrict-to-projectile-files-plus-context-a))
