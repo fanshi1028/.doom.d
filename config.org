@@ -1161,10 +1161,14 @@ file.  Results are sorted by modification time."
                            (fanshi/nono-context-allow-read-file-args-list)
                            (list "--" grepper) args)))
         (with-temp-buffer
-          (fanshi/handle_nono_output
-           (apply #'call-process fanshi/nono nil '(t t) nil args))
-          (gptel-agent--truncate-buffer "grep")
-          (buffer-string)))))
+          (let ((exit-code
+                 (apply #'call-process fanshi/nono nil '(t t) nil args)))
+            (if (= exit-code 1)
+                ;; Exit code 1 for grep means no matches found (not an error)
+                "No matches found."
+              (fanshi/handle_nono_output exit-code)
+              (gptel-agent--truncate-buffer "grep")
+              (buffer-string)))))))
   (advice-add 'gptel-agent--grep :override #'fanshi/gptel-agent--grep-a))
 #+end_src
 *** gptel-agent--read-url
