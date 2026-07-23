@@ -3091,6 +3091,7 @@ PROMPT is the detailed prompt for the agent."
                 (insert "@" agent-preset " ")
                 (goto-char (point-max))
                 (insert "\n" prompt "\n")
+                (goto-char (point-max))
                 ;; Set up completion detection
                 (add-hook 'gptel-post-response-functions
                           #'fanshi/gptel-agent--sub-agent-done nil t)
