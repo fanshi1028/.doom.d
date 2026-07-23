@@ -3084,8 +3084,12 @@ PROMPT is the detailed prompt for the agent."
                         fanshi/gptel-agent-task description
                         fanshi/gptel-agent-task-callback main-cb)
             ;; Insert the prompt and send
+            (goto-char (point-min))
+            (let ((prompt-prefix (alist-get gptel-default-mode gptel-prompt-prefix-alist)))
+              (re-search-forward (rx (literal prompt-prefix))))
+            (insert "@" agent-preset " ")
             (goto-char (point-max))
-            (insert "@" agent-preset " " description "\n" prompt "\n")
+            (insert "\n" prompt "\n")
             ;; Set up completion detection
             (add-hook 'gptel-post-response-functions
                       #'fanshi/gptel-agent--sub-agent-done nil t)
