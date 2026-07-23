@@ -3083,7 +3083,8 @@ PROMPT is the detailed prompt for the agent."
               (with-current-buffer sub-agent-buf
                 (setq-local fanshi/gptel-agent-parent parent-buf
                             fanshi/gptel-agent-task description
-                            fanshi/gptel-agent-task-callback main-cb)
+                            fanshi/gptel-agent-task-callback main-cb
+                            fanshi/gptel-auto-continue-enabled nil)
                 ;; Insert the prompt and send
                 (goto-char (point-min))
                 (let ((prompt-prefix (alist-get gptel-default-mode gptel-prompt-prefix-alist)))
