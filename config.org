@@ -3079,21 +3079,23 @@ PROMPT is the detailed prompt for the agent."
         (let* ((parent-buf (current-buffer))
                (sub-agent-buf (fanshi/gptel-agent description)))
           ;; Configure the child buffer with parent pointer and metadata
-          (with-current-buffer sub-agent-buf
-            (setq-local fanshi/gptel-agent-parent parent-buf
-                        fanshi/gptel-agent-task description
-                        fanshi/gptel-agent-task-callback main-cb)
-            ;; Insert the prompt and send
-            (goto-char (point-min))
-            (let ((prompt-prefix (alist-get gptel-default-mode gptel-prompt-prefix-alist)))
-              (re-search-forward (rx (literal prompt-prefix))))
-            (insert "@" agent-preset " ")
-            (goto-char (point-max))
-            (insert "\n" prompt "\n")
-            ;; Set up completion detection
-            (add-hook 'gptel-post-response-functions
-                      #'fanshi/gptel-agent--sub-agent-done nil t)
-            (gptel-send))
+          (condition-case err
+              (with-current-buffer sub-agent-buf
+                (setq-local fanshi/gptel-agent-parent parent-buf
+                            fanshi/gptel-agent-task description
+                            fanshi/gptel-agent-task-callback main-cb)
+                ;; Insert the prompt and send
+                (goto-char (point-min))
+                (let ((prompt-prefix (alist-get gptel-default-mode gptel-prompt-prefix-alist)))
+                  (re-search-forward (rx (literal prompt-prefix))))
+                (insert "@" agent-preset " ")
+                (goto-char (point-max))
+                (insert "\n" prompt "\n")
+                ;; Set up completion detection
+                (add-hook 'gptel-post-response-functions
+                          #'fanshi/gptel-agent--sub-agent-done nil t)
+                (gptel-send))
+            (error (funcall main-cb (format "Error: Sub-agent task failed to start: %s" err))))
           (message "Spawned sub-agent %s: %s" agent-preset (buffer-name sub-agent-buf)))
       (funcall main-cb
                (format "Error: Sub-agent task failed. Agent %s not found" agent-preset))))
