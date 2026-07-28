@@ -2288,6 +2288,18 @@ workspace cleanup.  For regular sessions, saves to `default-directory'."
     (add-hook! 'before-save-hook :local #'fanshi/gptel-agent--auto-assign-filename))
   (add-hook! 'gptel-mode-hook :append #'fanshi/gptel-agent--setup-auto-save))
 #+end_src
+** fanshi/gptel-report-patterns: Report detection patterns per agent type
+using the same heuristic approach as
+=fanshi/gptel--not-done-auto-continue-or-notify= for detection.
+#+begin_src emacs-lisp :tangle yes
+(defvar fanshi/gptel-report-patterns
+  `((coding . ,(rx "Code Report" (+ anychar) "Summary" (+ anychar) "Changes Made"))
+    (research . ,(rx "Executive Summary" (+ anychar) "Key Findings" (+ anychar) "Sources" (+ anychar) "Conclusion"))
+    (problem-solve . ,(rx "Executive Summary" (+ anychar) "Key Findings" (+ anychar) "Sources" (+ anychar) "Conclusion")))
+  "Alist mapping agent preset symbols to regex patterns that detect a complete report.
+
+Each pattern must match the full report structure in the agent's response.")
+#+end_src
 ** Fix gptel--transform-apply-preset to handle the case where we resume from the middle of a agent response.
 - The original `gptel--transform-apply-preset` only does a single
   `text-property-search-backward`, which is not enough when we resume
@@ -2337,7 +2349,14 @@ For each @NAME found that matches a known gptel preset:
 Only matches preceded by a space or at buffer start are considered,
 matching gptel's own convention to avoid triggering on e.g. user@host.
 
-Returns a list of names of preset applied (symbols or strings)."
+Signal an error if more than one preset in the range has a report pattern
+in `fanshi/gptel-report-patterns', as multiple report-producing presets
+in the same prompt doesn't make sense.
+
+Return a cons cell (REPORT-PATTERN . PRESETS-APPLIED):
+- REPORT-PATTERN is the regex (from `fanshi/gptel-report-patterns') for
+  the matching preset, or nil if no preset has a report pattern.
+- PRESETS-APPLIED is a list of preset symbols that were applied."
     (let ((presets-applied))
       (while (re-search-forward (rx "@" (group (+ (not (any blank))))) end t)
         ;; The following convoluted check is because re-search is much faster if
@@ -2350,12 +2369,20 @@ Returns a list of names of preset applied (symbols or strings)."
             (delete-region (match-beginning 0) (match-end 0))
             ;; Point must be after @foo when the preset is applied to allow for
             ;; more advanced transformations.
+            (push (intern-soft name) presets-applied)
             (unless only-remove
-              (push name presets-applied)
               (gptel--apply-preset preset
                                    (lambda (sym val)
                                      (set (make-local-variable sym) val)))))))
-      (nreverse presets-applied)))
+      ;; Make sure at most one preset with a report pattern is present.
+      (let ((matching-presets (cl-remove-if-not (lambda (p)
+                                                  (alist-get p fanshi/gptel-report-patterns nil nil #'equal))
+                                                presets-applied)))
+        (when (> (length matching-presets) 1)
+          (user-error "Aborted: multiple presets with report patterns: %s" matching-presets))
+        (cons
+         (and matching-presets (alist-get (car matching-presets) fanshi/gptel-report-patterns nil nil #'equal))
+         (nreverse presets-applied)))))
 
   (defun fanshi/gptel--transform-apply-preset-a (fsm)
     "Apply a gptel preset to the buffer depending on the prompt.
@@ -2381,22 +2408,29 @@ directive noise into the prompt cache."
                  (let ((last-prompt-preset-applied))
                    (goto-char (point-max))
                    (while-let ((_ (not (bobp)))
+                               (last-matched-point (point))
                                (match (text-property-search-backward 'gptel nil t)))
-                     (goto-char (prop-match-beginning match))
                      (save-excursion
                        (when (re-search-forward
                               (rx (and
                                    point
                                    (* (any blank ?\n))
                                    (literal prompt-prefix)))
-                              nil t 1)
-                         (when-let ((presets (fanshi/process-preset-til-end
-                                              (prop-match-end match)
-                                              last-prompt-preset-applied)))
-                           (or last-prompt-preset-applied (setq last-prompt-preset-applied presets))))))
+                              (prop-match-end match) t 1)
+                         (pcase-let ((`(,preset-report-pattern . ,current-prompt-presets)
+                                      (fanshi/process-preset-til-end
+                                       (prop-match-end match)
+                                       last-prompt-preset-applied)))
+                           (when current-prompt-presets
+                             (or last-prompt-preset-applied (setq last-prompt-preset-applied current-prompt-presets)))
+                           (when preset-report-pattern
+                             (while-let ((_ (< (point) last-matched-point))
+                                         (response-match (text-property-search-forward 'gptel 'response t)))
+                               (when (re-search-forward preset-report-pattern (prop-match-end response-match) t 1)
+                                 (delete-region (+ (prop-match-end match) 1) (- (match-beginning 0) 1)))))))))
                    last-prompt-preset-applied)
                (goto-char (point-min))
-               (fanshi/process-preset-til-end))))
+               (cdr (fanshi/process-preset-til-end)))))
         ;; Propagate gptel-tools, gptel-model, and preset list from the prompt
         ;; buffer back to the original buffer so that downstream hooks can see
         ;; preset-equipped tools and model.
