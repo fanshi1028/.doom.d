@@ -952,7 +952,26 @@ Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
 ** For gptel-send with active region under org-mode
 gptel--insert-response use org-cycle to hide some block in response which in turn trigger +org-yas-expand-maybe-h unexpectedly
 #+begin_src emacs-lisp :tangle yes
-(advice-add 'gptel-send :after (lambda (&rest r) "call `deactivate-mark' after, to temp fix an unexpected trigger of snippet by org-cycle calls in reponse" (if (use-region-p) (deactivate-mark))))
+(after! gptel
+  ;; gptel calls `org-cycle' internally to fold response blocks (e.g.
+  ;; `#+end_reasoning', `#+end_tool').  In Doom, `org-cycle' runs
+  ;; `org-tab-first-hook', which contains `+org-yas-expand-maybe-h'.  That hook
+  ;; expands yasnippets when point is at a snippet trigger or a region is
+  ;; active, which is unwanted during gptel's internal folding.
+  ;;
+  ;; Bind `org-tab-first-hook' to a version without `+org-yas-expand-maybe-h'
+  ;; around gptel's response insertion so its internal `org-cycle' calls can't
+  ;; trigger snippet expansion.  This also preserves the user's active region
+  ;; (the previous temp fix deactivated the mark after `gptel-send').
+
+  (defun fanshi/gptel--suppress-yas-a (orig-fun &rest args)
+    "Run ORIG-FUN with `+org-yas-expand-maybe-h' removed from `org-tab-first-hook'."
+    (let ((org-tab-first-hook (remq #'+org-yas-expand-maybe-h org-tab-first-hook)))
+      (apply orig-fun args)))
+
+  (advice-add 'gptel--insert-response :around #'fanshi/gptel--suppress-yas-a)
+  (advice-add 'gptel-curl--stream-insert-response :around #'fanshi/gptel--suppress-yas-a)
+  (advice-add 'gptel--display-tool-results :around #'fanshi/gptel--suppress-yas-a))
 #+end_src
 ** Restrict tools
 *** restrict-to-projectile-files
