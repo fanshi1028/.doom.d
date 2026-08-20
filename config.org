@@ -3379,7 +3379,7 @@ Stores them in `fanshi/gptel--status' for marginalia annotation."
 #+end_src
 ** fanshi/org-gtd-delegate--finalize-a
 #+begin_src emacs-lisp :tangle yes :lexical t
-(defun fanshi/org-gtd-delegate--finalize-a (f &rests args)
+(defun fanshi/org-gtd-delegate--finalize-a (f &rest args)
   (if (fanshi/delegated-to-ai-p)
       (let ((org-gtd-default-file-name "org-gtd-ai-tasks"))
         (funcall f args)))
