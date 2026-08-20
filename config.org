@@ -1198,7 +1198,9 @@ file.  Results are sorted by modification time."
 
 Rejects local file URLs (file://, absolute paths, ~ paths) to prevent
 the LLM from bypassing `Read' tool restrictions and exploding the
-context window."
+context window.
+
+Truncates fetched page text to 20000 chars."
     ;; Block local file URLs before they reach url-retrieve.
     (if (or (string-prefix-p "file://" url)
             (string-prefix-p "file:" url)
@@ -1224,9 +1226,8 @@ context window."
                      (eww-score-readability dom)
                      (shr-insert-document (eww-highest-readability dom))
                      (decode-coding-region (point-min) (point-max) 'utf-8)
-                     (funcall
-                      cb (buffer-substring-no-properties
-                          (point-min) (point-max)))))
+                     (gptel-agent--truncate-buffer "WebFetch")
+                     (funcall cb (buffer-string))))
                (error (funcall cb (format "Error: Request failed with error data:\n%S"
                                           errdata)))))))
        tool-cb (format "Fetch for \"%s\"" url))))
