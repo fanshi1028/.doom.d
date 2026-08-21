@@ -1666,7 +1666,8 @@ Imenu makes sense for the file (see `fanshi/gptel--imenu-makes-sense-p')."
              (buf (plist-get tool-call :buffer)))
         (when (and file-path
                    (file-exists-p file-path)
-                   (not (member file-path (buffer-local-value fanshi/gptel-imenu-indexed-files buf)))
+                   (not (member file-path (with-current-buffer buf
+                                            fanshi/gptel-imenu-indexed-files)))
                    (fanshi/gptel--imenu-makes-sense-p file-path))
           `(:block ,(format "Error: You are about to Read %s without first calling Imenu on it. Call the Imenu tool on this file first to get its structure index, then Read the relevant line range." file-path))))))
 
