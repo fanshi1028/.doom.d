@@ -1604,7 +1604,10 @@ Returns a plist with :BLOCK on validation failure, or nil to proceed."
   call and remind the agent to use the `Imenu' tool first.
 - how :: a buffer-local alist records which files have been indexed by `Imenu'.
   The `Imenu' tool call toggles the flag on success; the `Read' pre-tool hook
-  checks it before allowing the call.
+  checks it before allowing the call.  For files where imenu does not make
+  sense (e.g. plain text files like .txt), the hook calls the buffer's
+  `imenu-create-index-function' and catches the `imenu-unavailable' error, so
+  `Read' on them is never blocked.
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (defcustom fanshi/gptel-imenu-before-read t
@@ -1618,6 +1621,26 @@ file type)."
     "Buffer-local alist of files already indexed by the `Imenu' tool.
 Each entry maps a file path to t.  Set by the Imenu post-tool hook and
 checked by the Read pre-tool hook.")
+
+  (defun fanshi/gptel--imenu-makes-sense-p (file-path)
+    "Return non-nil if the `Imenu' tool makes sense for FILE-PATH.
+
+Open the file's buffer (if not already visited) and call its
+`imenu-create-index-function', catching `imenu-unavailable' which is
+signalled when the major mode does not support imenu (e.g. plain .txt
+files).  Using the buffer's own `imenu-create-index-function' (rather
+than hard-coding `imenu-default-create-index-function') also covers
+modes with a custom imenu implementation, such as org-mode."
+    (if-let* ((buffer (or (find-buffer-visiting file-path)
+                          (find-file-noselect file-path))))
+        (with-current-buffer buffer
+          (require 'imenu)
+          (condition-case nil
+              (progn
+                (funcall imenu-create-index-function)
+                t)
+            (imenu-unavailable nil)))
+      nil))
 
   (defun fanshi/gptel--imenu-mark-indexed (tool-call)
     "`gptel-post-tool-call-functions' hook to record a successful `Imenu'
@@ -1635,16 +1658,17 @@ call in the buffer-local alist `fanshi/gptel-imenu-indexed-files'."
 
 Blocks a `Read' tool call on FILE-PATH if `Imenu' has not been called on
 that file in this session (per `fanshi/gptel-imenu-indexed-files') and
-Imenu makes sense for the file."
+Imenu makes sense for the file (see `fanshi/gptel--imenu-makes-sense-p')."
     (when (and fanshi/gptel-imenu-before-read
                (string= (plist-get tool-call :name) "Read"))
       (let* ((args (plist-get tool-call :args))
              (file-path (plist-get args :file_path))
              (buf (plist-get tool-call :buffer)))
-        (when (and file-path (file-exists-p file-path))
-          (unless (with-current-buffer buf
-                    (member file-path fanshi/gptel-imenu-indexed-files))
-            `(:block ,(format "Error: You are about to Read %s without first calling Imenu on it. Call the Imenu tool on this file first to get its structure index, then Read the relevant line range." file-path)))))))
+        (when (and file-path
+                   (file-exists-p file-path)
+                   (not (member file-path (buffer-local-value fanshi/gptel-imenu-indexed-files buf)))
+                   (fanshi/gptel--imenu-makes-sense-p file-path))
+          `(:block ,(format "Error: You are about to Read %s without first calling Imenu on it. Call the Imenu tool on this file first to get its structure index, then Read the relevant line range." file-path))))))
 
   (add-to-list 'gptel-post-tool-call-functions #'fanshi/gptel--imenu-mark-indexed)
   (add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel--imenu-before-read))
