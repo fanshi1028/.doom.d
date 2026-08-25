@@ -1414,7 +1414,7 @@ Symbol-Name is a string naming an Elisp function, variable, macro, or face."
   (gptel-make-tool
    :name "ElispHelp"
    :function #'fanshi/gptel-agent--helpful-symbol
-   :description "Look up Elisp documentation for a symbol (function, variable, macro) using helpful.el.\nReturns curated help content including: Summary, Signature, Value (for variables), Documentation, Advice status, Aliases, Implementations (for generic methods), and Source Code.\nExcludes UI-only sections like Key Bindings, Debugging buttons, References, and Symbol Properties."
+   :description "Look up Elisp documentation/source code for a symbol (function, variable, macro, face). Alwyas use this over WebFetch when looking up elisp source code for symbol"
    :args '((:name "symbol-name" :type string
             :description "Name of the Elisp symbol to look up, e.g. \"gptel-send\" or \"buffer-file-name\", default heuretic is callable-first")
            (:name "force-variable" :type boolean
