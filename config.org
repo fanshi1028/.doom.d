@@ -1633,10 +1633,13 @@ file type)."
     :type 'boolean
     :group 'gptel)
 
-  (defvar-local fanshi/gptel-imenu-indexed-files nil
-    "Buffer-local alist of files already indexed by the `Imenu' tool.
-Each entry maps a file path to t.  Set by the Imenu post-tool hook and
-checked by the Read pre-tool hook.")
+  (defvar-local fanshi/gptel-imenu-tool-call-file-states nil
+    "Buffer-local alist of files indexed by the `Imenu' tool.
+Each entry is (FILE-PATH . NEED-IMENU-P).
+NEED-IMENU-P is t if a `Read' on this file was blocked by `imenu-before-read'
+and the retry has not yet succeeded; nil otherwise.
+Set by the Imenu post-tool hook and the imenu-before-read pre-tool hook,
+checked by the Read pre-tool hook and the dedup post-tool hook.")
 
   (defun fanshi/gptel--imenu-makes-sense-p (file-path)
     "Return non-nil if the `Imenu' tool makes sense for FILE-PATH.
@@ -1658,23 +1661,32 @@ modes with a custom imenu implementation, such as org-mode."
             (imenu-unavailable nil)))
       nil))
 
-  (defun fanshi/gptel--imenu-mark-indexed (tool-call)
+  (defun fanshi/gptel--imenu-tool-called (tool-call)
     "`gptel-post-tool-call-functions' hook to record a successful `Imenu'
-call in the buffer-local alist `fanshi/gptel-imenu-indexed-files'."
+call in the buffer-local alist `fanshi/gptel-imenu-tool-call-file-states'.
+
+If the file is not yet in the alist (not blocked yet), add it with a nil cdr.
+If it already exists (e.g. a Read was blocked and set the cdr to t),
+leave the cdr as-is — the dedup logic will clear it after a successful Read."
     (when (string= (plist-get tool-call :name) "Imenu")
       (let* ((args (plist-get tool-call :args))
              (file-path (plist-get args :file_path))
              (buf (plist-get tool-call :buffer)))
         (when (and file-path buf)
           (with-current-buffer buf
-            (cl-pushnew file-path fanshi/gptel-imenu-indexed-files))))))
+            (unless (assoc file-path fanshi/gptel-imenu-tool-call-file-states)
+              (push (cons file-path nil) fanshi/gptel-imenu-tool-call-file-states)))))))
 
   (defun fanshi/gptel--imenu-before-read (tool-call)
     "`gptel-pre-tool-call-functions' hook to require `Imenu' before `Read'.
 
 Blocks a `Read' tool call on FILE-PATH if `Imenu' has not been called on
-that file in this session (per `fanshi/gptel-imenu-indexed-files') and
-Imenu makes sense for the file (see `fanshi/gptel--imenu-makes-sense-p')."
+that file in this session (per `fanshi/gptel-imenu-tool-call-file-states') and
+Imenu makes sense for the file (see `fanshi/gptel--imenu-makes-sense-p').
+
+Also sets the blocked-read flag (cdr = t) for FILE-PATH in
+`fanshi/gptel-imenu-tool-call-file-states' so that the dedup logic allows the
+subsequent retry after `Imenu' is called."
     (when (and fanshi/gptel-imenu-before-read
                (string= (plist-get tool-call :name) "Read"))
       (let* ((args (plist-get tool-call :args))
@@ -1682,12 +1694,15 @@ Imenu makes sense for the file (see `fanshi/gptel--imenu-makes-sense-p')."
              (buf (plist-get tool-call :buffer)))
         (when (and file-path
                    (file-exists-p file-path)
-                   (not (member file-path (with-current-buffer buf
-                                            fanshi/gptel-imenu-indexed-files)))
+                   (not (with-current-buffer buf
+                          (assoc file-path fanshi/gptel-imenu-tool-call-file-states)))
                    (fanshi/gptel--imenu-makes-sense-p file-path))
+          ;; Mark as need-imenu-call so dedup will allow the retry.
+          (with-current-buffer buf
+            (push (cons file-path 'need-imenu-call) fanshi/gptel-imenu-tool-call-file-states))
           `(:block ,(format "Error: You are about to Read %s without first calling Imenu on it. Call the Imenu tool on this file first to get its structure index, then Read the relevant line range." file-path))))))
 
-  (add-to-list 'gptel-post-tool-call-functions #'fanshi/gptel--imenu-mark-indexed)
+  (add-to-list 'gptel-post-tool-call-functions #'fanshi/gptel--imenu-tool-called)
   (add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel--imenu-before-read))
 #+end_src
 *** Timout when tool calling asking for user confirmation
@@ -1919,7 +1934,11 @@ proceed."
     "`gptel-post-tool-call-functions' hook to block duplicate tool calls which are `fanshi/gptel-mutable-tools'.
 
 Returns (:block REASON) if the call should be blocked, or nil to
-proceed."
+proceed.
+
+For `Read' calls that were previously blocked by `fanshi/gptel--imenu-before-read',
+skip deduplication against that blocked call, because the agent is expected to
+retry after calling `Imenu' first."
     (let ((name (plist-get tool-call :name)))
       (when (member name fanshi/gptel-mutable-tools)
         (let* ((args (plist-get tool-call :args))
@@ -1945,15 +1964,29 @@ proceed."
                                   (prev-result (string-trim (buffer-substring-no-properties (point) end))))
                              (when (and (string= name prev-name) (equal args prev-args)
                                         (string= tool-result prev-result))
-                               (setq result `(:block ,(format
-                                                       "You already called %s with the same args %d call(s) ago and the result has not changed. Use the previous result."
-                                                       name (1+ (- fanshi/gptel-dedup-window window)))))))))
+                               ;; Skip dedup for Read calls that were previously
+                               ;; blocked by imenu-before-read, because the agent
+                               ;; is expected to retry after calling Imenu first.
+                               (unless (and (string= name "Read")
+                                            (with-current-buffer buf
+                                              (let* ((fp (plist-get prev-args :file_path))
+                                                     (entry (assoc fp fanshi/gptel-imenu-indexed-files)))
+                                                (and entry (cdr entry)))))
+                                 (setq result `(:block ,(format
+                                                         "You already called %s with the same args %d call(s) ago and the result has not changed. Use the previous result."
+                                                         name (1+ (- fanshi/gptel-dedup-window window)))))))))
                      (t
                       (message (format "fanshi/gptel--dedup-mutable-tools: could not parse tool-call %s on line %s"
                                        id (line-number-at-pos (point)))))))
                   (_ nil)))
               (ignore-errors (backward-char))))
-          result))))
+          ;; After a successful Read, clear the blocked-read flag so future
+          ;; duplicates are caught normally.
+          (when (string= name "Read")
+            (with-current-buffer buf
+              (let ((entry (assoc (plist-get args :file_path) fanshi/gptel-imenu-indexed-files)))
+                (when entry (setcdr entry nil)))))
+          result)))))
 
   ;; Register hooks.
   (add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel--dedup-immutable-tools)
