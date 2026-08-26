@@ -1970,7 +1970,7 @@ retry after calling `Imenu' first."
                                (unless (and (string= name "Read")
                                             (with-current-buffer buf
                                               (let* ((fp (plist-get prev-args :file_path))
-                                                     (entry (assoc fp fanshi/gptel-imenu-indexed-files)))
+                                                     (entry (assoc fp fanshi/gptel-imenu-tool-call-file-states)))
                                                 (and entry (cdr entry)))))
                                  (setq result `(:block ,(format
                                                          "You already called %s with the same args %d call(s) ago and the result has not changed. Use the previous result."
@@ -1984,7 +1984,7 @@ retry after calling `Imenu' first."
           ;; duplicates are caught normally.
           (when (string= name "Read")
             (with-current-buffer buf
-              (let ((entry (assoc (plist-get args :file_path) fanshi/gptel-imenu-indexed-files)))
+              (let ((entry (assoc (plist-get args :file_path) fanshi/gptel-imenu-tool-call-file-states)))
                 (when entry (setcdr entry nil)))))
           result)))))
 
