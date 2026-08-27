@@ -2166,10 +2166,11 @@ Each value is a list of tool name strings to add to the base coding tools.")
 
 (defun fanshi/append-coding-project-tools (tools dir)
   "Append project(in DIR)-specific tools to TOOLS."
-  (when-let* ((project-type (if (string= (doom-path "") (directory-file-name dir))
-                                'doom
-                              (projectile-project-type dir)))
-              (extra-tools (alist-get project-type fanshi/project-tools-map nil nil #'equal)))
+  (when-let* ((extra-tools (alist-get
+                            (or
+                             (buffer-local-value 'projectile-project-type (dired-noselect dir))
+                             (projectile-project-type dir))
+                            fanshi/project-tools-map nil nil #'equal)))
     (append tools extra-tools)))
 #+end_src
 **** Preset
