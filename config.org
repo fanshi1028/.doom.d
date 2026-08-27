@@ -868,10 +868,6 @@ Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
       (setq-local fanshi/gptel--aborted nil)
       (message "gptel: request was aborted, skipping auto-continue")
       (fanshi/notify))
-     (fanshi/gptel--in-code-check-auto-fix
-      (setq-local fanshi/gptel--in-code-check-auto-fix nil)
-      (message "gptel: in code-check auto-fix cycle, skipping not-done auto-continue")
-      (fanshi/notify))
      ;; Check max retries to prevent infinite loops
      ((and fanshi/gptel--auto-continue-count (>= fanshi/gptel--auto-continue-count fanshi/gptel-auto-continue-max-retries))
       (message "gptel: Max auto-continues reached (%d), stopping."
@@ -903,10 +899,25 @@ Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
                   (fanshi/auto-continue))
                  ((and (member 'coding fanshi/last-gptel-presets)
                        (save-excursion (re-search-backward (rx "Code Report" (+ anychar) "Summary" (+ anychar) "Changes Made") response-start t)))
+                  ;; (setq-local fanshi/gptel--code-check-fix-count 0)
+                  (let ((project-type (or projectile-project-type (projectile-project-type))))
+                    (cond
+                     ((eq project-type 'doom)
+                      (if-let ((check-result (fanshi/gptel--post-response-check/doom)))
+                          (progn
+                            (message "Gptel doom code check: %s" check-result)
+                            (if (and (> fanshi/gptel-code-check-auto-fix-max-retries 0)
+                                     (< fanshi/gptel--code-check-fix-count fanshi/gptel-code-check-auto-fix-max-retries))
+                                (fanshi/gptel--code-check-auto-fix check-result)
+                              (fanshi/notify)))
+                        (message "Gptel doom code check succeeded")
+                        (fanshi/notify)))
+                     (t (message "gptel: Code Report detected, skip auto continue. (%s)" project-type) (fanshi/notify))))
                   (message "gptel: Code Report detected, skip auto continue")
                   (fanshi/notify))
-                 ;; ((save-excursion (re-search-backward (rx "#end_src" point) response-start t))
-                 ;;  (fanshi/notify))
+                 ((save-excursion (re-search-backward (rx "#end_src" point) response-start t))
+                  (message "gptel: end of src block detected, skip auto continue")
+                  (fanshi/notify))
                  ((save-excursion (re-search-backward (rx (any alnum) point) response-start t))
                   (message "gptel: response ends mid-word: last char is alphanumeric with no trailing punctuation, auto continue")
                   (fanshi/auto-continue))
@@ -2215,9 +2226,6 @@ Set to 0 to disable auto-fix and only show the error message."
   (defvar-local fanshi/gptel--code-check-fix-count 0
     "Number of auto-fix retries for the current conversation turn.")
 
-  (defvar-local fanshi/gptel--in-code-check-auto-fix nil
-    "Non-nil when in a code-check auto-fix cycle, to skip not-done auto-continue.")
-
   (defun fanshi/gptel--track-edited-files-a (fn &rest args)
     "Advice for write tools to track edited files."
     (let ((result (apply fn args)))
@@ -2232,59 +2240,36 @@ Set to 0 to disable auto-fix and only show the error message."
     "Auto-continue with ERROR-MSG as user prompt to fix code check failure.
 Increments `fanshi/gptel--code-check-fix-count' to track retry depth."
     (incf fanshi/gptel--code-check-fix-count)
-    (setq-local fanshi/gptel--in-code-check-auto-fix t)
     (message "Gptel code check failed (attempt %d/%d), auto-fixing..."
              fanshi/gptel--code-check-fix-count
              fanshi/gptel-code-check-auto-fix-max-retries)
-    ;; Re-add the check hook for the next response cycle
-    (add-hook 'gptel-post-response-functions #'fanshi/gptel--post-response-check/doom nil t)
     (let ((fanshi/prevent-duplicate-gptel-send nil))
       (without-restriction
         (goto-char (point-max))
         (insert "\n\n" error-msg "\n\nPlease fix the above error.")
         (gptel-send))))
 
-  (defun fanshi/gptel--post-response-check/doom (buffer)
-    "Run project-specific checks if edited files match.
-BUFFER is the gptel buffer (unused, required by hook signature)."
-    (when fanshi/gptel--edited-files
-      (let ((config-file-path (expand-file-name "config.org")))
-        (when (member config-file-path fanshi/gptel--edited-files)
-          (let ((temp-file (make-temp-file "gptel-doom-code-check"))
-                result)
-            (unwind-protect
-                (setq result
-                      (progn
-                        (org-babel-tangle-file config-file-path temp-file)
-                        (with-temp-buffer
-                          (insert-file-contents temp-file)
-                          (condition-case err
-                              (progn
-                                (scan-sexps (point-min) (point-max))
-                                nil)
-                            (scan-error
-                             (let ((pos (nth 2 err)))
-                               (format "Unbalanced parentheses at line %d, column %d."
-                                       (save-excursion (goto-char pos) (line-number-at-pos))
-                                       (save-excursion (goto-char pos) (current-column)))))))))
-              (delete-file temp-file))
-            (when result
-              (if (and (> fanshi/gptel-code-check-auto-fix-max-retries 0)
-                       (< fanshi/gptel--code-check-fix-count fanshi/gptel-code-check-auto-fix-max-retries))
-                  (fanshi/gptel--code-check-auto-fix result)
-                (message "Gptel check: %s" result))))))
-      (setq fanshi/gptel--edited-files nil))
-    (remove-hook 'gptel-post-response-functions #'fanshi/gptel--post-response-check/doom t))
-
-  (defun fanshi/gptel-agent--setup-coding-check ()
-    (let ((project-type (or (buffer-local-value 'projectile-project-type (dired-noselect default-directory))
-                            (projectile-project-type default-directory))))
-      (cond
-       ((eq project-type 'doom)
-        (setq-local fanshi/gptel--code-check-fix-count 0)
-        (setq-local fanshi/gptel--in-code-check-auto-fix nil)
-        (add-hook 'gptel-post-response-functions #'fanshi/gptel--post-response-check/doom nil t))
-       (t nil)))))
+  (defun fanshi/gptel--post-response-check/doom ()
+    "Run project-specific checks on edited files.
+Returns nil if checks pass (or nothing to check), or an error message string on failure."
+    (prog1
+        (when fanshi/gptel--edited-files
+          (let* ((config-file-path (expand-file-name "config.org"))
+                 (tangled (concat (s-chop-suffix "org" config-file-path) "el")))
+            (when (or (member config-file-path fanshi/gptel--edited-files) t)
+              (if (= (length (org-babel-tangle-file config-file-path nil)) 1)
+                  (with-temp-buffer
+                    (insert-file-contents tangled)
+                    (condition-case err
+                        (while-let ((end (scan-sexps (point) 1)))
+                          (goto-char (1+ end)))
+                      (scan-error
+                       (let ((pos (nth 2 err)))
+                         (format "Unbalanced parentheses at line %d, column %d."
+                                 (save-excursion (goto-char pos) (line-number-at-pos))
+                                 (save-excursion (goto-char pos) (current-column)))))))
+                (error "oops: expected 1 tangled file output from doom config")))))
+      (setq fanshi/gptel--edited-files nil))))
 #+end_src
 **** Preset
 #+begin_src emacs-lisp :tangle yes
@@ -2295,7 +2280,6 @@ BUFFER is the gptel buffer (unused, required by hook signature)."
     :temperature 0.6
     :description "Preset for writing code"
     :tools '(:eval (fanshi/append-coding-project-tools fanshi/coding-tools default-directory))
-    :post #'fanshi/gptel-agent--setup-coding-check
     :system (lambda ()
               (with-temp-buffer
                 (insert-file-contents (expand-file-name "./gptel/coding.md" doom-user-dir))
