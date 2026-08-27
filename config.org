@@ -868,6 +868,10 @@ Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
       (setq-local fanshi/gptel--aborted nil)
       (message "gptel: request was aborted, skipping auto-continue")
       (fanshi/notify))
+     (fanshi/gptel--in-code-check-auto-fix
+      (setq-local fanshi/gptel--in-code-check-auto-fix nil)
+      (message "gptel: in code-check auto-fix cycle, skipping not-done auto-continue")
+      (fanshi/notify))
      ;; Check max retries to prevent infinite loops
      ((and fanshi/gptel--auto-continue-count (>= fanshi/gptel--auto-continue-count fanshi/gptel-auto-continue-max-retries))
       (message "gptel: Max auto-continues reached (%d), stopping."
@@ -2202,6 +2206,18 @@ Each value is a list of tool name strings to add to the base coding tools.")
     "List of files edited during the current gptel response cycle.
 Cleared after each post-response check.")
 
+  (defcustom fanshi/gptel-code-check-auto-fix-max-retries 3
+    "Maximum number of auto-fix retries when code check fails.
+Set to 0 to disable auto-fix and only show the error message."
+    :type 'integer
+    :group 'gptel)
+
+  (defvar-local fanshi/gptel--code-check-fix-count 0
+    "Number of auto-fix retries for the current conversation turn.")
+
+  (defvar-local fanshi/gptel--in-code-check-auto-fix nil
+    "Non-nil when in a code-check auto-fix cycle, to skip not-done auto-continue.")
+
   (defun fanshi/gptel--track-edited-files-a (fn &rest args)
     "Advice for write tools to track edited files."
     (let ((result (apply fn args)))
@@ -2211,6 +2227,22 @@ Cleared after each post-response check.")
 
   (advice-add #'gptel-agent--write-file :around #'fanshi/gptel--track-edited-files-a)
   (advice-add #'gptel-agent--edit-files :around #'fanshi/gptel--track-edited-files-a)
+
+  (defun fanshi/gptel--code-check-auto-fix (error-msg)
+    "Auto-continue with ERROR-MSG as user prompt to fix code check failure.
+Increments `fanshi/gptel--code-check-fix-count' to track retry depth."
+    (incf fanshi/gptel--code-check-fix-count)
+    (setq-local fanshi/gptel--in-code-check-auto-fix t)
+    (message "Gptel code check failed (attempt %d/%d), auto-fixing..."
+             fanshi/gptel--code-check-fix-count
+             fanshi/gptel-code-check-auto-fix-max-retries)
+    ;; Re-add the check hook for the next response cycle
+    (add-hook 'gptel-post-response-functions #'fanshi/gptel--post-response-check/doom nil t)
+    (let ((fanshi/prevent-duplicate-gptel-send nil))
+      (without-restriction
+        (goto-char (point-max))
+        (insert "\n\n" error-msg "\n\nPlease fix the above error.")
+        (gptel-send))))
 
   (defun fanshi/gptel--post-response-check/doom (buffer)
     "Run project-specific checks if edited files match.
@@ -2237,7 +2269,10 @@ BUFFER is the gptel buffer (unused, required by hook signature)."
                                        (save-excursion (goto-char pos) (current-column)))))))))
               (delete-file temp-file))
             (when result
-              (message "Gptel check: %s" result)))))
+              (if (and (> fanshi/gptel-code-check-auto-fix-max-retries 0)
+                       (< fanshi/gptel--code-check-fix-count fanshi/gptel-code-check-auto-fix-max-retries))
+                  (fanshi/gptel--code-check-auto-fix result)
+                (message "Gptel check: %s" result))))))
       (setq fanshi/gptel--edited-files nil))
     (remove-hook 'gptel-post-response-functions #'fanshi/gptel--post-response-check/doom t))
 
@@ -2246,6 +2281,8 @@ BUFFER is the gptel buffer (unused, required by hook signature)."
                             (projectile-project-type default-directory))))
       (cond
        ((eq project-type 'doom)
+        (setq-local fanshi/gptel--code-check-fix-count 0)
+        (setq-local fanshi/gptel--in-code-check-auto-fix nil)
         (add-hook 'gptel-post-response-functions #'fanshi/gptel--post-response-check/doom nil t))
        (t nil)))))
 #+end_src
