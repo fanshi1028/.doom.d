@@ -880,33 +880,35 @@ Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
                        (fanshi/notify))
               (goto-char (point-max))
               (while (re-search-backward (rx (+ (any blank ?\n)) point) nil t) 1)
-              (cond
-               ((save-excursion (re-search-backward (rx ":" point) nil t))
-                (message "gptel: response ends with a colon suggesting an introduction to content that never arrived, auto continue")
-                (fanshi/auto-continue))
-               ((save-excursion (re-search-backward (rx (| "[" "(" "{" ) point) nil t))
-                (message "gptel: response ends with an open parenthesis/bracket, auto continue")
-                (fanshi/auto-continue))
-               ((save-excursion
-                  (re-search-backward
-                   (rx "Let me " (regexp (regexp-opt fanshi/gptel-let-me-action-verbs t)))
-                   nil t))
-                (message
-                 "gptel: 'Let me %s' detected without tool call to follow up, auto continue"
-                 (match-string 1))
-                (fanshi/auto-continue))
-               ((and (member 'coding fanshi/last-gptel-presets)
-                     (save-excursion (re-search-backward (rx "Code Report" (+ anychar) "Summary" (+ anychar) "Changes Made") nil t)))
-                (message "gptel: Code Report detected, skip auto continue")
-                (fanshi/notify))
-               ((save-excursion (re-search-backward (rx "#end_src" point) nil t))
-                (fanshi/notify))
-               ((save-excursion (re-search-backward (rx (any alnum) point) nil t))
-                (message "gptel: response ends mid-word: last char is alphanumeric with no trailing punctuation, auto continue")
-                (fanshi/auto-continue))
+              (let ((response-start
+                     (save-excursion (text-property-search-backward 'gptel 'response t) (point))))
+                (cond
+                 ((save-excursion (re-search-backward (rx ":" point) response-start t))
+                  (message "gptel: response ends with a colon suggesting an introduction to content that never arrived, auto continue")
+                  (fanshi/auto-continue))
+                 ((save-excursion (re-search-backward (rx (| "[" "(" "{" ) point) response-start t))
+                  (message "gptel: response ends with an open parenthesis/bracket, auto continue")
+                  (fanshi/auto-continue))
+                 ((save-excursion
+                    (re-search-backward
+                     (rx "Let me " (regexp (regexp-opt fanshi/gptel-let-me-action-verbs t)))
+                     response-start t))
+                  (message
+                   "gptel: 'Let me %s' detected without tool call to follow up, auto continue"
+                   (match-string 1))
+                  (fanshi/auto-continue))
+                 ((and (member 'coding fanshi/last-gptel-presets)
+                       (save-excursion (re-search-backward (rx "Code Report" (+ anychar) "Summary" (+ anychar) "Changes Made") response-start t)))
+                  (message "gptel: Code Report detected, skip auto continue")
+                  (fanshi/notify))
+                 ;; ((save-excursion (re-search-backward (rx "#end_src" point) response-start t))
+                 ;;  (fanshi/notify))
+                 ((save-excursion (re-search-backward (rx (any alnum) point) response-start t))
+                  (message "gptel: response ends mid-word: last char is alphanumeric with no trailing punctuation, auto continue")
+                  (fanshi/auto-continue))
 
-               ;; --- No truncation detected ---
-               (t (fanshi/notify)))))))))
+                 ;; --- No truncation detected ---
+                 (t (fanshi/notify))))))))))
   (add-to-list 'gptel-post-response-functions #'fanshi/gptel--not-done-auto-continue-or-notify))
 #+end_src
 ** Token Escape
