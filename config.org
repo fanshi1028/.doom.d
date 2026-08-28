@@ -1613,7 +1613,27 @@ Returns a plist with :BLOCK on validation failure, or nil to proceed."
                 `(:block ,errors)))
           `(:block ,(format "Error: tool %s is not available" name)))))))
 
-  (add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel--validate-tool-args-hook))
+  (add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel--validate-tool-args-hook)
+
+  (defun fanshi/gptel--process-tool-call-a (args)
+    "Handle nil tool-spec gracefully.
+When a malformed tool call is blocked by a pre-tool-call hook (e.g. unknown tool, unequipped tool, bad args),`gptel--handle-pre-tool'looks up the tool-spec via:
+
+(cl-find-if (lambda (ts) (equal (gptel-tool-name ts) name))
+                (plist-get info :tools))
+If the tool name doesn't match anything in the session's tool list,`cl-find-if' returns nil.  This nil is passed to `gptel--process-tool-call', which stores it in `tool-result-alist'.
+
+Later, `gptel--handle-tool-result' → `gptel--display-tool-results' iterates over those results and calls `(gptel-tool-name tool)', which crashes with:
+
+error in process sentinel: Wrong type argument: gptel-tool, nil
+
+This advise `gptel--process-tool-call' to replace nil with a dummy
+gptel-tool struct so the error result is displayed and the request
+recovers automatically instead of halting."
+    (when (null (cadr args))
+      (setf (cadr args) (gptel--make-tool-internal)))
+    args)
+  (advice-add 'gptel--process-tool-call :filter-args #'fanshi/gptel--process-tool-call-a))
 #+end_src
 *** Require Imenu before Read
 - why :: prevent the agent from reading a file without first getting its imenu
