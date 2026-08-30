@@ -2400,6 +2400,18 @@ checked again after the next (auto-fix) response."
                                :chat_template_kwargs (:enable_thinking t
                                                       :preserve_thinking t)))))
 #+end_src
+*** Experimental
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (gptel-make-preset 'exp
+    :description "Preset for using the current experimental model"
+    :model '(:eval (fanshi/gptel-select-model 'Jundot--Qwen3.8-Flash-Next-oQ4e-mtp))
+    ;; NOTE: Context Length: 262,144 natively and extensible up to 1,010,000 tokens.
+    :max-tokens 262144
+    :request-params '(:append (:enable_thinking t
+                               :chat_template_kwargs (:enable_thinking t
+                                                      :preserve_thinking t)))))
+#+end_src
 *** Fast
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
