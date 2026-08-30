@@ -958,7 +958,9 @@ Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/gptel-escape-tool-result (tool-call)
   "Escape <__something__> in TOOL-CALL's :result after execution. For 'gptel-post-tool-call-functions'."
-  `(:result ,(replace-regexp-in-string "<__" "&lt;__" (plist-get tool-call :result) t t)))
+  (when-let* ((result (plist-get tool-call :result))
+              ((stringp result)))
+    `(:result ,(replace-regexp-in-string "<__" "&lt;__" result t t))))
 #+end_src
 *** Do it!
 #+begin_src emacs-lisp :tangle yes
