@@ -905,7 +905,7 @@ Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
                      ((eq project-type 'doom)
                       (if-let ((check-result (fanshi/gptel--post-response-check/doom)))
                           (progn
-                            (message "Gptel doom code check: %s" check-result)
+                            (message "Gptel doom code check: %s" (plist-get check-result :error))
                             (if (and (> fanshi/gptel-code-check-auto-fix-max-retries 0)
                                      (< fanshi/gptel--code-check-fix-count fanshi/gptel-code-check-auto-fix-max-retries))
                                 (fanshi/gptel--code-check-auto-fix check-result)
@@ -2214,11 +2214,34 @@ Each value is a list of tool name strings to add to the base coding tools.")
     (append tools extra-tools)))
 #+end_src
 **** Post-response code checkers
+- the fixing prompt names the ~cmd~ that produced the error (tangling the
+  doom ~config.org~ and loading the tangled ~config.el~) and wraps the error
+  itself in an ~#+begin_example~ block
+- a file stays in ~fanshi/gptel--edited-files~ until its check passes, so a
+  failing file is re-checked after the auto-fix response; once everything
+  passes, ~fanshi/gptel--code-check-fix-count~ is reset too
+- the fixing prompt looks like this:
+#+begin_src text :tangle no
+The post-response code check failed.
+
+cmd: org-babel-tangle-file "/Users/francischan/.doom.d/config.org" && emacs --batch -l /Users/francischan/.doom.d/config.el
+file: /Users/francischan/.doom.d/config.el
+source: /Users/francischan/.doom.d/config.org
+
+#+begin_example
+config.el: Unbalanced parentheses at line 2312, column 8.
+#+end_example
+
+Fix the error in the source file above (not in the tangled output),  then report the fix.
+#+end_src
+
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (defvar-local fanshi/gptel--edited-files nil
     "List of files edited during the current gptel response cycle.
-Cleared after each post-response check.")
+Files are dropped once the post-response check passes; a failing file
+stays in the list so that it is re-checked after the next response
+(i.e. after an auto-fix attempt).")
 
   (defcustom fanshi/gptel-code-check-auto-fix-max-retries 3
     "Maximum number of auto-fix retries when code check fails.
@@ -2239,43 +2262,96 @@ Set to 0 to disable auto-fix and only show the error message."
   (advice-add #'gptel-agent--write-file :around #'fanshi/gptel--track-edited-files-a)
   (advice-add #'gptel-agent--edit-files :around #'fanshi/gptel--track-edited-files-a)
 
-  (defun fanshi/gptel--code-check-auto-fix (error-msg)
-    "Auto-continue with ERROR-MSG as user prompt to fix code check failure.
+  (defun fanshi/gptel--check-elisp-syntax (file)
+    "Check the elisp syntax of FILE.
+Return an error message string on a scan error, nil otherwise."
+    (with-temp-buffer
+      (insert-file-contents tangled)
+      (delay-mode-hooks (emacs-lisp-mode))
+      (let ((parse-sexp-ignore-comments t))
+        (condition-case err
+            (while-let ((end (scan-sexps (point) 1)))
+              (goto-char end))
+          (scan-error
+           (let ((pos (nth 3 err)))
+             (format "%s at line %d, column %d."
+                     (nth 1 err)
+                     (save-excursion (goto-char pos) (line-number-at-pos))
+                     (save-excursion (goto-char pos) (current-column)))))))))
+
+  (defun fanshi/gptel--code-check-auto-fix (failure)
+    "Auto-continue with FAILURE as user prompt to fix a code check failure.
+FAILURE is the plist returned by `fanshi/gptel--post-response-check/doom'
+with the keys :cmd (the command that produced the error), :file (the file
+the error was found in, e.g. the tangled .el), :source (the Org file to fix)
+and :error.  The error text is wrapped in an example block so that it is
+quoted verbatim to the model.
 Increments `fanshi/gptel--code-check-fix-count' to track retry depth."
     (incf fanshi/gptel--code-check-fix-count)
     (message "Gptel code check failed (attempt %d/%d), auto-fixing..."
              fanshi/gptel--code-check-fix-count
              fanshi/gptel-code-check-auto-fix-max-retries)
-    (let ((fanshi/prevent-duplicate-gptel-send nil))
+    (let ((fanshi/prevent-duplicate-gptel-send nil)
+          (err (if (derived-mode-p 'org-mode)
+                   (format "#+begin_example\n%s\n#+end_example" err)
+                 (format "```\n%s\n```" err)))
+          (formated-err (format "In %s:\n%s" (plist-get failure :file) err))
+          (prompt
+           (format
+            "Command(%s) failed.\n\n%s\n\nPlease fix the error in the source file(%s) then report the fix."
+            (plist-get failure :cmd)
+            formated-err
+            (plist-get failure :source))))
       (without-restriction
         (goto-char (point-max))
-        (insert "\n\n" error-msg "\n\nPlease fix the above error.")
+        (insert "\n\n" prompt)
         (gptel-send))))
 
+  (defun fanshi/gptel--check-tangled-file (file)
+    "Tangle the Org FILE and syntax-check what it tangled.
+Return nil if there is nothing to check or the check passes, else a plist
+with keys :cmd (the command that produced the error), :file (the file the
+error was found in), :source (the Org FILE) and :error."
+    (when (and (equal (file-name-extension file) "org")
+               (file-exists-p file))
+      (let* ((cmd (format "org-babel tangled file %S" file))
+             (bad (cl-loop for file in (org-babel-tangle-file file)
+                           for err = (fanshi/gptel--check-elisp-syntax file)
+                           thereis (and err (cons file err)))))
+        (cond
+         (bad
+          (list :cmd cmd :file (car bad) :source file :error (cdr bad)))
+         ((null tangled)
+          (when (equal file (expand-file-name "config.org"))
+            (list :cmd cmd :file file :source file
+                  :error "oops: no tangled file output produced from doom config")))))))
+
   (defun fanshi/gptel--post-response-check/doom ()
-    "Run project-specific checks on edited files.
-Returns nil if checks pass (or nothing to check), or an error message string on failure."
-    (prog1
-        (when fanshi/gptel--edited-files
-          (let* ((config-file-path (expand-file-name "config.org"))
-                 (tangled (concat (s-chop-suffix "org" config-file-path) "el")))
-            (when (or (member config-file-path fanshi/gptel--edited-files) t)
-              (if (= (length (org-babel-tangle-file config-file-path nil)) 1)
-                  (with-temp-buffer
-                    (insert-file-contents tangled)
-                    (delay-mode-hooks (emacs-lisp-mode))
-                    (let ((parse-sexp-ignore-comments t))
-                      (condition-case err
-                          (while-let ((end (scan-sexps (point) 1)))
-                            (goto-char end))
-                        (scan-error
-                         (let ((pos (nth 3 err)))
-                           (format "%s at line %d, column %d."
-                                   (nth 1 err)
-                                   (save-excursion (goto-char pos) (line-number-at-pos))
-                                   (save-excursion (goto-char pos) (current-column))))))))
-                (error "oops: expected 1 tangled file output from doom config")))))
-      (setq fanshi/gptel--edited-files nil))))
+    "Run post-response checks on the edited files of a doom Emacs config.
+`config.org' and each edited \".org\" file is tangled and its tangled output
+syntax-checked.  Returns nil if all checks pass, else the plist of the first
+failure (see `fanshi/gptel--check-tangled-file').
+
+Files that pass (or that cannot be checked here) are dropped from
+`fanshi/gptel--edited-files'; failing files stay in the list so that they are
+checked again after the next (auto-fix) response."
+    (let ((files (and fanshi/gptel--edited-files
+                      (delete-dups
+                       (cons (expand-file-name "config.org")
+                             (mapcar #'expand-file-name
+                                     fanshi/gptel--edited-files)))))
+          (checked nil)
+          (failures nil))
+      (dolist (file files)
+        (if-let* ((failure (fanshi/gptel--check-tangled-file file)))
+            (push failure failures)
+          (push file checked)))
+      (setq fanshi/gptel--edited-files
+            (cl-remove-if (lambda (f) (member (expand-file-name f) checked))
+                          fanshi/gptel--edited-files))
+      (unless failures
+        (setq-local fanshi/gptel--code-check-fix-count 0))
+      (car (last failures)))))
 #+end_src
 **** Preset
 #+begin_src emacs-lisp :tangle yes
