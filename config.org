@@ -909,7 +909,7 @@ Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
 
                  ;; --- No truncation detected ---
                  (t (fanshi/notify))))))))))
-  (add-to-list 'gptel-post-response-functions #'fanshi/gptel--not-done-auto-continue-or-notify))
+  (add-hook 'gptel-post-response-functions #'fanshi/gptel--not-done-auto-continue-or-notify))
 #+end_src
 ** Token Escape
 - ref :: https://github.com/ggml-org/llama.cpp/issues/19947#issuecomment-3971115828
@@ -947,9 +947,9 @@ Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
 *** Do it!
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (add-to-list 'gptel-prompt-transform-functions #'fanshi/gptel-escape-sensitive-token)
-  (add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel-escape-tool-args)
-  (add-to-list 'gptel-post-tool-call-functions #'fanshi/gptel-escape-tool-result))
+  (add-hook 'gptel-prompt-transform-functions #'fanshi/gptel-escape-sensitive-token)
+  (add-hook 'gptel-pre-tool-call-functions #'fanshi/gptel-escape-tool-args)
+  (add-hook 'gptel-post-tool-call-functions #'fanshi/gptel-escape-tool-result))
 #+end_src
 ** For gptel-send with active region under org-mode
 gptel--insert-response use org-cycle to hide some block in response which in turn trigger +org-yas-expand-maybe-h unexpectedly
@@ -1613,7 +1613,7 @@ Returns a plist with :BLOCK on validation failure, or nil to proceed."
                 `(:block ,errors)))
           `(:block ,(format "Error: tool %s is not available" name)))))))
 
-  (add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel--validate-tool-args-hook)
+  (add-hook 'gptel-pre-tool-call-functions #'fanshi/gptel--validate-tool-args-hook)
 
   (defun fanshi/gptel--process-tool-call-a (args)
     "Handle nil tool-spec gracefully.
@@ -1724,8 +1724,8 @@ subsequent retry after `Imenu' is called."
             (push (cons file-path 'need-imenu-call) fanshi/gptel-imenu-tool-call-file-states))
           `(:block ,(format "Error: You are about to Read %s without first calling Imenu on it. Call the Imenu tool on this file first to get its structure index, then Read the relevant line range." file-path))))))
 
-  (add-to-list 'gptel-post-tool-call-functions #'fanshi/gptel--imenu-tool-called)
-  (add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel--imenu-before-read))
+  (add-hook 'gptel-post-tool-call-functions #'fanshi/gptel--imenu-tool-called)
+  (add-hook 'gptel-pre-tool-call-functions #'fanshi/gptel--imenu-before-read))
 #+end_src
 *** Timout when tool calling asking for user confirmation
 - user might be afk, so better just try to find the other way out.
@@ -1880,8 +1880,8 @@ and marks them with gptel 'ignore so the LLM doesn't see them."
                   (ignore-errors (backward-char))))))))))
 
   ;; Register as post-tool-call hook (runs during the request's tool call loop).
-  (add-to-list 'gptel-post-tool-call-functions
-               #'fanshi/gptel--hide-failed-tool-calls))
+  (add-hook 'gptel-post-tool-call-functions
+            #'fanshi/gptel--hide-failed-tool-calls))
 #+end_src
 *** Tool Call Deduplication
 Prevent the agent from calling the same tool with the same arguments
@@ -2011,8 +2011,8 @@ retry after calling `Imenu' first."
           result)))))
 
   ;; Register hooks.
-  (add-to-list 'gptel-pre-tool-call-functions #'fanshi/gptel--dedup-immutable-tools)
-  (add-to-list 'gptel-post-tool-call-functions #'fanshi/gptel--dedup-mutable-tools))
+  (add-hook 'gptel-pre-tool-call-functions #'fanshi/gptel--dedup-immutable-tools)
+  (add-hook 'gptel-post-tool-call-functions #'fanshi/gptel--dedup-mutable-tools))
 #+end_src
 ** Inject TOOLS and TOOL_USAGE into Agent specification dynamically
 *** fanshi/gptel-agent--tool-system
