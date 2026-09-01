@@ -951,7 +951,8 @@ Uses a syntactic heuristics (mid-sentence, unclosed blocks, etc.) "
                                  v t t)
                               ;; TEMP FIXME what if the it is not string but another plist/list etc?
                               v))))
-    (plist-put tool-call :args new-args)))
+    (unless (equal args new-args)
+      `(:args ,new-args))))
 #+end_src
 *** fanshi/gptel-escape-tool-result
 #+begin_src emacs-lisp :tangle yes
