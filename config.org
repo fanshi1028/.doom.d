@@ -2263,6 +2263,7 @@ Returns nil if checks pass (or nothing to check), or an error message string on 
               (if (= (length (org-babel-tangle-file config-file-path nil)) 1)
                   (with-temp-buffer
                     (insert-file-contents tangled)
+                    (delay-mode-hooks (emacs-lisp-mode))
                     (condition-case err
                         (while-let ((end (scan-sexps (point) 1)))
                           (goto-char (1+ end)))
