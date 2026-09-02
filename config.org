@@ -4036,7 +4036,7 @@ kill-new: Wrong type argument: stringp, nil
 #+end_src
 
 ** Sanitize bytes like \342\200\224 (not string) which break gptel, I don't know how does these btyes happened though, it is obviously em-dash?
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (defun fanshi/gptel--recursive-sanitize (obj)
   "Recursively find all strings in OBJ and sanitize them."
   (cond
