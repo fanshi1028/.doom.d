@@ -2264,15 +2264,16 @@ Returns nil if checks pass (or nothing to check), or an error message string on 
                   (with-temp-buffer
                     (insert-file-contents tangled)
                     (delay-mode-hooks (emacs-lisp-mode))
-                    (condition-case err
-                        (while-let ((end (scan-sexps (point) 1)))
-                          (goto-char end))
-                      (scan-error
-                       (let ((pos (nth 3 err)))
-                         (format "%s at line %d, column %d."
-                                 (nth 1 err)
-                                 (save-excursion (goto-char pos) (line-number-at-pos))
-                                 (save-excursion (goto-char pos) (current-column)))))))
+                    (let ((parse-sexp-ignore-comments t))
+                      (condition-case err
+                          (while-let ((end (scan-sexps (point) 1)))
+                            (goto-char end))
+                        (scan-error
+                         (let ((pos (nth 3 err)))
+                           (format "%s at line %d, column %d."
+                                   (nth 1 err)
+                                   (save-excursion (goto-char pos) (line-number-at-pos))
+                                   (save-excursion (goto-char pos) (current-column))))))))
                 (error "oops: expected 1 tangled file output from doom config")))))
       (setq fanshi/gptel--edited-files nil))))
 #+end_src
