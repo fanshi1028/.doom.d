@@ -2014,7 +2014,7 @@ retry after calling `Imenu' first."
                                                 (and entry (cdr entry)))))
                                  (setq result `(:block ,(format
                                                          "You already called %s with the same args %d call(s) ago and the result has not changed. Use the previous result."
-                                                         name (1+ (- fanshi/gptel-dedup-window window)))))))))
+                                                         name (1+ (- fanshi/gptel-dedup-window window))))))))))
                      (t
                       (message (format "fanshi/gptel--dedup-mutable-tools: could not parse tool-call %s on line %s"
                                        id (line-number-at-pos (point)))))))
@@ -2026,7 +2026,7 @@ retry after calling `Imenu' first."
             (with-current-buffer buf
               (let ((entry (assoc (plist-get args :file_path) fanshi/gptel-imenu-tool-call-file-states)))
                 (when entry (setcdr entry nil)))))
-          result)))))
+          result))))
 
   ;; Register hooks.
   (add-hook 'gptel-pre-tool-call-functions #'fanshi/gptel--dedup-immutable-tools)
