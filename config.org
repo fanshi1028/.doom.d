@@ -389,6 +389,7 @@ Corfu detected an error:
          ;; :desc "Engage"         "e"  #'org-gtd-engage
          :desc "Process inbox"  "i"  #'org-gtd-process-inbox
          :desc "Show all next"  "n"  #'org-gtd-show-all-next
+         :desc "Break down task" "b" #'fanshi/ai-breakdown
          ;; :desc "Stuck projects" "s"  #'org-gtd-reflect-stuck-projects
          ))
   (map! :map org-gtd-clarify-mode-map
@@ -1488,9 +1489,10 @@ Reuses consult-imenu--items-safe for caching and robustness."
 (defvar fanshi/coding-tools '("read-tools" "write-tools" "WebFetch" "WebSearch")
   "Base tool list for the coding preset.
 Project-specific tools are appended via gptel-mode-hook using setq-local.")
-(defvar fanshi/scrum-tools '("Delegate")
-  "The Scrum Master's single tool: write a task into the backlog and delegate it.
-Research, coding and everything else is delegated to other agents via this tool.")
+(defvar fanshi/scrum-tools '("BreakdownTask" "Delegate")
+  "The Scrum Master's tools: break down high-level tasks into subtasks
+(BreakdownTask) and delegate them (Delegate).
+Research, coding and everything else is delegated to other agents via Delegate.")
 (after! gptel-agent
   (defun fanshi/update-tools-category (new-category toolnames-list)
     "Move TOOLNAMES-LIST from their current categories to NEW-CATEGORY."
@@ -4104,7 +4106,7 @@ This is the single source of truth for task state management.
 
   (defconst fanshi/ai-task-properties
     '("WORKTREE_DIR" "AGENT_BUF" "DELEGATED_TO" "DELEGATED_AT" "SCOPED_PROJECT"
-      "PRIORITY" "TIME_LIMIT" "DEADLINE" "SCHEDULE")
+      "PRIORITY" "TIME_LIMIT" "DEADLINE" "SCHEDULE" "AGENT" "DEPENDS_ON")
     "List of properties used to track AI-delegated tasks in org entries.
 WORKTREE_DIR: Path to the git worktree for this task.
 AGENT_BUF: Name of the gptel-agent buffer handling this task.
@@ -4115,7 +4117,9 @@ SCOPED_PROJECT: The project directory this task belongs to.
 PRIORITY: \"A\"-\"E\", A most urgent.
 TIME_LIMIT: Seconds the agent may spend on the task.
 DEADLINE: \"YYYY-MM-DD[ HH:MM]\" by when the task must be done.
-SCHEDULE: \"YYYY-MM-DD[ HH:MM]\" when the task should start.")
+SCHEDULE: \"YYYY-MM-DD[ HH:MM]\" when the task should start.
+AGENT: The gptel preset name to delegate this task to (e.g., coding, research).
+DEPENDS_ON: Comma-separated org-ids of tasks that must be DONE before this one.")
 
   (defun fanshi/scrum-todo-change-handler ()
     "Handler for org-todo-keyword-change-hook.
@@ -4264,62 +4268,88 @@ working on TASK in an isolated jj workspace."
           ;; Delegate to AI agent
           (unless task-id
             (setq task-id (fanshi/ai-delegate--create-task task priority time-limit deadline schedule)))
-          (let* ((project-root (projectile-project-root))
+          (let* ((task-marker (org-id-find task-id 'marker))
+                 (depends-on (and task-marker
+                                  (org-entry-get task-marker "DEPENDS_ON")))
+                 ;; Expand relative paths against the delegating buffer's
+                 ;; default-directory up front so `file-directory-p' checks the
+                 ;; right location.
+                 (scoped-project (and task-marker
+                                      (let ((p (org-entry-get task-marker "SCOPED_PROJECT")))
+                                        (and p (expand-file-name p)))))
+                 (project-root (or (and scoped-project (file-directory-p scoped-project)
+                                        scoped-project)
+                                   (projectile-project-root)))
                  (branch-name (format "task-%s-%s" task-id (format-time-string "%Y%m%d-%H%M%S")))
                  (target-dir (expand-file-name (concat ".trees/" branch-name) project-root)))
-            ;; 1. Create jj workspace if needed
-            (unless (file-directory-p target-dir)
-              (make-directory (file-name-directory target-dir) t)
-              (with-temp-buffer
-                ;; Create a jj workspace for this agent
-                (unless (zerop (call-process "jj" nil t nil "workspace" "add" target-dir))
-                  (error "Failed to create jj workspace at '%s'" target-dir))
-                (let ((default-directory target-dir))
-                  ;; Configure agent identity in the workspace
-                  (unless (zerop (call-process "jj" nil t nil "config" "set" "--repo" "user.name" (format "Agent (%s)" agent)))
-                    (error "Failed to create jj config set username '%s' for repo '%s'" agent target-dir))
-                  (unless (zerop (call-process "jj" nil t nil "config" "set" "--repo" "user.email" (format "%s-agent@local" agent)))
-                    (error "Failed to create jj config set username '%s' for repo '%s'" agent target-dir))
-                  ;; Start a new commit on top of main with the task description
-                  (let (exit-code (call-process "jj" nil t nil "new" "main@" "-m" task))
-                    (unless (zerop exit-code)
-                      (message "Warning: jj new failed with code %d" exit-code))))))
-            ;; 2. Create the child agent buffer.
-            ;; `gptel-agent' creates its OWN gptel buffer and returns it;
-            ;; we must configure that buffer (not a separately-named one).
-            (let ((agent-buf (gptel-agent target-dir agent)))
-              ;; 3. Update org entry with DELEGATED status and properties
-              (save-excursion
-                (org-id-goto task-id)
-                (when priority (org-entry-put (point) "PRIORITY" priority))
-                (when time-limit (org-entry-put (point) "TIME_LIMIT" (number-to-string time-limit)))
-                (when deadline (org-entry-put (point) "DEADLINE" deadline))
-                (when schedule (org-entry-put (point) "SCHEDULE" schedule))
-                (org-entry-put (point) "WORKTREE_DIR" target-dir)
-                (org-entry-put (point) "DELEGATED_TO" (if (symbolp agent) (symbol-name agent) agent))
-                (org-entry-put (point) "DELEGATED_AT" (format-time-string "%Y-%m-%d %H:%M:%S"))
-                (org-entry-put (point) "AGENT_BUF" (buffer-name agent-buf))
-                (org-todo "DELEGATED")
-                (save-buffer))
-              ;; 4. Configure the agent buffer and send the task
-              (with-current-buffer agent-buf
-                (setq-local fanshi/gptel-agent-auto-workspace nil
-                            fanshi/ai-delegate--current-task-id task-id)
-                ;; Auto-integrate the agent's commit once the task becomes DONE
-                (add-hook 'gptel-post-response-functions
-                          #'fanshi/ai-delegate--post-response-integrate nil t)
-                (goto-char (point-max))
-                (insert (format "# Delegated Task\n\n%s\n\nYou are working in an isolated jj workspace.\nAll file changes are automatically committed to your working-copy commit (@).\nWhen you complete the task, call the FinishTask tool with a summary.\nIf you cannot complete it, call AbortTask with a reason.\nIf you need human input, call Delegate with agent=\"user\" and a task description.\n"
-                                task branch-name))
-                (gptel-send))
-              (funcall cb (format "Task delegated to agent buffer '%s' in jj workspace.\nOrg entry updated to DELEGATED.\nYou can observe progress by visiting the agent buffer."
-                                  (buffer-name agent-buf)))))
-          (error (funcall cb (format "Error delegating task: %s" (if (stringp err) err (cadr err))))))
+            ;; A task-id the model made up (or that was archived) would
+            ;; otherwise silently skip the gate below, so treat it as fatal.
+            (unless task-marker
+              (error "Task %s not found" task-id))
+            ;; Hard dependency gate: the nightly prompt telling the Scrum
+            ;; Master to skip blocked tasks is a soft guarantee; this is not.
+            ;; DEPENDS_ON is stored comma-separated, so split on both.
+            (dolist (dep (split-string depends-on "[, ]+"))
+              (unless (string-blank-p dep)
+                (let ((dep-m (org-id-find dep 'marker)))
+                  (cond
+                   ((not dep-m)
+                    (error "Task %s has a dependency %s that does not exist" task-id dep))
+                   ((not (string= (org-entry-get dep-m "TODO") "DONE"))
+                    (error "Task %s is blocked by %s which is not DONE" task-id dep)))))))
+          ;; 1. Create jj workspace if needed
+          (unless (file-directory-p target-dir)
+            (make-directory (file-name-directory target-dir) t)
+            (with-temp-buffer
+              ;; Create a jj workspace for this agent
+              (unless (zerop (call-process "jj" nil t nil "workspace" "add" target-dir))
+                (error "Failed to create jj workspace at '%s'" target-dir))
+              (let ((default-directory target-dir))
+                ;; Configure agent identity in the workspace
+                (unless (zerop (call-process "jj" nil t nil "config" "set" "--repo" "user.name" (format "Agent (%s)" agent)))
+                  (error "Failed to create jj config set username '%s' for repo '%s'" agent target-dir))
+                (unless (zerop (call-process "jj" nil t nil "config" "set" "--repo" "user.email" (format "%s-agent@local" agent)))
+                  (error "Failed to create jj config set username '%s' for repo '%s'" agent target-dir))
+                ;; Start a new commit on top of main with the task description
+                (let (exit-code (call-process "jj" nil t nil "new" "main@" "-m" task))
+                  (unless (zerop exit-code)
+                    (message "Warning: jj new failed with code %d" exit-code))))))
+          ;; 2. Create the child agent buffer.
+          ;; `gptel-agent' creates its OWN gptel buffer and returns it;
+          ;; we must configure that buffer (not a separately-named one).
+          (let ((agent-buf (gptel-agent target-dir agent)))
+            ;; 3. Update org entry with DELEGATED status and properties
+            (save-excursion
+              (org-id-goto task-id)
+              (when priority (org-entry-put (point) "PRIORITY" priority))
+              (when time-limit (org-entry-put (point) "TIME_LIMIT" (number-to-string time-limit)))
+              (when deadline (org-entry-put (point) "DEADLINE" deadline))
+              (when schedule (org-entry-put (point) "SCHEDULE" schedule))
+              (org-entry-put (point) "WORKTREE_DIR" target-dir)
+              (org-entry-put (point) "DELEGATED_TO" (if (symbolp agent) (symbol-name agent) agent))
+              (org-entry-put (point) "DELEGATED_AT" (format-time-string "%Y-%m-%d %H:%M:%S"))
+              (org-entry-put (point) "AGENT_BUF" (buffer-name agent-buf))
+              (org-todo "DELEGATED")
+              (save-buffer))
+            ;; 4. Configure the agent buffer and send the task
+            (with-current-buffer agent-buf
+              (setq-local fanshi/gptel-agent-auto-workspace nil
+                          fanshi/ai-delegate--current-task-id task-id)
+              ;; Auto-integrate the agent's commit once the task becomes DONE
+              (add-hook 'gptel-post-response-functions
+                        #'fanshi/ai-delegate--post-response-integrate nil t)
+              (goto-char (point-max))
+              (insert (format "# Delegated Task\n\n%s\n\nYou are working in an isolated jj workspace.\nAll file changes are automatically committed to your working-copy commit (@).\nWhen you complete the task, call the FinishTask tool with a summary.\nIf you cannot complete it, call AbortTask with a reason.\nIf you need human input, call Delegate with agent=\"user\" and a task description.\n"
+                              task branch-name))
+              (gptel-send))
+            (funcall cb (format "Task delegated to agent buffer '%s' in jj workspace.\nOrg entry updated to DELEGATED.\nYou can observe progress by visiting the agent buffer."
+                                (buffer-name agent-buf)))))
+      (error (funcall cb (format "Error delegating task: %s" (if (stringp err) err (cadr err))))))
 
-      (gptel-make-tool
-       :name "Delegate"
-       :function #'fanshi/ai-delegate--tool-delegate
-       :description "Write a task into the AI tasks backlog and delegate it, in one step.
+    (gptel-make-tool
+     :name "Delegate"
+     :function #'fanshi/ai-delegate--tool-delegate
+     :description "Write a task into the AI tasks backlog and delegate it, in one step.
 TASK: description of the task (also what the human needs to provide when agent is \"user\").
 AGENT: name of the agent preset to delegate to (e.g. \"coding\", \"research\"), or \"user\" for human input.
 TASK-ID: org-id of an existing backlog entry; omit it to create a new entry first.
@@ -4327,144 +4357,385 @@ PRIORITY: \"A\"-\"E\", A most urgent.
 TIME-LIMIT: seconds the agent may spend on the task.
 DEADLINE: \"YYYY-MM-DD[ HH:MM]\" by when the task must be done.
 SCHEDULE: \"YYYY-MM-DD[ HH:MM]\" when the task should start."
-       :args '((:name "task" :type string
-                :description "Description of the task to delegate, or what human input is needed")
-               (:name "agent" :type string
-                :description "Name of the agent preset to delegate to, or \"user\" for human input")
-               (:name "task-id" :type string :optional t
-                :description "The org-id of an existing backlog entry; omit to create a new task entry")
-               (:name "priority" :type string :optional t :enum ("A" "B" "C" "D" "E")
-                :description "Priority, A most urgent to E least urgent")
-               (:name "time-limit" :type integer :optional t
-                :description "Seconds the agent may spend on the task")
-               (:name "deadline" :type string :optional t
-                :description "When the task must be done, YYYY-MM-DD or YYYY-MM-DD HH:MM")
-               (:name "schedule" :type string :optional t
-                :description "When the task should start, YYYY-MM-DD or YYYY-MM-DD HH:MM"))
-       :category "agents"
-       :async t)
+     :args '((:name "task" :type string
+              :description "Description of the task to delegate, or what human input is needed")
+             (:name "agent" :type string
+              :description "Name of the agent preset to delegate to, or \"user\" for human input")
+             (:name "task-id" :type string :optional t
+              :description "The org-id of an existing backlog entry; omit to create a new task entry")
+             (:name "priority" :type string :optional t :enum ("A" "B" "C" "D" "E")
+              :description "Priority, A most urgent to E least urgent")
+             (:name "time-limit" :type integer :optional t
+              :description "Seconds the agent may spend on the task")
+             (:name "deadline" :type string :optional t
+              :description "When the task must be done, YYYY-MM-DD or YYYY-MM-DD HH:MM")
+             (:name "schedule" :type string :optional t
+              :description "When the task should start, YYYY-MM-DD or YYYY-MM-DD HH:MM"))
+     :category "agents"
+     :async t)
 
-      ;; --- Human review tools for jj workspace integration ---
-      (defun fanshi/ai-delegate--review-task-diff (task-id)
-        "Review the changes made by an agent for TASK-ID.
+    ;; --- Human review tools for jj workspace integration ---
+    (defun fanshi/ai-delegate--review-task-diff (task-id)
+      "Review the changes made by an agent for TASK-ID.
 Opens a buffer showing the diff of the agent's working-copy commit."
-        (interactive "sTask ID: ")
-        (save-excursion
-          (org-id-goto task-id)
-          (when-let* ((worktree-dir (org-entry-get (point) "WORKTREE_DIR"))
-                      ((file-directory-p worktree-dir)))
-            (let ((diff-buf (get-buffer-create (format "*jj diff: %s*" task-id))))
-              (with-current-buffer diff-buf
-                (let ((default-directory worktree-dir))
-                  (call-process "jj" nil '(t nil) nil "diff")
-                  (diff-mode))
-                (switch-to-buffer-other-window diff-buf)
-                (message "Showing jj diff for task %s" task-id)))
-            (format "Diff shown in buffer for task %s" task-id))))
+      (interactive "sTask ID: ")
+      (save-excursion
+        (org-id-goto task-id)
+        (when-let* ((worktree-dir (org-entry-get (point) "WORKTREE_DIR"))
+                    ((file-directory-p worktree-dir)))
+          (let ((diff-buf (get-buffer-create (format "*jj diff: %s*" task-id))))
+            (with-current-buffer diff-buf
+              (let ((default-directory worktree-dir))
+                (call-process "jj" nil '(t nil) nil "diff")
+                (diff-mode))
+              (switch-to-buffer-other-window diff-buf)
+              (message "Showing jj diff for task %s" task-id)))
+          (format "Diff shown in buffer for task %s" task-id))))
 
-      (defun fanshi/ai-delegate--review-task-log (task-id)
-        "Review the commit log for TASK-ID's workspace.
+    (defun fanshi/ai-delegate--review-task-log (task-id)
+      "Review the commit log for TASK-ID's workspace.
 Shows the commit graph including the agent's changes."
-        (interactive "sTask ID: ")
-        (save-excursion
-          (org-id-goto task-id)
-          (when-let* ((worktree-dir (org-entry-get (point) "WORKTREE_DIR"))
-                      ((file-directory-p worktree-dir)))
-            (let ((log-buf (get-buffer-create (format "*jj log: %s*" task-id))))
-              (with-current-buffer log-buf
-                (let ((default-directory worktree-dir))
-                  (call-process "jj" nil '(t nil) nil "log" "-T" "commit_id.short() ++ \" \" ++ description.firstline() ++ \"\\n\"")
-                  (special-mode))
-                (switch-to-buffer-other-window log-buf)
-                (message "Showing jj log for task %s" task-id)))
-            (format "Log shown in buffer for task %s" task-id))))
+      (interactive "sTask ID: ")
+      (save-excursion
+        (org-id-goto task-id)
+        (when-let* ((worktree-dir (org-entry-get (point) "WORKTREE_DIR"))
+                    ((file-directory-p worktree-dir)))
+          (let ((log-buf (get-buffer-create (format "*jj log: %s*" task-id))))
+            (with-current-buffer log-buf
+              (let ((default-directory worktree-dir))
+                (call-process "jj" nil '(t nil) nil "log" "-T" "commit_id.short() ++ \" \" ++ description.firstline() ++ \"\\n\"")
+                (special-mode))
+              (switch-to-buffer-other-window log-buf)
+              (message "Showing jj log for task %s" task-id)))
+          (format "Log shown in buffer for task %s" task-id))))
 
-      (defun fanshi/ai-delegate--task-worktree (task-id)
-        "Return the WORKTREE_DIR property of the task with org-id TASK-ID.
+    (defun fanshi/ai-delegate--task-worktree (task-id)
+      "Return the WORKTREE_DIR property of the task with org-id TASK-ID.
 Does not switch buffers or windows."
-        (when-let* ((marker (org-id-find task-id t))
-                    (buf (marker-buffer marker)))
-          (prog1
-              (with-current-buffer buf
-                (save-excursion
-                  (goto-char marker)
-                  (org-entry-get (point) "WORKTREE_DIR")))
-            (move-marker marker nil))))
+      (when-let* ((marker (org-id-find task-id t))
+                  (buf (marker-buffer marker)))
+        (prog1
+            (with-current-buffer buf
+              (save-excursion
+                (goto-char marker)
+                (org-entry-get (point) "WORKTREE_DIR")))
+          (move-marker marker nil))))
 
-      (defun fanshi/ai-delegate--integrate-task (task-id)
-        "Integrate the agent's changes from TASK-ID into the main workspace.
+    (defun fanshi/ai-delegate--integrate-task (task-id)
+      "Integrate the agent's changes from TASK-ID into the main workspace.
 Rebases the agent's working-copy commit onto @ of the main workspace
 (the parent of the .trees/ directory), then abandons the original commit."
-        (interactive "sTask ID: ")
-        (when-let* ((worktree-dir (fanshi/ai-delegate--task-worktree task-id))
-                    ((file-directory-p worktree-dir))
-                    (main-dir (directory-file-name
-                               (file-name-directory (file-name-directory worktree-dir))))
-                    ;; Get the commit ID from the agent's workspace
-                    (commit-id (with-temp-buffer
-                                 (let ((default-directory worktree-dir))
-                                   (call-process "jj" nil '(t nil) nil "log" "-r" "@" "-T" "commit_id() ++ \"\\n\"" "--no-graph")
-                                   (buffer-string))))
-                    (commit-id (string-trim commit-id))
-                    ((> (length commit-id) 0)))
-          (let ((exit-code (with-temp-buffer
-                             (let ((default-directory main-dir))
-                               (call-process "jj" nil nil nil "rebase" "-s" commit-id "-d" "@")))))
-            (if (zerop exit-code)
-                (progn
-                  ;; Abandon the original commit in the agent's workspace
-                  (with-temp-buffer
-                    (let ((default-directory worktree-dir))
-                      (call-process "jj" nil t nil "abandon" commit-id)))
-                  (message "Integrated changes from task %s" task-id)
-                  (format "Successfully integrated changes from task %s. Run 'jj git push' when ready." task-id))
-              (error "Failed to rebase commit %s" commit-id))))
-        (error "No workspace found for task %s" task-id))
+      (interactive "sTask ID: ")
+      (when-let* ((worktree-dir (fanshi/ai-delegate--task-worktree task-id))
+                  ((file-directory-p worktree-dir))
+                  (main-dir (directory-file-name
+                             (file-name-directory (file-name-directory worktree-dir))))
+                  ;; Get the commit ID from the agent's workspace
+                  (commit-id (with-temp-buffer
+                               (let ((default-directory worktree-dir))
+                                 (call-process "jj" nil '(t nil) nil "log" "-r" "@" "-T" "commit_id() ++ \"\\n\"" "--no-graph")
+                                 (buffer-string))))
+                  (commit-id (string-trim commit-id))
+                  ((> (length commit-id) 0)))
+        (let ((exit-code (with-temp-buffer
+                           (let ((default-directory main-dir))
+                             (call-process "jj" nil nil nil "rebase" "-s" commit-id "-d" "@")))))
+          (if (zerop exit-code)
+              (progn
+                ;; Abandon the original commit in the agent's workspace
+                (with-temp-buffer
+                  (let ((default-directory worktree-dir))
+                    (call-process "jj" nil t nil "abandon" commit-id)))
+                (message "Integrated changes from task %s" task-id)
+                (format "Successfully integrated changes from task %s. Run 'jj git push' when ready." task-id))
+            (error "Failed to rebase commit %s" commit-id))))
+      (error "No workspace found for task %s" task-id))
 
-      (defun fanshi/ai-delegate--post-response-integrate (beg end)
-        "Auto-integrate the agent's commit once its task becomes DONE.
+    (defun fanshi/ai-delegate--post-response-integrate (beg end)
+      "Auto-integrate the agent's commit once its task becomes DONE.
 Runs in the delegated sub-agent buffer after each response (BEG and END
 mark the response and are unused).  Aborted (KILL) tasks are left for
 the human to discard."
-        (when-let* ((task-id fanshi/ai-delegate--current-task-id)
-                    (marker (org-id-find task-id t))
-                    (buf (marker-buffer marker))
-                    (state (with-current-buffer buf
-                             (save-excursion
-                               (goto-char marker)
-                               (org-entry-get (point) "TODO_KEYWORD"))))
-                    ((string= state "DONE")))
-          (move-marker marker nil)
-          (condition-case err
-              (progn
-                (fanshi/ai-delegate--integrate-task task-id)
-                (message "Auto-integrated changes for task %s" task-id)
-                (setq-local fanshi/ai-delegate--current-task-id nil))
-            (error (message "Failed to auto-integrate task %s: %s" task-id err)))))
+      (when-let* ((task-id fanshi/ai-delegate--current-task-id)
+                  (marker (org-id-find task-id t))
+                  (buf (marker-buffer marker))
+                  (state (with-current-buffer buf
+                           (save-excursion
+                             (goto-char marker)
+                             (org-entry-get (point) "TODO_KEYWORD"))))
+                  ((string= state "DONE")))
+        (move-marker marker nil)
+        (condition-case err
+            (progn
+              (fanshi/ai-delegate--integrate-task task-id)
+              (message "Auto-integrated changes for task %s" task-id)
+              (setq-local fanshi/ai-delegate--current-task-id nil))
+          (error (message "Failed to auto-integrate task %s: %s" task-id err)))))
 
-      (defun fanshi/ai-delegate--discard-task (task-id)
-        "Discard all changes from TASK-ID's agent workspace.
+    (defun fanshi/ai-delegate--discard-task (task-id)
+      "Discard all changes from TASK-ID's agent workspace.
 Abandons the working-copy commit and removes the workspace."
-        (interactive "sTask ID: ")
-        (save-excursion
-          (org-id-goto task-id)
-          (when-let* ((worktree-dir (org-entry-get (point) "WORKTREE_DIR"))
-                      ((file-directory-p worktree-dir)))
-            ;; Abandon the working-copy commit
-            (with-temp-buffer
-              (let ((default-directory worktree-dir))
-                (call-process "jj" nil t nil "abandon" "@")))
-            ;; Remove the workspace directory
-            (system-move-file-to-trash worktree-dir)
-            (message "Discarded changes from task %s" task-id)
-            (format "Discarded changes and removed workspace for task %s" task-id))))
-      (error "No workspace found for task %s" task-id))
+      (interactive "sTask ID: ")
+      (save-excursion
+        (org-id-goto task-id)
+        (when-let* ((worktree-dir (org-entry-get (point) "WORKTREE_DIR"))
+                    ((file-directory-p worktree-dir)))
+          ;; Abandon the working-copy commit
+          (with-temp-buffer
+            (let ((default-directory worktree-dir))
+              (call-process "jj" nil t nil "abandon" "@")))
+          ;; Remove the workspace directory
+          (system-move-file-to-trash worktree-dir)
+          (message "Discarded changes from task %s" task-id)
+          (format "Discarded changes and removed workspace for task %s" task-id))))
+    (error "No workspace found for task %s" task-id))
 
-    ;; Review/integration/discard are human decisions:
-    ;; - integration happens automatically via `fanshi/ai-delegate--post-response-integrate'
-    ;; - review and discard stay as interactive commands
-    ;;   (`fanshi/ai-delegate--review-task-diff', `fanshi/ai-delegate--discard-task')
-    ))
+  ;; Review/integration/discard are human decisions:
+  ;; - integration happens automatically via `fanshi/ai-delegate--post-response-integrate'
+  ;; - review and discard stay as interactive commands
+  ;;   (`fanshi/ai-delegate--review-task-diff', `fanshi/ai-delegate--discard-task')
+
+  ;; --- Task Breakdown Tool ---
+  (defun fanshi/ai-delegate--breakdown-task (task-file parent-heading task-description subtasks &optional dependencies project)
+    "Break down TASK-DESCRIPTION into SUBTASKS under PARENT-HEADING in TASK-FILE.
+
+TASK-FILE: Path to the org file where tasks will be created.
+PARENT-HEADING: The heading under which to create subtasks (e.g., \"Implement feature X\").
+TASK-DESCRIPTION: Description of the parent task (used to create the parent heading if it doesn't exist).
+SUBTASKS: A list of plists, each with :title, :description, and optional :agent keys.
+DEPENDENCIES: Optional plist mapping subtask titles to lists of subtask titles they depend on
+(as decoded from the tool call's JSON object).
+PROJECT: Optional directory the subtasks run in; stored as SCOPED_PROJECT
+on each subtask so `Delegate` can find the right project root.
+
+Creates the parent heading if it doesn't exist, then adds each subtask as a child
+TODO entry with proper org-id and properties. Returns a summary of created tasks."
+    (unless (file-exists-p task-file)
+      (error "Task file %s does not exist" task-file))
+    (unless subtasks
+      (error "BREAKDOWN_TASK requires at least one subtask"))
+    ;; A relative project path would otherwise resolve against the delegating
+    ;; buffer's default-directory, so reject it up front.
+    (when project
+      (setq project (expand-file-name project))
+      (unless (file-directory-p project)
+        (error "Project directory %s does not exist" project)))
+    ;; The tool call's JSON object arrives as a plist; convert to an alist.
+    (unless (listp dependencies)
+      (setq dependencies nil))
+    (setq dependencies
+          (delq nil (mapcar
+                     (lambda (key)
+                       (let ((val (plist-get dependencies key)))
+                         (unless (listp val)
+                           (error "Dependencies for task '%s' must be a list of subtask titles"
+                                  (symbol-name key)))
+                         (cons (symbol-name key) val)))
+                     (doom-plist-keys dependencies))))
+    ;; Flatten newlines in the parent heading before it is inserted, so a
+    ;; multi-line model output cannot split a heading across lines.
+    (setq parent-heading
+          (string-trim (replace-regexp-in-string "[\n\r]+" " " parent-heading)))
+    (let (titles)
+      (dolist (subtask subtasks)
+        (let ((title (plist-get subtask :title)))
+          (unless (and title (string-trim title))
+            (error "Subtask is missing a title"))
+          ;; Flatten newlines the same way: a title with a newline would
+          ;; corrupt the org structure when inserted.
+          (setq title (string-trim (replace-regexp-in-string "[\n\r]+" " " title)))
+          (setf (plist-get subtask :title) title)
+          (when (member title titles)
+            (error "Duplicate subtask title: %s" title))
+          (push title titles)))
+      (dolist (deps dependencies)
+        (dolist (dep (cdr deps))
+          (unless (member dep titles)
+            (error "Dependency '%s' of task '%s' is not one of the subtasks created in this call"
+                   dep (car deps))))
+        (unless (member (car deps) titles)
+          (error "Dependency owner '%s' is not one of the subtasks created in this call"
+                 (car deps))))
+      ;; Reject circular dependencies (e.g. A -> B -> A).
+      (cl-labels ((visit (node visiting)
+                    (when (member node visiting)
+                      (error "Circular dependency detected involving task '%s'" node))
+                    (dolist (dep (cdr (assoc node dependencies)))
+                      (visit dep (cons node visiting)))))
+        (dolist (title titles)
+          (visit title nil)))
+      (with-current-buffer (find-file-noselect task-file)
+        (let ((created-tasks '())
+              (task-title-map (make-hash-table :test 'equal))
+              child-level
+              ;; (title . marker) pairs for every heading in the file, used
+              ;; for both the idempotency check and the parent lookup so both
+              ;; use exact title comparison instead of a regex (which
+              ;; mishandles tags, level boundaries and the keyword space).
+              headings)
+          (save-excursion
+            (goto-char (point-min))
+            (while (org-next-heading nil t)
+              (push (cons (org-get-heading t t t) (point)) headings)))
+          ;; Idempotency: a chatty model will happily break the same task down
+          ;; twice.  Reject the whole call before writing anything if any
+          ;; title already exists in the file, so the model sees the error
+          ;; and does not retry.
+          (dolist (title titles)
+            (when (assoc title headings)
+              (error "Subtask '%s' already exists in %s; breakdown is idempotent, do not retry"
+                     title task-file)))
+          ;; Find or create parent heading (exact title match, with or without
+          ;; a TODO keyword)
+          (unless (assoc parent-heading headings)
+            ;; Create parent heading at end of file.  It is a plain (non-TODO)
+            ;; container so the nightly dispatcher doesn't try to delegate it.
+            (goto-char (point-max))
+            (insert "\n\n* " parent-heading "\n"
+                    (format "  %s\n" task-description))
+            (org-back-to-heading))
+          (setq child-level (1+ (save-excursion (org-back-to-heading) (org-outline-level))))
+          (org-end-of-subtree t t)
+
+          ;; Create each subtask
+          (dolist (subtask subtasks)
+            (let* ((title (plist-get subtask :title))
+                   (desc (or (plist-get subtask :description) ""))
+                   (agent (or (plist-get subtask :agent) "coding"))
+                   task-id)
+              ;; Create the subtask entry
+              (insert (format "\n%s TODO %s\n" (make-string child-level ?*) title)
+                      "  :PROPERTIES:\n"
+                      "  :DELEGATED_TO: ai\n"
+                      (format "  :AGENT: %s\n" agent)
+                      (format "  :TIME_LIMIT: %s\n" fanshi/ai-task-time-limit)
+                      (when project (format "  :SCOPED_PROJECT: %s\n" project))
+                      "  :END:\n"
+                      (mapconcat (lambda (l) (format "  %s" l))
+                                 (split-string desc "\n") "\n"))
+              (org-back-to-heading)
+              ;; Store mapping
+              (setq task-id (org-id-get nil t))
+              (puthash title task-id task-title-map)
+              (push (cons title task-id) created-tasks)
+              ;; Point past this entry so the next insert appends after it.
+              (org-end-of-subtree t t)))
+
+          ;; Update dependencies with org-ids
+          (dolist (deps dependencies)
+            (let ((dep-ids (mapcar (lambda (d) (gethash d task-title-map)) (cdr deps))))
+              (save-excursion
+                (org-id-goto (gethash (car deps) task-title-map))
+                (org-entry-put (point) "DEPENDS_ON" (string-join dep-ids ", ")))))
+          (save-buffer)
+          (format "Created %d subtasks under '%s':\n%s"
+                  (length created-tasks)
+                  parent-heading
+                  (mapconcat (lambda (item)
+                               (format "- %s (ID: %s)" (car item) (cdr item)))
+                             created-tasks "\n"))))))
+
+  (gptel-make-tool
+   :name "BreakdownTask"
+   :function #'fanshi/ai-delegate--breakdown-task
+   :description "Break down a high-level task into subtasks and write them to an org file.
+Finds the parent heading (matching its title, with or without a TODO keyword) or creates it as a plain container heading, then adds each subtask as a child TODO entry.
+Each subtask gets a unique org-id, is marked for AI delegation (DELEGATED_TO: ai), and stores its agent preset (AGENT) and a default TIME_LIMIT.
+DEPENDENCIES are stored as DEPENDS_ON properties (comma-separated org-ids).
+The call is idempotent: if any subtask title already exists in the file, nothing is written and an error is returned — do not retry or reword to force a second entry.
+
+TASK-FILE: Path to the org file where tasks will be created.
+PARENT-HEADING: The title of the heading under which to create subtasks.
+TASK-DESCRIPTION: Description of the parent task (used only if the heading must be created).
+SUBTASKS: A list of subtask objects, each with:
+  - title (string): The subtask title (must be unique within this call and not already present in the file)
+  - description (string): Detailed description of what to do
+  - agent (string, optional): A valid gptel agent preset name to delegate to (e.g. \"coding\", \"research\"); defaults to \"coding\"
+DEPENDENCIES: Optional object mapping subtask titles to arrays of subtask titles they depend on.
+Only subtasks created in this same call may be referenced, and the graph must be acyclic.
+PROJECT: Optional absolute path of the project directory the subtasks run in (stored as SCOPED_PROJECT)."
+   :args '((:name "task-file" :type string
+            :description "Path to the org file where tasks will be created")
+           (:name "parent-heading" :type string
+            :description "The heading under which to create subtasks")
+           (:name "task-description" :type string
+            :description "Description of the parent/feature task")
+           (:name "subtasks" :type array
+            :description "List of subtask objects with title, description, and optional agent"
+            :items '(:type object
+                     :properties (:title (:type string)
+                                  :description (:type string)
+                                  :agent (:type string))))
+           (:name "dependencies" :type object
+            :description "Optional mapping of subtask titles to arrays of dependent task titles"
+            :optional t)
+           (:name "project" :type string
+            :description "Optional absolute path of the project directory the subtasks run in"
+            :optional t))
+   :category "agents"
+   :async nil)
+
+  ;; --- Interactive breakdown: thin wrapper over the BreakdownTask tool ---
+  (defun fanshi/ai-breakdown (topic)
+    "Have the Scrum Master decompose TOPIC into subtasks in the AI tasks file.
+Opens the =scrum= preset in a dedicated gptel-agent buffer pointed at the GTD
+directory and asks it to emit one =BreakdownTask= call.  The subtasks land in
+the AI tasks org file as =TODO= entries, ready for `fanshi/ai-nightly--run'
+or a manual =Delegate=.
+
+With an active region TOPIC is the region text.  When point sits on an org
+heading, its title becomes the parent heading and its body the description."
+    (interactive
+     (list (if (use-region-p)
+               (buffer-substring-no-properties (region-beginning) (region-end))
+             (read-string "Break down: "))))
+    (when (string-blank-p topic)
+      (user-error "Nothing to break down"))
+    (let* ((tasks-file (org-gtd--path "org-gtd-ai-tasks"))
+           (parent-heading (when (and (derived-mode-p 'org-mode) (org-at-heading-p))
+                             (org-get-heading t t t)))
+           ;; `org-get-entry' includes the heading line, which is already sent
+           ;; as PARENT-HEADING; use the plain subtree and drop the first line
+           ;; so only the body becomes the description.
+           (parent-desc (when parent-heading
+                          (let ((body (save-excursion
+                                        (org-back-to-heading)
+                                        (org-get-plain-subtree))))
+                            (setq body (replace-regexp-in-string "^.*\n" "" body))
+                            (if (string-blank-p body) nil body))))
+           (default-directory (file-name-directory tasks-file)))
+      ;; `gptel-agent' forwards an active region as its own initial prompt;
+      ;; deactivate the mark so TOPIC is not sent twice.
+      (deactivate-mark)
+      (let ((buf (gptel-agent default-directory 'scrum)))
+        (with-current-buffer buf
+          (goto-char (point-max))
+          (insert (format
+                   (concat "# Task Breakdown\n\n"
+                           "Decompose the following into independently executable subtasks.\n\n"
+                           "<task>\n%s\n</task>\n\n"
+                           "Rules:\n"
+                           "1. 3-7 subtasks. Each one is a single action a worker agent finishes in one sitting.\n"
+                           "2. Call BreakdownTask exactly once with all subtasks and their dependencies, and do nothing else.\n"
+                           "   (The only exception: if rule 5 applies, escalate in prose instead of calling BreakdownTask.)\n"
+                           "3. Fill in each subtask's description: what to change, where, and the acceptance criteria.\n"
+                           "4. Do NOT call Delegate. Decomposition only; dispatch happens later.\n"
+                           "5. If the task is too vague to decompose safely, do not invent subtasks:\n"
+                           "   escalate instead and name the specific decision you need.\n\n"
+                           "Write to: %s\n")
+                   (string-trim topic)
+                   tasks-file))
+          (when parent-heading
+            (goto-char (point-max))
+            (insert (format
+                     "Use parent-heading \"%s\"%s.\n"
+                     parent-heading
+                     (when parent-desc
+                       (format " and task-description \"%s\""
+                               (replace-regexp-in-string "\n" " " parent-desc))))))
+          (gptel-send))
+        (message "AI Breakdown: decomposing into %s" tasks-file)
+        buf))))
 #+end_src
 ** fanshi/ai-nightly--run
 Spawn a Scrum Master agent to process all AI-delegated tasks.
@@ -4485,10 +4756,16 @@ One line per task: state, heading, org-id and key properties."
                  for id = (org-entry-get (point) "ID")
                  for delegated-to = (org-entry-get (point) "DELEGATED_TO")
                  for priority = (org-entry-get (point) "PRIORITY")
-                 collect (format "- [%s] %s (ID: %s%s%s)"
+                 for agent = (org-entry-get (point) "AGENT")
+                 for depends-on = (org-entry-get (point) "DEPENDS_ON")
+                 for scoped-project = (org-entry-get (point) "SCOPED_PROJECT")
+                 collect (format "- [%s] %s (ID: %s%s%s%s%s%s)"
                                  keyword heading id
                                  (when priority (format ", priority: %s" priority))
-                                 (when delegated-to (format ", delegated-to: %s" delegated-to)))))))
+                                 (when delegated-to (format ", delegated-to: %s" delegated-to))
+                                 (when agent (format ", agent: %s" agent))
+                                 (when depends-on (format ", depends-on: %s" depends-on))
+                                 (when scoped-project (format ", project: %s" scoped-project)))))))
 
   (defun fanshi/ai-nightly--run ()
     "Spawn a Scrum Master agent to process all AI-delegated tasks."
@@ -4502,7 +4779,7 @@ One line per task: state, heading, org-id and key properties."
         (gptel-agent ai-tasks-dir 'scrum)
         (goto-char (point-max))
         (insert (format
-                 "\n\n# Nightly Task Dispatch\n\nCurrent tasks in %s:\n%s\n\nFor each TODO task, call Delegate with its task-id, an agent, and priority/time-limit/deadline/schedule when you know them.\nSkip tasks already in DELEGATED, DONE, or KILL state.\nTasks with delegated-to: user are pending human input — skip them.\nAfter delegating all tasks, report a summary table.\n"
+                 "\n\n# Nightly Task Dispatch\n\nCurrent tasks in %s:\n%s\n\nFor each TODO task, call Delegate with its task-id, an agent, and priority/time-limit/deadline/schedule when you know them.\nIf a TODO task describes a feature or goal rather than a single focused unit of work, break it down with BreakdownTask first, then delegate the resulting subtasks.\nWhen a task has an agent: property, use that agent.\nWhen a task has a project: property, pass it as the project of any BreakdownTask call for that task.\nSkip tasks already in DELEGATED, DONE, or KILL state.\nSkip tasks with depends-on: unless every listed task ID is DONE. Delegate also refuses to run a task whose depends-on are not DONE, so do not retry a blocked task.\nTasks with delegated-to: user are pending human input — skip them.\nAfter delegating all tasks, report a summary table.\n"
                  ai-tasks-file (fanshi/ai-nightly--task-list ai-tasks-file)))
         (gptel-send)
         (current-buffer)))))
