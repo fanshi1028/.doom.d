@@ -2152,7 +2152,7 @@ We load our own presets
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (gptel-make-preset 'scrum
-    :model '(:eval (fanshi/gptel-select-model 'mlx-community--Qwen3.6-35B-A3B-bf16))
+    :model '(:eval (fanshi/gptel-select-model 'Jundot--Qwen3.8-Flash-Next-oQ4e-mtp))
     :description "Scrum Master - orchestrates process flow, delegates to agents, does NOT code"
     :tools fanshi/scrum-tools
     :system (lambda ()
@@ -2980,9 +2980,8 @@ To avoid loading multiple main models into restricted RAM, we can queue requests
 #+begin_src emacs-lisp :tangle yes
 (defvar fanshi/gptel-send-mutex (make-mutex "fanshi/gptel-send-mutex"))
 
-(defvar fanshi/main-models (list 'Jundot--MiniMax-M2.7-oQ2
-                                 'mlx-community--Qwen3.6-35B-A3B-bf16
-                                 'mlx-community--Qwen3.6-27B-bf16
+(defvar fanshi/main-models (list 'Jundot--Qwen3.8-Flash-Next-oQ4e-mtp
+                                 'mlx-community--Qwen3.8-27B-bf16
                                  'mlx-community--gemma-4-31b-it-bf16)
   "List of models that are considered 'main models' and should not run concurrently.")
 
