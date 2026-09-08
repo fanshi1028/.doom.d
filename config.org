@@ -3352,7 +3352,7 @@ The FSM's terminal state (DONE/ERRS/ABRT) is set *before* the buffer shows
 state.  This runs as a post-response hook, i.e. after gptel's own cleanup.
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (defun fanshi/gptel--cleanup-finished-requests ()
+  (defun fanshi/gptel--cleanup-finished-requests (_beg _end)
     "Remove requests that have reached a terminal FSM state from `gptel--request-alist'.
 These are entries gptel failed to clean up itself, typically because an
 error in a `gptel-post-response-functions' handler interrupted the
