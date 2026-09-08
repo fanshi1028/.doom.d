@@ -3338,6 +3338,29 @@ Return the number of requests aborted."
     (add-hook! 'kill-buffer-hook :local #'fanshi/gptel-abort-all-in-buffer))
   (add-hook! gptel-mode-hook :append #'fanshi/gptel-agent--setup-abort-all))
 #+end_src
+** Fix lingering entries in gptel--request-alist
+Gptel removes a request's entry from `gptel--request-alist' only *after*
+running the response callback (which sets the buffer status to "Ready" and
+runs `gptel-post-response-functions').  If anything in that hook chain
+signals an error, the sentinel's cleanup never runs and the entry lingers
+until `gptel-abort' is called.
+
+The FSM's terminal state (DONE/ERRS/ABRT) is set *before* the buffer shows
+"Ready", so we can safely sweep out any entry that has reached a terminal
+state.  This runs as a post-response hook, i.e. after gptel's own cleanup.
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel--cleanup-finished-requests ()
+    "Remove requests that have reached a terminal FSM state from `gptel--request-alist'.
+These are entries gptel failed to clean up itself, typically because an
+error in a `gptel-post-response-functions' handler interrupted the
+process sentinel's cleanup.  Runs as a post-response hook."
+    (cl-loop for entry in (copy-sequence gptel--request-alist)
+             for state = (gptel-fsm-state (cadr entry))
+             when (memq state '(DONE ERRS ABRT))
+             do (setf (alist-get (car entry) gptel--request-alist nil 'remove) nil)))
+  (add-hook 'gptel-post-response-functions #'fanshi/gptel--cleanup-finished-requests))
+#+end_src
 ** fanshi/gptel-agent
 #+begin_src emacs-lisp :tangle yes :lexical t
 (map! :map doom-leader-open-map "l l" #'fanshi/gptel-agent)
