@@ -3076,7 +3076,9 @@ Applies the presets in a throwaway buffer via
 `gptel--transform-apply-preset' uses — so `:parents' and `:eval'
 models are resolved exactly as in the real request."
     (when-let ((prompt-buffer (gptel-org--create-prompt-buffer (point))))
-      (with-current-buffer prompt-buffer (ignore-errors (fanshi/process-preset-til-end)))
+      (with-current-buffer prompt-buffer
+        (goto-char (point-min))
+        (ignore-errors (fanshi/process-preset-til-end)))
       (buffer-local-value 'gptel-model prompt-buffer)))
 
   (defun fanshi/gptel-request-maybe-waiting-main-model-a (orig-f &rest args)
