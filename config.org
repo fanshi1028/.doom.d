@@ -3069,12 +3069,30 @@ Cleans up lingering requests attached to dead buffers first."
           (message "Processing queued gptel request...")
           (fanshi/gptel--replay-queued-request next-request)))))
 
+  (defun fanshi/gptel--preset-model-in-prompt ()
+    "Return the model set by @preset markers in prompt, or nil if none.
+Applies the presets in a throwaway buffer via
+`fanshi/process-preset-til-end' — the same code path
+`gptel--transform-apply-preset' uses — so `:parents' and `:eval'
+models are resolved exactly as in the real request."
+    (when-let ((prompt-buffer (gptel-org--create-prompt-buffer (point))))
+      (with-current-buffer prompt-buffer (ignore-errors (fanshi/process-preset-til-end)))
+      (buffer-local-value 'gptel-model prompt-buffer)))
+
   (defun fanshi/gptel-request-maybe-waiting-main-model-a (orig-f &rest args)
-    "Advice for `gptel-send` to handle main model concurrency.
-Checks `fanshi/last-presets-gptel-model' first, then falls back to
-`gptel-model'."
-    (let ((effective-model (or fanshi/last-presets-gptel-model
-                               gptel-model)))
+    "Advice for `gptel-send' to handle main model concurrency.
+Resolves the model this request will actually use, in order of
+precedence:
+1. Model set by an @preset in the current prompt.  Presets are
+   applied inside `gptel-request' (after this advice runs), so on
+   the first request of a buffer `fanshi/last-presets-gptel-model'
+   is still nil — resolve the preset model directly from the prompt.
+2. `fanshi/last-presets-gptel-model' (from the previous request).
+3. `gptel-model'."
+    (let ((effective-model
+           (or (fanshi/gptel--preset-model-in-prompt)
+               fanshi/last-presets-gptel-model
+               gptel-model)))
       (with-mutex fanshi/gptel-send-mutex
         (if-let* (((and gptel-backend (not (plist-get gptel-backend :protocol "https"))))
                   ((member effective-model fanshi/main-models))
