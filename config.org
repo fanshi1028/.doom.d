@@ -801,6 +801,11 @@ Disable due to it seems to mess thing up when I use `fanshi/multisend'
 
 (defvar-local fanshi/gptel--aborted nil
   "Non-nil if the last request was aborted. Used to skip auto-continue.")
+
+(defvar-local fanshi/gptel--auto-continued nil
+  "Non-nil if the last response triggered an auto-continue.
+Reset by `fanshi/notify'; read by post-response functions that should
+not act while a task is still in flight (e.g. jj auto-commit).")
 #+end_src
 *** fanshi/gptel--aborted related advices
 #+begin_src emacs-lisp :tangle yes
@@ -824,7 +829,8 @@ Disable due to it seems to mess thing up when I use `fanshi/multisend'
   ;; --- Notification helper (macOS) ---
   (defun fanshi/notify ()
     "Send a macOS notification that the response is complete."
-    (setq-local fanshi/gptel--auto-continue-count nil)
+    (setq-local fanshi/gptel--auto-continue-count nil
+                fanshi/gptel--auto-continued nil)
     (ignore-errors
       (ns-do-applescript
        (format "display notification \"%s\" with title \"%s\" sound name \"Submerge\""
@@ -838,6 +844,7 @@ which is checked by `fanshi/gptel--not-done-auto-continue-or-notify'"
     (unless fanshi/gptel--auto-continue-count
       (setq-local fanshi/gptel--auto-continue-count 0))
     (incf fanshi/gptel--auto-continue-count)
+    (setq-local fanshi/gptel--auto-continued t)
     (let ((fanshi/prevent-duplicate-gptel-send nil))
       (without-restriction
         (delete-region (+ 1 (point)) (point-max))
@@ -3401,6 +3408,10 @@ Always passes --color never to avoid ANSI codes in error output."
             (with-current-buffer buf
               (goto-char (point-max))
               (insert (format "%s\n" task-description))
+              ;; Opt this buffer into jj auto-commit (see
+              ;; `fanshi/gptel--jj-auto-commit'): the buffer is bound to the
+              ;; dedicated sub-workspace DIR, never the user's default one.
+              (setq-local fanshi/gptel-jj-workspace dir)
               (when (string= doom-user-dir (file-name-as-directory jj-default-root))
                 ;; Allow agent for the doomemacs config project to read modules & repos
                 (setq-local fanshi/gptel-context-files
@@ -3429,6 +3440,108 @@ Always passes --color never to avoid ANSI codes in error output."
                           nil t))
               (fanshi/call-jj "desc" "-m" task-description))
             buf))))))
+#+end_src
+** jj auto commit
+After each gptel response in a buffer bound to a dedicated jj sub-workspace
+(see `fanshi/gptel-agent'), commit the working copy so every response leaves
+behind one reviewable commit:
+- if the working-copy commit already has a description, run ~jj new~ (the
+  changes stay on the previous commit, which keeps that description)
+- otherwise generate a commit message from the ~jj diff~ with an LLM
+  (~gptel-request~) and run ~jj ci -m "<message>"~
+- if the diff is empty, do nothing
+Safety:
+- only buffers with a non-nil buffer-local `fanshi/gptel-jj-workspace' are
+  affected; plain gptel-agent buffers (default workspace, no workspace) are
+  never auto-committed
+- before anything runs, `jj workspace root' in the buffer's
+  `default-directory' must equal the recorded workspace dir, so a stale or
+  moved buffer can never commit in the wrong workspace
+- while a response auto-continues (task still in flight) the commit is
+  deferred to the final response, so one task is not split across commits
+- the whole thing is wrapped in `ignore-errors': a failing commit must never
+  break the post-response hook (the changes just stay in the working copy)
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defvar-local fanshi/gptel-jj-workspace nil
+    "If non-nil, the jj sub-workspace dir this gptel buffer is bound to.
+Set by `fanshi/gptel-agent' for buffers created in a dedicated
+sub-workspace; enables post-response auto-commit
+(`fanshi/gptel--jj-auto-commit').")
+
+  (defcustom fanshi/gptel-jj-auto-commit-enabled t
+    "If non-nil, auto-commit the jj working copy after each gptel response
+in buffers with a non-nil `fanshi/gptel-jj-workspace'."
+    :type 'boolean
+    :group 'gptel)
+
+  (defcustom fanshi/gptel-jj-auto-commit-diff-limit 8000
+    "Max number of characters of `jj diff' output sent to the LLM for
+commit-message generation."
+    :type 'integer
+    :group 'gptel)
+
+  (defun fanshi/gptel--jj-workspace-check (dir)
+    "Verify the current buffer is still bound to JJ sub-workspace DIR.
+Run `jj workspace root' with `default-directory' set to the buffer's
+workspace dir and require it to equal DIR.  This guards against a
+stale buffer whose default-directory no longer resolves to the
+workspace it was created in (moved, deleted, or never a workspace at
+all), so the jj commands below can never run in the wrong workspace."
+    (let ((root (ignore-errors
+                  (let ((default-directory dir))
+                    (string-trim (shell-command-to-string "jj workspace root --color never"))))))
+      (and root (string= (file-name-as-directory root) dir))))
+
+  (defun fanshi/gptel--jj-working-copy-description ()
+    "Return the description of the working-copy commit, or nil if none."
+    (let ((desc (ignore-errors
+                  (let ((default-directory fanshi/gptel-jj-workspace))
+                    (string-trim (shell-command-to-string "jj log -r @ -T description --no-graph --color never"))))))
+      (and (not (string-blank-p desc)) desc)))
+
+  (defun fanshi/gptel--jj-generate-commit-message (diff)
+    "Ask the LLM for a commit message for the JJ diff DIFF.
+Returns the message string, or nil if generation fails — in which
+case the caller falls back to a generic message."
+    (let (msg)
+      (gptel-request
+          (format "Write a concise commit message (imperative mood, max 72 chars) for this jj diff.\nReturn ONLY the message text, no quotes, no explanation.\n\n#+begin_example\n%s\n#+end_example"
+                  diff)
+        :system "You write concise commit messages."
+        :callback (lambda (response _)
+                    (when (stringp response)
+                      (setq msg (string-trim response)))))
+      (and (not (string-blank-p msg)) (substring msg 0 (min 200 (length msg))))))
+
+  (defun fanshi/gptel--jj-auto-commit (&rest _args)
+    "Post-response hook: auto-commit the jj working copy of a sub-workspace buffer.
+See the section notes for the full behavior and safety checks."
+    (when (and fanshi/gptel-jj-auto-commit-enabled
+               fanshi/gptel-jj-workspace
+               (not fanshi/gptel--auto-continued)
+               (fanshi/gptel--jj-workspace-check fanshi/gptel-jj-workspace))
+      (let ((diff (ignore-errors
+                    (let ((default-directory fanshi/gptel-jj-workspace))
+                      (shell-command-to-string "jj diff --color never")))))
+        (when (and diff (not (string-blank-p diff)))
+          (condition-case err
+              (if-let ((desc (fanshi/gptel--jj-working-copy-description)))
+                  (progn
+                    (fanshi/call-jj "new")
+                    (message "jj auto-commit: committed working copy (kept description: %s)" (string-trim desc)))
+                (let* ((msg (or (fanshi/gptel--jj-generate-commit-message
+                                 (substring diff 0 (min fanshi/gptel-jj-auto-commit-diff-limit
+                                                        (length diff))))
+                                "gptel: auto-commit"))
+                       (ci-msg (replace-regexp-in-string "[\r\n]+" " " msg)))
+                  (fanshi/call-jj "ci" "-m" ci-msg)
+                  (message "jj auto-commit: committed working copy (%s)" ci-msg)))
+            (message "jj auto-commit failed: %s" (error-message-string err)))))))
+
+  ;; Weight 100: run after the auto-continue hook (weight 0), so
+  ;; `fanshi/gptel--auto-continued' is already set when we need it.
+  (add-hook 'gptel-post-response-functions #'fanshi/gptel--jj-auto-commit 100))
 #+end_src
 ** Sub-agent buffers
 Each sub-agent buffer stores a pointer to its parent agent buffer via
