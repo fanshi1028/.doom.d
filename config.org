@@ -3457,6 +3457,9 @@ agent sees the diff as part of the prompt.
 (after! gptel
   (defun fanshi/gptel-code-review-jj-diff ()
     "Start a new gptel-agent session to code review the current jj changes.
+Runs in the *current* workspace (no sub-workspace is created — a fresh
+sub-workspace has an empty working copy, so its `jj diff' would be
+empty and there would be nothing to review).
 The prompt is an org block:
   ,* \@coding \@heavy Please code review this change
   \#+begin_src sh :results verbatim drawer replace output
@@ -3465,14 +3468,17 @@ The prompt is an org block:
 The src block is executed here and its output is placed in a results
 drawer, so the diff is part of the prompt sent to the agent."
     (interactive)
-    (let ((buf (fanshi/gptel-agent "Code Review jj diff")))
+    ;; Empty task description: take the plain gptel-agent path so the
+    ;; buffer stays bound to the current workspace (see
+    ;; `fanshi/gptel-agent'), where `jj diff' shows the actual changes.
+    (let ((buf (fanshi/gptel-agent "")))
       (with-current-buffer buf
         (goto-char (point-min))
         (forward-char)
         ;;  NOTE: break up the presets tag to avoid confusing the agent when this piece of code is read
         (insert " @")
         (insert "coding @")
-        (insert "heavy ")
+        (insert "heavy Please code review this change")
         (goto-char (point-max))
         (insert (concat
                  "\n#+begin_src sh :results verbatim drawer replace output\n"
