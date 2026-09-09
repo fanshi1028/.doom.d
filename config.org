@@ -2704,6 +2704,11 @@ Return a cons cell (REPORT-PATTERN . PRESETS-APPLIED):
               (gptel--apply-preset preset
                                    (lambda (sym val)
                                      (set (make-local-variable sym) val)))))))
+      (when (and gptel-mode fanshi/gptel--auto-continued)
+        (setq-local gptel--request-params
+                    (-> gptel--request-params
+                        (plist-put :enable_thinking :json-false)
+                        (plist-put :chat_template_kwargs (:enable_thinking :json-false :preserve_thinking t)))))
       ;; Make sure at most one preset with a report pattern is present.
       (let ((matching-presets (cl-remove-if-not (lambda (p)
                                                   (alist-get p fanshi/gptel-report-patterns nil nil #'equal))
