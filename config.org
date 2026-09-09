@@ -3446,6 +3446,41 @@ Always passes --color never to avoid ANSI codes in error output."
               (fanshi/call-jj "desc" "-m" task-description))
             buf))))))
 #+end_src
+** fanshi/gptel-code-review-jj-diff
+Start a new gptel-agent session that code reviews the current jj changes.
+The prompt is an org block whose src block runs ~jj diff --color=never~;
+the block is triggered by the function itself and its output is included in
+a results drawer (per ~:results verbatim drawer replace output~) so the
+agent sees the diff as part of the prompt.
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defun fanshi/gptel-code-review-jj-diff ()
+    "Start a new gptel-agent session to code review the current jj changes.
+The prompt is an org block:
+  ,* \@coding \@heavy Please code review this change
+  \#+begin_src sh :results verbatim drawer replace output
+  jj diff --color=never
+  \#+end_src
+The src block is executed here and its output is placed in a results
+drawer, so the diff is part of the prompt sent to the agent."
+    (interactive)
+    (let ((buf (fanshi/gptel-agent "Code Review jj diff")))
+      (with-current-buffer buf
+        (goto-char (point-min))
+        (forward-char)
+        ;;  NOTE: break up the presets tag to avoid confusing the agent when this piece of code is read
+        (insert " @")
+        (insert "coding @")
+        (insert "heavy ")
+        (goto-char (point-max))
+        (insert (concat
+                 "\n#+begin_src sh :results verbatim drawer replace output\n"
+                 "jj diff --color=never\n"
+                 "#+end_src"))
+        (org-babel-execute-src-block)
+        (goto-char (point-max))
+        (gptel-send)))))
+#+end_src
 ** jj auto commit
 After each gptel response in a buffer bound to a dedicated jj sub-workspace
 (see `fanshi/gptel-agent'), commit the working copy so every response leaves
