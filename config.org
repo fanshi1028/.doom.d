@@ -2257,7 +2257,7 @@ Set to 0 to disable auto-fix and only show the error message."
     "Check the elisp syntax of FILE.
 Return an error message string on a scan error, nil otherwise."
     (with-temp-buffer
-      (insert-file-contents tangled)
+      (insert-file-contents file)
       (delay-mode-hooks (emacs-lisp-mode))
       (let ((parse-sexp-ignore-comments t))
         (condition-case err
@@ -2306,16 +2306,17 @@ error was found in), :source (the Org FILE) and :error."
     (when (and (equal (file-name-extension file) "org")
                (file-exists-p file))
       (let* ((cmd (format "org-babel tangled file %S" file))
-             (bad (cl-loop for file in (org-babel-tangle-file file)
-                           for err = (fanshi/gptel--check-elisp-syntax file)
-                           thereis (and err (cons file err)))))
+             (tangled (org-babel-tangle-file file))
+             (bad (cl-loop for f in tangled
+                           for err = (fanshi/gptel--check-elisp-syntax f)
+                           thereis (and err (cons f err)))))
         (cond
          (bad
           (list :cmd cmd :file (car bad) :source file :error (cdr bad)))
-         ((null tangled)
-          (when (equal file (expand-file-name "config.org"))
-            (list :cmd cmd :file file :source file
-                  :error "oops: no tangled file output produced from doom config")))))))
+         ((and (null tangled)
+               (equal file (expand-file-name "config.org")))
+          (list :cmd cmd :file file :source file
+                :error "oops: no tangled file output produced from doom config"))))))
 
   (defun fanshi/gptel--post-response-check/doom ()
     "Run post-response checks on the edited files of a doom Emacs config.
