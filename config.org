@@ -4324,7 +4324,7 @@ One line per task: state, heading, org-id and key properties."
         (error "AI Nightly: No AI tasks file at %s" ai-tasks-file))
       (message "AI Nightly: Starting Scrum Master orchestrator...")
       (with-current-buffer (get-buffer-create "*gptel-agent: scrum-nightly*")
-        (gptel-agent ai-tasks-dir 'scrum-agent)
+        (gptel-agent ai-tasks-dir 'scrum)
         (goto-char (point-max))
         (insert (format
                  "\n\n# Nightly Task Dispatch\n\nCurrent tasks in %s:\n%s\n\nFor each TODO task, call Delegate with its task-id, an agent, and priority/time-limit/deadline/schedule when you know them.\nSkip tasks already in DELEGATED, DONE, or KILL state.\nTasks with delegated-to: user are pending human input — skip them.\nAfter delegating all tasks, report a summary table.\n"
