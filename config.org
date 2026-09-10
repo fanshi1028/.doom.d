@@ -4294,7 +4294,7 @@ Abandons the working-copy commit and removes the workspace."
 ** fanshi/ai-nightly--run
 Spawn a Scrum Master agent to process all AI-delegated tasks.
 #+begin_src emacs-lisp :tangle yes :lexical t
-(after! (:and org-gtd gtpel-agent)
+(after! (:and org-gtd gptel-agent)
   (defun fanshi/ai-nightly--task-list (file)
     "Return a plain-text summary of the tasks in the org FILE.
 One line per task: state, heading, org-id and key properties."
