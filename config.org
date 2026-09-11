@@ -2976,7 +2976,11 @@ Optional MODEL and VOICE can override defaults."
       (start-process "tts-stream" nil "sh" "-c" cmd))))
 #+end_src
 ** Local GPTEL request waiting for main models
-To avoid loading multiple main models into restricted RAM, we can queue requests.
+To avoid loading multiple main models into restricted RAM, main-model
+requests are never run in parallel — even when the same model is
+requested.  A request that cannot run immediately is queued as a TODO
+task in the AI tasks org file (the same file the nightly processor
+reads), so it survives Emacs restarts and shows up in the GTD workflow.
 #+begin_src emacs-lisp :tangle yes
 (defvar fanshi/gptel-send-mutex (make-mutex "fanshi/gptel-send-mutex"))
 
@@ -2985,53 +2989,114 @@ To avoid loading multiple main models into restricted RAM, we can queue requests
                                  'mlx-community--gemma-4-31b-it-bf16)
   "List of models that are considered 'main models' and should not run concurrently.")
 
-(defvar fanshi/gptel--waiting-request-alist nil
-  "List of requests waiting for a main model to be freed.
-  Each entry is a plist containing the request parameters.
-  Format: (PROMPT-STRING :model MODEL :backend BACKEND :project-dir DIR).
-  If :project-dir is non-nil, the request was from a gptel-agent buffer.
-  Persisted via savehist across Emacs sessions.")
+(defvar fanshi/gptel--queued-request-task-id nil
+  "Org-ID of the queued main-model request task, if any.
+The task lives in the AI tasks org file (\"org-gtd-ai-tasks\") as a
+TODO entry whose heading starts with \"[gptel]\".  A request is queued
+only when some main model is already active, and the queue holds at
+most one task, so this is the single source of truth for the queue.")
 
-(after! projectile
-  (setq savehist-additional-variables (add-to-list 'savehist-additional-variables 'fanshi/gptel--waiting-request-alist)))
+(defun fanshi/gptel--queue-request-as-task (prompt model backend-name project-dir)
+  "Queue PROMPT as a TODO task in the AI tasks org file.
+The task stores the request parameters as org properties
+(GPTEL_MODEL, GPTEL_BACKEND, SCOPED_PROJECT) and the full prompt in a
+#+BEGIN_EXAMPLE block in the task body, so it can be replayed later,
+even after an Emacs restart.  Returns the org-id of the new task."
+  (let ((file (org-gtd--path "org-gtd-ai-tasks")))
+    (unless (file-exists-p file)
+      (with-temp-file file (insert "# AI Tasks\n")))
+    (let ((buf (find-file-noselect file)))
+      (with-current-buffer buf
+        (save-excursion
+          (goto-char (point-max))
+          (unless (bolp) (insert "\n"))
+          (let ((pos (point))
+                (heading (string-trim prompt)))
+            (when (string-prefix-p (gptel-prompt-prefix-string) heading)
+              (setq heading (substring heading (length (gptel-prompt-prefix-string)))))
+            (insert (format "* TODO [gptel] %s\n#+BEGIN_EXAMPLE\n%s\n#+END_EXAMPLE\n"
+                            (s-truncate 60 (replace-regexp-in-string "[\n\r]" " " heading))
+                            prompt))
+            (goto-char pos)
+            (org-entry-put (point) "GPTEL_MODEL" (symbol-name model))
+            (org-entry-put (point) "GPTEL_BACKEND" backend-name)
+            (when project-dir (org-entry-put (point) "SCOPED_PROJECT" project-dir))
+            (let ((task-id (org-id-get nil t)))
+              (save-buffer)
+              task-id)))))))
 
-(defun fanshi/gptel--replay-queued-request (queued-entry)
-  "Replay a single queued request from a persisted entry.
-QUEUED-ENTRY is (PROMPT-STRING :model MODEL :backend BACKEND :project-dir DIR).
-Creates a fresh gptel (or gptel-agent) buffer, inserts the prompt, and sends."
-  (let* ((prompt (car queued-entry))
-         (model (plist-get queued-entry :model))
-         (backend (plist-get queued-entry :backend))
-         (project-dir (plist-get queued-entry :project-dir))
-         buf)
-    (setq buf
-          (if project-dir
-              (gptel-agent project-dir 'gptel-agent)
-            (get-buffer-create (generate-new-buffer-name "*gptel-queued*"))))
-    (with-current-buffer buf
-      (funcall gptel-default-mode)
-      (gptel-mode 1)
-      (setq-local gptel-model model
-                  gptel-backend backend)
-      (goto-char (point-min))
-      (delete-char (length (gptel-prompt-prefix-string)))
-      (insert prompt)
-      (goto-char (point-max))
-      (display-buffer buf)
-      (gptel-send))))
+(defun fanshi/gptel--replay-queued-request (task-id)
+  "Replay the queued request task TASK-ID.
+Reads the prompt from the #+BEGIN_EXAMPLE block in the task body and
+GPTEL_MODEL / GPTEL_BACKEND / SCOPED_PROJECT from the task properties,
+marks the task DELEGATED, creates a fresh gptel (or gptel-agent)
+buffer with the prompt, and sends.
+`fanshi/gptel-request-maybe-waiting-main-model-a' lets the replay
+through because `fanshi/gptel--get-active-main-model' ignores requests
+that have reached a terminal FSM state."
+  (let ((task-marker (org-id-find task-id 'marker)))
+    (unless task-marker
+      (error "Queued gptel request task %s not found" task-id))
+    (save-excursion
+      (org-id-goto task-id)
+      (let* ((subtree (save-excursion
+                        (org-back-to-heading)
+                        (let ((end (org-end-of-subtree)))
+                          (buffer-substring-no-properties (point) end))))
+             (prompt (when (string-match "\n#\\+BEGIN_EXAMPLE\n" subtree)
+                       (let ((start (match-end 0))
+                             (end (string-match "\n#\\+END_EXAMPLE" subtree start)))
+                         (string-trim (substring subtree start (or end (length subtree)))))))
+             (model (intern (org-entry-get (point) "GPTEL_MODEL")))
+             (backend (alist-get (org-entry-get (point) "GPTEL_BACKEND")
+                                 gptel--known-backends nil nil #'equal))
+             (project-dir (org-entry-get (point) "SCOPED_PROJECT"))
+             buf)
+        (unless prompt
+          (error "Queued task %s has no #+BEGIN_EXAMPLE block with the prompt" task-id))
+        (unless (and model backend)
+          (error "Queued task %s is missing GPTEL_MODEL/GPTEL_BACKEND" task-id))
+        (setq buf
+              (if project-dir
+                  (gptel-agent project-dir 'gptel-agent)
+                (get-buffer-create (generate-new-buffer-name "*gptel-queued*"))))
+        (with-current-buffer buf
+          (funcall gptel-default-mode)
+          (gptel-mode 1)
+          (setq-local gptel-model model
+                      gptel-backend backend)
+          (goto-char (point-min))
+          (delete-char (length (gptel-prompt-prefix-string)))
+          (insert prompt)
+          (goto-char (point-max))
+          (display-buffer buf)
+          (gptel-send))
+        (org-todo "DELEGATED")
+        (org-entry-put (point) "DELEGATED_TO" (symbol-name model))
+        (org-entry-put (point) "DELEGATED_AT" (format-time-string "%Y-%m-%d %H:%M:%S"))
+        (save-buffer)))))
 
-(defun fanshi/gptel--restore-queued-requests ()
-  "Restore and replay queued gptel requests from previous session."
-  (when fanshi/gptel--waiting-request-alist
-    (let ((count (length fanshi/gptel--waiting-request-alist)))
-      (message "Found %d queued request(s) from previous session" count)
-      (when (yes-or-no-p (format "Found %d queued gptel request(s) from last session. Replay them? "
-                                 count))
-        (dolist (entry (reverse fanshi/gptel--waiting-request-alist))
-          (fanshi/gptel--replay-queued-request entry))
-        (setq fanshi/gptel--waiting-request-alist nil)))))
+(defun fanshi/gptel--restore-queued-request ()
+  "Re-arm the queue trigger for a request task left over from a previous
+Emacs session.  The task itself lives in the AI tasks org file, so it
+survives a crash; this only restores `fanshi/gptel--queued-request-task-id'
+so the `gptel-post-response-functions' hook replays it once no main
+model is active."
+  (let ((ai-tasks-file (org-gtd--path "org-gtd-ai-tasks")))
+    (when (file-exists-p ai-tasks-file)
+      (with-temp-buffer
+        (insert-file-contents ai-tasks-file)
+        (org-mode)
+        (save-excursion
+          (goto-char (point-min))
+          (when (re-search-forward
+                 "^\\* TODO \\[gptel\\] .*\\n:PROPERTIES:\\(?:.*\\n\\)*:END:" nil t)
+            (when-let ((task-id (org-entry-get (point) "ID")))
+              (message "Found queued gptel request task %s from previous session" task-id)
+              (when (y-or-n-p "Replay it once a main model slot frees up? ")
+                (setq fanshi/gptel--queued-request-task-id task-id)))))))))
 
-(add-hook 'emacs-startup-hook #'fanshi/gptel--restore-queued-requests)
+(add-hook 'emacs-startup-hook #'fanshi/gptel--restore-queued-request)
 
 (after! gptel
   (defun fanshi/gptel--cleanup-dead-requests ()
@@ -3052,22 +3117,40 @@ Returns the number of entries removed."
 
   (defun fanshi/gptel--get-active-main-model ()
     "Return the main model currently running in any gptel request, if any.
-Cleans up lingering requests attached to dead buffers first."
+Requests that have reached a terminal FSM state (DONE/ERRS/ABRT) do
+not count: gptel removes them from `gptel--request-alist' only after
+the `gptel-post-response-functions' hook runs, so without this a
+just-finished request would still block the queue.  Also cleans up
+lingering requests attached to dead buffers first."
     (fanshi/gptel--cleanup-dead-requests)
     (cl-loop for req in gptel--request-alist
              for info = (gptel-fsm-info (cadr req))
+             for state = (gptel-fsm-state (cadr req))
              for model = (plist-get info :model)
-             if (member model fanshi/main-models)
+             when (and (member model fanshi/main-models)
+                       (not (memq state '(DONE ERRS ABRT))))
              return model))
 
   (defun fanshi/gptel--process-waiting-requests (_start _end)
-    "Process the next waiting request if no main model is currently active."
+    "Replay the queued request task if no main model is currently active.
+Runs as a `gptel-post-response-functions' hook.  Gptel removes a
+request from `gptel--request-alist' only *after* this hook runs, so
+`fanshi/gptel--get-active-main-model' ignores requests that have
+reached a terminal FSM state; that is what lets the replay through
+when the blocking request has just finished."
     (with-mutex fanshi/gptel-send-mutex
-      (when (and fanshi/gptel--waiting-request-alist
+      (when (and fanshi/gptel--queued-request-task-id
                  (null (fanshi/gptel--get-active-main-model)))
-        (let ((next-request (pop fanshi/gptel--waiting-request-alist)))
-          (message "Processing queued gptel request...")
-          (fanshi/gptel--replay-queued-request next-request)))))
+        (let ((task-id fanshi/gptel--queued-request-task-id))
+          (setq fanshi/gptel--queued-request-task-id nil)
+          (condition-case err
+              (progn
+                (message "Processing queued gptel request task %s..." task-id)
+                (fanshi/gptel--replay-queued-request task-id))
+            (error
+             (setq fanshi/gptel--queued-request-task-id task-id)
+             (message "Failed to replay queued gptel request task %s: %s"
+                      task-id (error-message-string err))))))))
 
   (defun fanshi/gptel--preset-model-in-prompt ()
     "Return the model set by @preset markers in prompt, or nil if none.
@@ -3082,7 +3165,10 @@ models are resolved exactly as in the real request."
       (buffer-local-value 'gptel-model prompt-buffer)))
 
   (defun fanshi/gptel-request-maybe-waiting-main-model-a (orig-f &rest args)
-    "Advice for `gptel-send' to handle main model concurrency.
+    "Advice for `gptel-send' to keep main model requests strictly sequential.
+If ANY main model is already running — even the same one — the request
+is not sent immediately: it is queued as a TODO task in the AI tasks
+org file and replayed once all main model requests have finished.
 Resolves the model this request will actually use, in order of
 precedence:
 1. Model set by an @preset in the current prompt.  Presets are
@@ -3098,28 +3184,32 @@ precedence:
       (with-mutex fanshi/gptel-send-mutex
         (if-let* (((and gptel-backend (not (plist-get gptel-backend :protocol "https"))))
                   ((member effective-model fanshi/main-models))
-                  (active-model (fanshi/gptel--get-active-main-model))
-                  ((not (equal active-model effective-model))))
+                  (active-model (fanshi/gptel--get-active-main-model)))
             (pcase (completing-read
                     (format "Main model %s is already running. %s is requested. Choice: "
                             active-model effective-model)
-                    '("Use active model" "Schedule later" "Cancel")
+                    '("Schedule later" "Use active model" "Cancel")
                     nil t)
+              ("Schedule later"
+               (if fanshi/gptel--queued-request-task-id
+                   (message "Request not sent: task %s is already queued. The prompt stays in this buffer; send it again once the queue is clear."
+                            fanshi/gptel--queued-request-task-id)
+                   (let ((task-id
+                          (fanshi/gptel--queue-request-as-task
+                           (buffer-substring (point-min) (point))
+                           effective-model
+                           (gptel-backend-name gptel-backend)
+                           (and (string-prefix-p "*gptel-agent:" (buffer-name))
+                                default-directory))))
+                     (setq fanshi/gptel--queued-request-task-id task-id)
+                     (message "Request queued as task %s. It will run when %s is taking a timeoff."
+                              task-id active-model))))
               ("Use active model"
                (let ((gptel-model active-model))
                  (message "Using currently active model %s" active-model)
                  (apply orig-f args)))
-              ("Schedule later"
-               (let ((project-dir (and (string-prefix-p "*gptel-agent:" (buffer-name))
-                                       default-directory)))
-                 (push (list (buffer-substring (point-min) (point))
-                             :model effective-model
-                             :backend gptel-backend
-                             :project-dir project-dir)
-                       fanshi/gptel--waiting-request-alist)
-                 (message "Request scheduled. It will run when %s is taking a timeoff." active-model)))
               (_ (error "Request cancelled")))
-          ;; No conflicting main model, proceed normally
+          ;; No main model running, proceed normally
           (apply orig-f args))))))
 
 (after! gptel
@@ -4759,13 +4849,15 @@ One line per task: state, heading, org-id and key properties."
                  for agent = (org-entry-get (point) "AGENT")
                  for depends-on = (org-entry-get (point) "DEPENDS_ON")
                  for scoped-project = (org-entry-get (point) "SCOPED_PROJECT")
-                 collect (format "- [%s] %s (ID: %s%s%s%s%s%s)"
+                 for gptel-model = (org-entry-get (point) "GPTEL_MODEL")
+                 collect (format "- [%s] %s (ID: %s%s%s%s%s%s%s)"
                                  keyword heading id
                                  (when priority (format ", priority: %s" priority))
                                  (when delegated-to (format ", delegated-to: %s" delegated-to))
                                  (when agent (format ", agent: %s" agent))
                                  (when depends-on (format ", depends-on: %s" depends-on))
-                                 (when scoped-project (format ", project: %s" scoped-project)))))))
+                                 (when scoped-project (format ", project: %s" scoped-project))
+                                 (when gptel-model (format ", gptel-model: %s" gptel-model))))))
 
   (defun fanshi/ai-nightly--run ()
     "Spawn a Scrum Master agent to process all AI-delegated tasks."
@@ -4779,7 +4871,7 @@ One line per task: state, heading, org-id and key properties."
         (gptel-agent ai-tasks-dir 'scrum)
         (goto-char (point-max))
         (insert (format
-                 "\n\n# Nightly Task Dispatch\n\nCurrent tasks in %s:\n%s\n\nFor each TODO task, call Delegate with its task-id, an agent, and priority/time-limit/deadline/schedule when you know them.\nIf a TODO task describes a feature or goal rather than a single focused unit of work, break it down with BreakdownTask first, then delegate the resulting subtasks.\nWhen a task has an agent: property, use that agent.\nWhen a task has a project: property, pass it as the project of any BreakdownTask call for that task.\nSkip tasks already in DELEGATED, DONE, or KILL state.\nSkip tasks with depends-on: unless every listed task ID is DONE. Delegate also refuses to run a task whose depends-on are not DONE, so do not retry a blocked task.\nTasks with delegated-to: user are pending human input — skip them.\nAfter delegating all tasks, report a summary table.\n"
+                 "\n\n# Nightly Task Dispatch\n\nCurrent tasks in %s:\n%s\n\nFor each TODO task, call Delegate with its task-id, an agent, and priority/time-limit/deadline/schedule when you know them.\nIf a TODO task describes a feature or goal rather than a single focused unit of work, break it down with BreakdownTask first, then delegate the resulting subtasks.\nWhen a task has an agent: property, use that agent.\nWhen a task has a project: property, pass it as the project of any BreakdownTask call for that task.\nSkip tasks already in DELEGATED, DONE, or KILL state.\nSkip tasks with depends-on: unless every listed task ID is DONE. Delegate also refuses to run a task whose depends-on are not DONE, so do not retry a blocked task.\nTasks with delegated-to: user are pending human input — skip them.\nTasks whose heading starts with \"[gptel]\" are queued gptel requests — skip them, they are replayed automatically when a main model frees up.\nAfter delegating all tasks, report a summary table.\n"
                  ai-tasks-file (fanshi/ai-nightly--task-list ai-tasks-file)))
         (gptel-send)
         (current-buffer)))))
