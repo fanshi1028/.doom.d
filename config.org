@@ -2285,18 +2285,18 @@ Increments `fanshi/gptel--code-check-fix-count' to track retry depth."
     (message "Gptel code check failed (attempt %d/%d), auto-fixing..."
              fanshi/gptel--code-check-fix-count
              fanshi/gptel-code-check-auto-fix-max-retries)
-    (let ((fanshi/prevent-duplicate-gptel-send nil)
-          (err (plist-get failure :error))
-          (err-block (if (derived-mode-p 'org-mode)
-                         (format "#+begin_example\n%s\n#+end_example" err)
-                       (format "```\n%s\n```" err)))
-          (formated-err (format "In %s:\n%s" (plist-get failure :file) err-block))
-          (prompt
-           (format
-            "Command(%s) failed.\n\n%s\n\nPlease fix the error in the source file(%s) then report the fix."
-            (plist-get failure :cmd)
-            formated-err
-            (plist-get failure :source))))
+    (let* ((fanshi/prevent-duplicate-gptel-send nil)
+            (err (plist-get failure :error))
+            (err-block (if (derived-mode-p 'org-mode)
+                           (format "#+begin_example\n%s\n#+end_example" err)
+                         (format "```\n%s\n```" err)))
+            (formated-err (format "In %s:\n%s" (plist-get failure :file) err-block))
+            (prompt
+             (format
+              "Command(%s) failed.\n\n%s\n\nPlease fix the error in the source file(%s) then report the fix."
+              (plist-get failure :cmd)
+              formated-err
+              (plist-get failure :source))))
       (without-restriction
         (goto-char (point-max))
         (insert "\n\n" prompt)
