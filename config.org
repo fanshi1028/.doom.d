@@ -1489,11 +1489,8 @@ Reuses consult-imenu--items-safe for caching and robustness."
 (defvar fanshi/coding-tools '("read-tools" "write-tools" "WebFetch" "WebSearch")
   "Base tool list for the coding preset.
 Project-specific tools are appended via gptel-mode-hook using setq-local.")
-(defvar fanshi/scrum-tools '("BreakdownTask" "Delegate" "ReplayGptelTask")
-  "The Scrum Master's tools: break down high-level tasks into subtasks
-(BreakdownTask), delegate them (Delegate), and replay queued gptel
-requests (ReplayGptelTask).
-Research, coding and everything else is delegated to other agents via Delegate.")
+(defvar fanshi/scrum-tools '("read-tools" "BreakdownTask" "Delegate")
+  "The Scrum Master's tools.")
 (after! gptel-agent
   (defun fanshi/update-tools-category (new-category toolnames-list)
     "Move TOOLNAMES-LIST from their current categories to NEW-CATEGORY."
