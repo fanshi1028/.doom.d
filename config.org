@@ -3140,10 +3140,10 @@ precedence:
                 ("Use active model"
                  (let ((gptel-model active-model))
                    (message "Using currently active model %s" active-model)
-                   (apply orig-f args))))
-            (_ (error "Request cancelled")))
-          ;; No main model running, proceed normally
-          (apply orig-f args)))))
+                   (apply orig-f args)))
+                (_ (error "Request cancelled")))
+            ;; No main model running, proceed normally
+            (apply orig-f args))))))
 
 
   (defvar-local fanshi/gptel--replay-callback nil
