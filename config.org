@@ -3509,6 +3509,37 @@ process sentinel's cleanup.  Runs as a post-response hook."
              do (setf (alist-get (car entry) gptel--request-alist nil 'remove) nil)))
   (add-hook 'gptel-post-response-functions #'fanshi/gptel--cleanup-finished-requests))
 #+end_src
+** Guard gptel-curl process handlers against stale requests
+`gptel-curl--stream-filter', `gptel-curl--stream-cleanup' and
+`gptel-curl--sentinel' all look up the request FSM with
+`(car (alist-get process gptel--request-alist))' without checking that
+the entry still exists.  If the entry was already removed (by
+`gptel-abort', `fanshi/gptel-abort-at-point-a',
+`fanshi/gptel-abort-all-in-buffer' or
+`fanshi/gptel--cleanup-finished-requests') while the process still
+delivers buffered data to its filter or its sentinel still fires, they
+call `gptel-fsm-info' on nil:
+
+#+begin_example
+error in process filter: Wrong type argument: gptel-fsm, nil
+error in process sentinel: gptel-curl--stream-cleanup: Wrong type argument: gptel-fsm, nil
+#+end_example
+
+Once the entry is gone there is nothing left to do for that process, so
+skip the handler and just make sure the process buffer does not leak.
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/gptel-curl--stale-request-p (process &rest _args)
+    "Skip the original handler if PROCESS has no entry in `gptel--request-alist'."
+    (unless (alist-get process gptel--request-alist)
+      (when-let ((buf (process-buffer process)))
+        (when (buffer-live-p buf)
+          (kill-buffer buf)))
+      t))
+  (advice-add 'gptel-curl--stream-filter :before-until #'fanshi/gptel-curl--stale-request-p)
+  (advice-add 'gptel-curl--stream-cleanup :before-until #'fanshi/gptel-curl--stale-request-p)
+  (advice-add 'gptel-curl--sentinel :before-until #'fanshi/gptel-curl--stale-request-p))
+#+end_src
 ** fanshi/gptel-agent
 #+begin_src emacs-lisp :tangle yes :lexical t
 (map! :map doom-leader-open-map "l l" #'fanshi/gptel-agent)
