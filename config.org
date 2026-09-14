@@ -4133,7 +4133,8 @@ Stores them in `fanshi/gptel--status' for marginalia annotation."
                  (tools (or (buffer-local-value 'fanshi/last-presets-gptel-tools buf)
                             (buffer-local-value 'gptel-tools buf)))
                  (token-strings (buffer-local-value 'gptel--token-usage-strings buf))
-                 (auto-continue (buffer-local-value 'fanshi/gptel--auto-continue-count buf)))
+                 (auto-continue (buffer-local-value 'fanshi/gptel--auto-continue-count buf))
+                 (last-request (buffer-local-value 'fanshi/gptel--last-request-record buf)))
       (when buf
         (concat " "
                 (propertize status 'face face)
@@ -4157,9 +4158,465 @@ Stores them in `fanshi/gptel--status' for marginalia annotation."
                 (when auto-continue
                   (concat " "
                           (propertize (format "(AC:%d)" auto-continue)
-                                      'face 'marginalia-documentation)))))))
+                                      'face 'marginalia-documentation)))
+                ;; NOTE: `fanshi/gptel--last-request-record' and
+                ;; `fanshi/gptel--stats-format-time' are defined in the
+                ;; next section; both tangle into the same config.el.
+                (when last-request
+                  (concat " "
+                          (propertize (format "(last %s)"
+                                              (fanshi/gptel--stats-format-time
+                                               (cdr (assq 'duration last-request))))
+                                      'face 'marginalia-size)))))))
   (add-to-list 'marginalia-annotators '(gptel-buffer fanshi/gptel--annotate))
   (add-to-list 'marginalia-command-categories '(+llm/open-in-same-window . gptel-buffer)))
+#+end_src
+** Time statistics for gptel requests
+How long does a request take, how long until the first token arrives,
+and how fast does the model generate?  Every request that reaches a
+terminal state (done, error or abort) appends one JSON object to
+~fanshi/gptel-request-stats-file~, and ~fanshi/gptel-request-stats~
+renders those records as Org tables.
+
+The timings are stamped on the request's own state machine (see
+~gptel-fsm~) inside ~gptel--fsm-transition~, so requests running in
+parallel in one buffer (see ~fanshi/gptel-multisend~) never mix up
+their numbers:
+- entering ~WAIT~ (the request goes out) starts the clock,
+- the first chunk the curl filter sees marks the first byte of the
+  response (~ttft~),
+- every further chunk with data moves the end of the generating window
+  forward,
+- leaving ~TYPE~ (the streamed response is complete) adds up that round
+  trip's generating time (~gen~),
+- ~DONE~/~ERRS~/~ABRT~ writes the record and echoes the duration.
+
+Note that gptel leaves ~WAIT~ for ~TYPE~ as soon as it parses the HTTP
+status line, /before/ a single token arrives.  So leaving ~WAIT~ closes
+the generating window only for non-streamed responses, which never see a
+chunk; streamed ones stay open until ~TYPE~ ends.  ~ttft~ inherits the
+same offset: the headers precede the first data event, so it slightly
+over-states the time to the first token.
+
+An agent turn with tool calls spans several round trips: ~duration~ is
+the wall clock of the whole turn, ~tool~ the part of it spent in
+~TPRE~/~TOOL~ (waiting for the user to approve a tool call and for the
+tool to run), and ~active~ is ~duration~ minus ~tool~, the time
+attributable to the network and the model.  ~rounds~ counts the trips.
+
+*** Config
+#+begin_src emacs-lisp :tangle yes
+(defcustom fanshi/gptel-request-stats-file
+  (expand-file-name "gptel-request-stats.jsonl"
+                    (if (bound-and-true-p doom-etc-dir) doom-etc-dir user-emacs-directory))
+  "File where gptel request timings are recorded, one JSON object per line.
+Read by `fanshi/gptel-request-stats'."
+  :type 'file
+  :group 'gptel)
+
+(defcustom fanshi/gptel-request-stats-retention-days 30
+  "Number of days of request timings to keep in the stats file.
+Entries older than this are dropped when the file is read, see
+`fanshi/gptel--stats-read'.  The file is always pruned to this many
+days, never to the shorter window `fanshi/gptel-request-stats' is asked
+to summarize."
+  :type 'integer
+  :group 'gptel)
+
+(defcustom fanshi/gptel-request-stats-recent-requests 40
+  "Number of individual requests listed by `fanshi/gptel-request-stats'."
+  :type 'integer
+  :group 'gptel)
+
+(defcustom fanshi/gptel-request-stats-notify t
+  "If non-nil, echo how long each gptel request took when it finishes."
+  :type 'boolean
+  :group 'gptel)
+
+(defvar fanshi/gptel--stats-pruned-p nil
+  "Non-nil once the request stats file has been pruned in this session.")
+
+(defvar-local fanshi/gptel--last-request-record nil
+  "Record (alist) of the last request completed in this buffer.
+Written by `fanshi/gptel--stats-log', read by the marginalia annotation.")
+
+(defun fanshi/gptel--stats-format-time (secs)
+  "Format SECS as a compact duration string, or \"-\" when SECS is nil."
+  (cond
+   ((null secs) "-")
+   ((< secs 60) (format "%.1fs" secs))
+   ((< secs 3600) (format "%.1fm" (/ secs 60.0)))
+   (t (format "%.1fh" (/ secs 3600.0)))))
+
+(defun fanshi/gptel--stats-round (n precision)
+  "Round N to PRECISION decimal places."
+  (let ((factor (expt 10.0 precision)))
+    (/ (round (* (float n) factor)) factor)))
+
+(defun fanshi/gptel--stats-sum (nums)
+  "Sum NUMS, returning 0.0 for the empty list."
+  (if nums (float (apply #'+ nums)) 0.0))
+
+(defun fanshi/gptel--stats-active (entry)
+  "Return the model/network seconds of ENTRY, an alist from the stats file.
+`duration' is the wall clock of the whole turn; the time spent waiting
+for the user to approve a tool call and for the tool to run (see `tool')
+is not the model's, so subtract it to get a figure that compares models."
+  (let ((duration (or (cdr (assq 'duration entry)) 0.0))
+        (tool (or (cdr (assq 'tool entry)) 0.0)))
+    (max 0.0 (- duration tool))))
+
+(defun fanshi/gptel--stats-median (nums)
+  "Return the median of NUMS, or 0.0 when NUMS is empty."
+  (if (null nums)
+      0.0
+    (let* ((sorted (sort (copy-sequence nums) #'<))
+           (n (length sorted)))
+      (if (zerop (mod n 2))
+          (/ (+ (nth (1- (/ n 2)) sorted) (nth (/ n 2) sorted)) 2.0)
+        (float (nth (/ n 2) sorted))))))
+#+end_src
+*** Stamping the timings onto the request
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defun fanshi/gptel--stats-backend-name (backend buffer)
+    "Return a name for BACKEND, falling back to BUFFER's `gptel-backend'."
+    (let ((backend (or backend
+                       (and (buffer-live-p buffer)
+                            (buffer-local-value 'gptel-backend buffer)))))
+      (cond
+       ((null backend) "unknown")
+       ((gptel-backend-p backend) (gptel--to-string (gptel-backend-name backend)))
+       (t (gptel--to-string backend)))))
+
+  (defun fanshi/gptel--stats-log (info state)
+    "Append a timing record for the request described by INFO to the stats file.
+INFO is the request's FSM context (see `gptel-fsm'), STATE the terminal
+state it reached (DONE, ERRS or ABRT).  Requests without a start stamp,
+i.e. dry runs and requests started before this was loaded, are skipped,
+and each FSM is logged exactly once."
+    (when-let* ((start (plist-get info :fanshi-start))
+                ((not (plist-get info :fanshi-logged))))
+      (let* ((end (current-time))
+             (buffer (plist-get info :buffer))
+             (model-name (gptel--to-string (or (plist-get info :model) "the model")))
+             (tokens (or (plist-get info :tokens-full) (plist-get info :tokens)))
+             (output (float (or (plist-get tokens :output) 0)))
+             (duration (float-time (time-subtract end start)))
+             (tool (or (plist-get info :fanshi-tool) 0.0))
+             (ttft (plist-get info :fanshi-ttft))
+             ;; Non-streamed responses never see a chunk, count them whole.
+             (gen (or (plist-get info :fanshi-gen) duration))
+             (tps (if (> gen 0.1) (fanshi/gptel--stats-round (/ output gen) 1) 0.0))
+             (record
+              `((version . 1)
+                (timestamp . ,(fanshi/gptel--stats-round (float-time end) 2))
+                (model . ,(gptel--to-string (or (plist-get info :model) "unknown")))
+                (backend . ,(fanshi/gptel--stats-backend-name (plist-get info :backend) buffer))
+                (buffer . ,(if (buffer-live-p buffer) (buffer-name buffer) ""))
+                (duration . ,(fanshi/gptel--stats-round duration 2))
+                (tool . ,(fanshi/gptel--stats-round tool 2))
+                (active . ,(fanshi/gptel--stats-round (max 0.0 (- duration tool)) 2))
+                (ttft . ,(and ttft (fanshi/gptel--stats-round ttft 2)))
+                (gen . ,(fanshi/gptel--stats-round gen 2))
+                (tps . ,tps)
+                (in . ,(or (plist-get tokens :input) 0))
+                (out . ,(round output))
+                (rounds . ,(or (plist-get info :fanshi-rounds) 1))
+                (status . ,(downcase (symbol-name state))))))
+        (make-directory (file-name-directory fanshi/gptel-request-stats-file) t)
+        (write-region (concat (json-encode record) "\n") nil
+                      fanshi/gptel-request-stats-file 'append 'silent)
+        ;; Mark it logged only once the line is safely on disk, so a
+        ;; failed write can be retried by the next terminal transition.
+        (plist-put info :fanshi-logged t)
+        (when (buffer-live-p buffer)
+          (with-current-buffer buffer
+            (setq fanshi/gptel--last-request-record record)))
+        (when fanshi/gptel-request-stats-notify
+          ;; Echo from an idle timer: this runs inside a process filter or
+          ;; sentinel, where `message' would stomp the echo area only to be
+          ;; overwritten by gptel's own ERRS message a moment later.
+          (run-with-idle-timer
+           0.05 nil
+           (lambda ()
+             (message "gptel: %s in %s%s%s"
+                      model-name
+                      (fanshi/gptel--stats-format-time duration)
+                      (if (> tps 0.0) (format ", %.1f tok/s" tps) "")
+                      (if (eq state 'done) "" (format " [%s]" state))))))
+        ;; One clean-up pass per Emacs session keeps the file in check.
+        ;; Deferred: this runs inside a process filter, and pruning is a
+        ;; read-modify-write that could clobber a line appended by another
+        ;; Emacs instance in the meantime.
+        (unless fanshi/gptel--stats-pruned-p
+          (setq fanshi/gptel--stats-pruned-p t)
+          (run-with-idle-timer 5.0 nil #'fanshi/gptel--stats-prune)))))
+
+  (defun fanshi/gptel--fsm-transition-stats-a (fsm &optional new-state)
+    "Track how long the request driven by FSM takes.
+Advice for `gptel--fsm-transition': entering WAIT starts the clock and
+clears the stamps for the new round trip, entering TPRE/TOOL starts the
+tool clock, leaving WAIT stamps the time to the first byte of the
+response (and closes the generating window of a non-streamed one),
+leaving TYPE closes the generating window of a streamed round trip,
+leaving TPRE/TOOL adds up the time the tools took, and a terminal state
+writes the record.  The stamps live in the FSM's INFO plist, so
+concurrent requests never share timings."
+    (with-demoted-errors "gptel request stats: %S"
+      (let* ((info (gptel-fsm-info fsm))
+             (from (gptel-fsm-state fsm))
+             ;; Predicting the next state runs the transition predicates a
+             ;; second time, `gptel--fsm-transition' works them out again;
+             ;; they are cheap and side-effect free today.
+             (to (or new-state (gptel--fsm-next fsm))))
+        ;; Leaving a state closes the window that state owned.
+        (cond
+         ((eq from 'WAIT)
+          (when-let ((start (plist-get info :fanshi-start)))
+            (unless (plist-get info :fanshi-ttft)
+              (plist-put info :fanshi-ttft
+                         (float-time (time-subtract
+                                     (or (plist-get info :fanshi-first) (current-time))
+                                     start))))
+            ;; gptel transitions WAIT -> TYPE on the response headers, so
+            ;; a streamed response is still generating here and its window
+            ;; stays open until TYPE is left.  A non-streamed response
+            ;; never sees a chunk: its whole round trip was waiting.
+            (unless (plist-get info :fanshi-first)
+              (plist-put info :fanshi-gen
+                         (+ (float-time (time-subtract (current-time) start))
+                            (or (plist-get info :fanshi-gen) 0.0))))))
+         ((and (eq from 'TYPE) (plist-get info :fanshi-first))
+          (plist-put info :fanshi-gen
+                     (+ (float-time (time-subtract
+                                     (or (plist-get info :fanshi-last) (current-time))
+                                     (plist-get info :fanshi-first)))
+                        (or (plist-get info :fanshi-gen) 0.0))))
+         ((memq from '(TPRE TOOL))
+          (when-let ((tool-start (plist-get info :fanshi-tool-start)))
+            (plist-put info :fanshi-tool
+                       (+ (float-time (time-subtract (current-time) tool-start))
+                          (or (plist-get info :fanshi-tool) 0.0)))
+            (plist-put info :fanshi-tool-start nil))))
+        ;; Entering a state opens the windows that state owns.
+        (pcase to
+          ('WAIT
+           (unless (plist-get info :fanshi-start)
+             (plist-put info :fanshi-start (current-time)))
+           (plist-put info :fanshi-first nil)
+           (plist-put info :fanshi-last nil)
+           (plist-put info :fanshi-rounds (1+ (or (plist-get info :fanshi-rounds) 0)))
+           ;; A fresh round trip is in flight: drop the previous duration
+           ;; so marginalia does not present it as this request's.
+           (when-let ((buf (plist-get info :buffer)))
+             (when (buffer-live-p buf)
+               (with-current-buffer buf
+                 (setq fanshi/gptel--last-request-record nil)))))
+          ((or 'TPRE 'TOOL)
+           (unless (plist-get info :fanshi-tool-start)
+             (plist-put info :fanshi-tool-start (current-time))))
+          ((or 'DONE 'ERRS 'ABRT)
+           (fanshi/gptel--stats-log info to))))))
+
+  (defun fanshi/gptel--stream-filter-chunk-a (process output)
+    "Stamp the streamed chunks arriving for PROCESS.
+Advice for `gptel-curl--stream-filter': the first call marks the start
+of the response (its headers arrive ahead of the first token) and every
+later call with data moves the end of the generating window forward."
+    (with-demoted-errors "gptel request stats: %S"
+      (when-let* ((fsm (car (alist-get process gptel--request-alist)))
+                  (info (gptel-fsm-info fsm)))
+        (unless (plist-get info :fanshi-first)
+          (plist-put info :fanshi-first (current-time)))
+        (when (and (stringp output) (> (length output) 0))
+          (plist-put info :fanshi-last (current-time))))))
+
+  (advice-add 'gptel--fsm-transition :before #'fanshi/gptel--fsm-transition-stats-a)
+  (advice-add 'gptel-curl--stream-filter :before #'fanshi/gptel--stream-filter-chunk-a))
+#+end_src
+*** fanshi/gptel-request-stats
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defun fanshi/gptel--stats-read (&optional days)
+    "Return the request records of the last DAYS days as alists, oldest first.
+DAYS defaults to `fanshi/gptel-request-stats-retention-days' and only
+decides which records are returned.  The file on disk is always pruned
+to `fanshi/gptel-request-stats-retention-days', never to DAYS, so
+summarizing a shorter window never discards history.  Records without a
+usable timestamp and unparsable lines are dropped from the file."
+    (when (file-exists-p fanshi/gptel-request-stats-file)
+      (let* ((days (or days fanshi/gptel-request-stats-retention-days))
+             (cutoff (- (float-time) (* 86400.0 days)))
+             (prune-cutoff (- (float-time)
+                              (* 86400.0 fanshi/gptel-request-stats-retention-days))))
+        (with-temp-buffer
+          (insert-file-contents fanshi/gptel-request-stats-file)
+          (let ((entries nil) (kept nil) (stale-p nil))
+            (goto-char (point-min))
+            (while (not (eobp))
+              (unless (looking-at-p "$")
+                (let* ((record (ignore-errors
+                                 (let ((json-object-type 'alist))
+                                   (json-read-from-string
+                                    (buffer-substring-no-properties
+                                     (line-beginning-position)
+                                     (line-end-position))))))
+                       (timestamp (and (consp record)
+                                       (cdr (assq 'timestamp record)))))
+                  (cond
+                   ;; Unparsable or malformed: no longer our business.
+                   ((not (numberp timestamp)) (setq stale-p t))
+                   ;; Past retention: drop for good.
+                   ((< timestamp prune-cutoff) (setq stale-p t))
+                   ;; Keep on disk; report only when inside DAYS.
+                   (t (push record kept)
+                      (when (>= timestamp cutoff)
+                        (push record entries)))))
+                (forward-line)))
+            (when stale-p
+              (erase-buffer)
+              (dolist (record (nreverse kept))
+                (insert (json-encode record) "\n"))
+              (write-region (point-min) (point-max) fanshi/gptel-request-stats-file
+                            nil 'silent))
+            (nreverse entries))))))
+
+  (defun fanshi/gptel--stats-prune ()
+    "Drop records outside the retention window from the stats file.
+Runs off an idle timer after the first request of a session, see
+`fanshi/gptel--stats-log', rather than from the process filter that
+appends to the same file."
+    (interactive)
+    (fanshi/gptel--stats-read))
+
+  (defun fanshi/gptel--stats-insert-table (header rows)
+    "Insert an Org table with HEADER and ROWS (lists of strings) at point."
+    (insert (format "| %s |\n" (mapconcat #'identity header " | "))
+            (format "|%s|\n" (mapconcat (lambda (_) "---") header "|")))
+    (dolist (row rows)
+      (insert (format "| %s |\n" (mapconcat #'identity row " | "))))
+    (forward-line -1)
+    (org-table-align))
+
+  (defun fanshi/gptel--stats-summary-rows (entries)
+    "Summarise ENTRIES into table rows, one per model/backend, slowest first.
+The avg/median/slowest columns are computed over `active' time, the turn
+minus the time spent waiting on tool calls, so that a model called
+through a slow or manually approved tool stays comparable to others."
+    (let ((groups nil))
+      (dolist (entry entries)
+        (let ((key (cons (cdr (assq 'model entry))
+                         (cdr (assq 'backend entry)))))
+          (if-let ((group (assoc key groups)))
+              (push entry (cdr group))
+            (push (cons key (list entry)) groups))))
+      (mapcar
+       #'cdr
+       (sort
+        (cl-loop
+         for (key . es) in groups
+         for durations = (mapcar (lambda (e) (or (cdr (assq 'duration e)) 0.0)) es)
+         for actives = (mapcar #'fanshi/gptel--stats-active es)
+         for ttfts = (delq nil (mapcar (lambda (e) (cdr (assq 'ttft e))) es))
+         for out = (fanshi/gptel--stats-sum
+                    (mapcar (lambda (e) (float (or (cdr (assq 'out e)) 0))) es))
+         for gen = (fanshi/gptel--stats-sum
+                    (mapcar (lambda (e) (or (cdr (assq 'gen e)) 0.0)) es))
+         for errors = (length
+                       (delq nil (mapcar (lambda (e)
+                                           (and (equal "error" (cdr (assq 'status e))) t))
+                                         es)))
+         for aborts = (length
+                       (delq nil (mapcar (lambda (e)
+                                           (and (equal "abrt" (cdr (assq 'status e))) t))
+                                         es)))
+         collect
+         (cons (fanshi/gptel--stats-sum actives)
+               (list (or (car key) "?")
+                     (or (cdr key) "?")
+                     (number-to-string (length es))
+                     (fanshi/gptel--stats-format-time (fanshi/gptel--stats-sum durations))
+                     (fanshi/gptel--stats-format-time
+                      (/ (fanshi/gptel--stats-sum actives) (float (length es))))
+                     (fanshi/gptel--stats-format-time (fanshi/gptel--stats-median actives))
+                     (fanshi/gptel--stats-format-time (apply #'max actives))
+                     (if ttfts
+                         (fanshi/gptel--stats-format-time
+                          (/ (fanshi/gptel--stats-sum ttfts) (float (length ttfts))))
+                       "-")
+                     (if (> gen 0.1) (format "%.1f" (/ out gen)) "-")
+                     (number-to-string (round out))
+                     (cond
+                      ((and (zerop errors) (zerop aborts)) "")
+                      ((zerop aborts) (number-to-string errors))
+                      (t (format "%de/%da" errors aborts))))))
+        (lambda (a b) (> (car a) (car b)))))))
+
+  (defun fanshi/gptel--stats-request-rows (entries)
+    "Render ENTRIES (oldest first) as table rows, newest first."
+    (mapcar
+     (lambda (entry)
+       (let ((gen (or (cdr (assq 'gen entry)) 0.0))
+             (out (float (or (cdr (assq 'out entry)) 0)))
+             (tool (or (cdr (assq 'tool entry)) 0.0)))
+         (list (format-time-string "%Y-%m-%d %H:%M"
+                                   (or (cdr (assq 'timestamp entry)) 0))
+               (or (cdr (assq 'model entry)) "?")
+               (fanshi/gptel--stats-format-time (cdr (assq 'duration entry)))
+               (fanshi/gptel--stats-format-time (cdr (assq 'ttft entry)))
+               (fanshi/gptel--stats-format-time (if (> gen 0.0) gen nil))
+               (if (> gen 0.1) (format "%.1f" (/ out gen)) "-")
+               (fanshi/gptel--stats-format-time (if (> tool 0.05) tool nil))
+               (number-to-string (or (cdr (assq 'rounds entry)) 1))
+               (or (cdr (assq 'status entry)) "?"))))
+     (reverse entries)))
+
+  (defun fanshi/gptel-request-stats (&optional days)
+    "Show timing statistics for the gptel requests of the last DAYS days.
+With a prefix argument, prompt for the number of days.  The records come
+from `fanshi/gptel-request-stats-file', which is pruned to
+`fanshi/gptel-request-stats-retention-days' as it is read."
+    (interactive
+     (list (when current-prefix-arg
+             (read-number "Days to summarize: "
+                         fanshi/gptel-request-stats-retention-days))))
+    (let ((entries (fanshi/gptel--stats-read days))
+          (buffer (get-buffer-create "*gptel request stats*")))
+      (with-current-buffer buffer
+        (org-mode)
+        (let ((inhibit-read-only t))
+          (erase-buffer)
+          (insert (format-time-string "#+TITLE: GPTel Request Statistics %Y-%m-%d\n\n"))
+          (if (null entries)
+              (insert (format "Nothing recorded in %s yet.\n"
+                              (abbreviate-file-name fanshi/gptel-request-stats-file)))
+            (insert (format "%d requests, %s of model time (%s of turn time) in the last %s days.\n\n"
+                            (length entries)
+                            (fanshi/gptel--stats-format-time
+                             (fanshi/gptel--stats-sum
+                              (mapcar #'fanshi/gptel--stats-active entries)))
+                            (fanshi/gptel--stats-format-time
+                             (fanshi/gptel--stats-sum
+                              (mapcar (lambda (e) (or (cdr (assq 'duration e)) 0.0)) entries)))
+                            (or days fanshi/gptel-request-stats-retention-days)))
+            (insert "** By model\n\n")
+            (fanshi/gptel--stats-insert-table
+             '("model" "backend" "requests" "turn total" "model avg"
+               "model median" "model slowest" "first byte" "tok/s"
+               "tokens out" "err")
+             (fanshi/gptel--stats-summary-rows entries))
+            (insert "\n** Recent requests\n\n")
+            (fanshi/gptel--stats-insert-table
+             '("time" "model" "turn" "first byte" "generating" "tok/s"
+               "tools" "rounds" "status")
+             (fanshi/gptel--stats-request-rows
+              (last entries
+                   (min (length entries)
+                        fanshi/gptel-request-stats-recent-requests)))))
+          (goto-char (point-min)))
+        (display-buffer buffer))
+      buffer)))
 #+end_src
 * Literate recompilation only for config.org
 #+begin_src emacs-lisp :tangle yes
@@ -4503,7 +4960,7 @@ human's call, via `fanshi/ai-delegate--discard-task'."
           (fanshi/call-jj "describe"
                           (format "--message=ABORTED: %s"
                                   (replace-regexp-in-string "[\r\n]+" " "
-                                                         (string-trim summary))))
+                                                            (string-trim summary))))
         (error
          (message "Warning: jj describe failed: %s" (error-message-string err))))
       (fanshi/ai-delegate--update-task-by-id fanshi/ai-delegate--current-task-id "KILL" summary)
@@ -4673,16 +5130,16 @@ working on TASK in an isolated jj workspace."
                 (insert
                  (string-join
                   (list "# Delegated Task"
-                      ""
-                      task
-                      ""
-                      (format "You are working in the isolated jj workspace %s (workspace name \"%s\"), based on the commit the main workspace was on."
-                              (file-name-as-directory target-dir) branch-name)
-                      "jj snapshots your file changes into the working-copy commit (@) automatically; FinishTask hands that commit over for integration, so do NOT run `jj new`, `jj squash` or `jj abandon` yourself."
-                      "When you complete the task, call the FinishTask tool with a summary."
-                      "If you cannot complete it, call AbortTask with a reason: your workspace and its partial work stay on disk for the human to review or discard."
-                      "If you need human input, call Delegate with agent=\"user\" and a task description."
-                      "")
+                        ""
+                        task
+                        ""
+                        (format "You are working in the isolated jj workspace %s (workspace name \"%s\"), based on the commit the main workspace was on."
+                                (file-name-as-directory target-dir) branch-name)
+                        "jj snapshots your file changes into the working-copy commit (@) automatically; FinishTask hands that commit over for integration, so do NOT run `jj new`, `jj squash` or `jj abandon` yourself."
+                        "When you complete the task, call the FinishTask tool with a summary."
+                        "If you cannot complete it, call AbortTask with a reason: your workspace and its partial work stay on disk for the human to review or discard."
+                        "If you need human input, call Delegate with agent=\"user\" and a task description."
+                        "")
                   "\n"))
                 (gptel-send))
               (funcall cb (format "Task delegated to agent buffer '%s' in jj workspace.\nOrg entry updated to DELEGATED.\nYou can observe progress by visiting the agent buffer."
@@ -4722,6 +5179,46 @@ SCHEDULE: \"YYYY-MM-DD[ HH:MM]\" when the task should start."
   ;; `fanshi/gptel-agent' section): it returns stdout as a string and raises
   ;; an error carrying jj's stderr, so a failing `jj diff' cannot surface as
   ;; an empty review buffer plus a cheerful "Diff shown" message.
+  (defun fanshi/ai-delegate--jj-output (&rest args)
+    "Return the stdout of `jj ARGS' as a string.
+Runs in the current buffer's `default-directory'.  Unlike `fanshi/call-jj'
+(that one sends stdout into its own discarded temp buffer) this keeps
+stdout, while still reporting jj's stderr on failure: otherwise a failing
+`jj diff' would surface as an empty review buffer plus a cheerful \"Diff
+shown\" message.  stderr goes to a temp file because the stderr slot of
+`call-process' accepts nil, t or a file name, not a buffer."
+    (let ((stderr-file (make-temp-file "jj-stderr")))
+      (unwind-protect
+          (with-temp-buffer
+            (unless (zerop (apply #'call-process "jj" nil `(t ,stderr-file) nil args))
+              (error "jj %s failed: %s"
+                     (mapconcat #'identity args " ")
+                     (with-temp-buffer
+                       (insert-file-contents stderr-file)
+                       (let ((msg (ansi-color-apply (string-trim (buffer-string)))))
+                         (if (string-empty-p msg) "unknown error" msg)))))
+            (buffer-string))
+        (delete-file stderr-file))))
+  (defun fanshi/ai-delegate--jj-output (&rest args)
+    "Return the stdout of `jj ARGS' as a string.
+Runs in the current buffer's `default-directory'.  Unlike `fanshi/call-jj'
+(that one sends stdout into its own discarded temp buffer) this keeps
+stdout, while still reporting jj's stderr on failure: otherwise a failing
+`jj diff' would surface as an empty review buffer plus a cheerful \"Diff
+shown\" message.  stderr goes to a temp file because the stderr slot of
+`call-process' accepts nil, t or a file name, not a buffer."
+    (let ((stderr-file (make-temp-file "jj-stderr")))
+      (unwind-protect
+          (with-temp-buffer
+            (unless (zerop (apply #'call-process "jj" nil `(t ,stderr-file) nil args))
+              (error "jj %s failed: %s"
+                     (mapconcat #'identity args " ")
+                     (with-temp-buffer
+                       (insert-file-contents stderr-file)
+                       (let ((msg (ansi-color-apply (string-trim (buffer-string)))))
+                         (if (string-empty-p msg) "unknown error" msg)))))
+            (buffer-string))
+        (delete-file stderr-file))))
 
   (defun fanshi/ai-delegate--review-task-diff (task-id)
     "Review the changes made by an agent for TASK-ID.
@@ -4760,7 +5257,7 @@ Shows the commit graph including the agent's changes."
                   (default-directory (file-name-as-directory worktree-dir)))
               (erase-buffer)
               (insert (fanshi/call-jj
-                      "log" "-T" "commit_id.short() ++ \" \" ++ description.firstline() ++ \"\\n\""))
+                       "log" "-T" "commit_id.short() ++ \" \" ++ description.firstline() ++ \"\\n\""))
               (special-mode)))
           (switch-to-buffer-other-window log-buf)
           (message "Showing jj log for task %s" task-id)
@@ -4853,9 +5350,9 @@ reported: the main workspace then contains conflict markers."
              ;; the FIRST tab only: a description may contain tabs, and those
              ;; belong to the message, not to the separator.
              (agent-line (string-trim
-                         (let ((default-directory (file-name-as-directory worktree-dir)))
-                           (fanshi/call-jj "log" "-r" "@" "--no-graph" "-T"
-                                           "commit_id() ++ \"\\t\" ++ description ++ \"\\n\""))))
+                          (let ((default-directory (file-name-as-directory worktree-dir)))
+                            (fanshi/call-jj "log" "-r" "@" "--no-graph" "-T"
+                                            "commit_id() ++ \"\\t\" ++ description ++ \"\\n\""))))
              (sep (string-match "\t" agent-line))
              (commit-id (if sep (substring agent-line 0 sep) ""))
              (agent-desc (if sep (substring agent-line (1+ sep)) "")))
@@ -4868,15 +5365,15 @@ reported: the main workspace then contains conflict markers."
         ;; Marked before the cleanup below: a half-finished integration must
         ;; never be "helpfully" re-run into a second squash.
         (fanshi/ai-delegate--task-property task-id "INTEGRATED"
-                                            (format-time-string "%Y-%m-%d %H:%M:%S"))
+                                           (format-time-string "%Y-%m-%d %H:%M:%S"))
         ;; jj records a conflict instead of failing, so detect it and tell the
         ;; user: the main workspace now contains conflict markers.
         (let ((conflicted
-                (string= "true"
-                         (string-trim
-                          (let ((default-directory main-dir))
-                            (fanshi/call-jj "log" "-r" "@" "--no-graph" "-T"
-                                            "conflict()"))))))
+               (string= "true"
+                        (string-trim
+                         (let ((default-directory main-dir))
+                           (fanshi/call-jj "log" "-r" "@" "--no-graph" "-T"
+                                           "conflict()"))))))
           ;; Cleanup failures must not mask a successful integration, so each
           ;; step is best-effort on its own: `workspace forget' only drops
           ;; jj's bookkeeping, trashing removes the files, and neither may
@@ -4914,9 +5411,9 @@ the human to discard."
                 (marker (org-id-find task-id t))
                 (buf (marker-buffer marker))
                 (state (with-current-buffer buf
-                        (save-excursion
-                          (goto-char marker)
-                          (org-get-todo-state)))))
+                         (save-excursion
+                           (goto-char marker)
+                           (org-get-todo-state)))))
       (move-marker marker nil)
       (when (string= state "DONE")
         ;; Disarm before mutating: integration runs jj in the user's main
