@@ -2602,7 +2602,10 @@ workspace cleanup.  For regular sessions, saves to `default-directory'."
                       (filename (concat
                                  (->> (buffer-name)
                                       (s-chop-suffix "*")
-                                      (s-chop-prefix "*gptel-agent:"))
+                                      (s-chop-prefix "*gptel-agent:")
+                                      ;; Strip characters that are awkward in
+                                      ;; filenames (commas etc.).
+                                      (replace-regexp-in-string "[,;'\"`|]" ""))
                                  "-" timestamp ".org")))
                 (progn
                   (make-directory dir t)
@@ -3590,12 +3593,22 @@ or a file name, never a buffer."
                 (insert (format "%s\n" task-description))))
             buf)
         ;; We're in the default workspace of a jj repo — create a new workspace
+        ;; Strip characters that are awkward in directory names (commas break
+        ;; shell quoting and look wrong in paths); collapse runs of "-" that
+        ;; result from stripping.
         (let* ((name (->> task-description
                           (s-replace "/" "-")
                           (s-replace " " "-")
                           (s-replace ":" "-")
                           (concat (projectile-project-name default-directory) "-")
-                          (downcase)))
+                          (downcase)
+                          (replace-regexp-in-string "[,;'\"`|]" "")
+                          (replace-regexp-in-string "-+" "-")
+                          ;; Drop leading "-" too: a name like
+                          ;; "fix-, foo" would become "-fix-foo" after
+                          ;; stripping the comma, which clap reads as a flag.
+                          (string-remove-prefix "-")
+                          (string-remove-suffix "-")))
                (dir (file-name-as-directory (expand-file-name name fanshi/breeding-ground-dir))))
           (fanshi/call-jj "workspace" "add" "--name" name dir)
           (let ((buf (gptel-agent dir 'gptel-agent)))
