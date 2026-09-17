@@ -5176,7 +5176,7 @@ SCHEDULE: \"YYYY-MM-DD[ HH:MM]\" when the task should start."
             :description "Name of the agent preset to delegate to, or \"user\" for human input")
            (:name "task-id" :type string :optional t
             :description "The org-id of an existing backlog entry; omit to create a new task entry")
-           (:name "priority" :type string :optional t :enum ("A" "B" "C" "D" "E")
+           (:name "priority" :type string :optional t :enum ["A" "B" "C" "D" "E"]
             :description "Priority, A most urgent to E least urgent")
            (:name "time-limit" :type integer :optional t
             :description "Seconds the agent may spend on the task")
