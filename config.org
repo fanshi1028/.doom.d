@@ -3843,7 +3843,7 @@ with one entry per conversation turn."
           ;; Skip headings that are part of a response (e.g. level-1
           ;; headings the model wrote inside its answer) — only
           ;; genuine prompt headings start a conversation turn.
-          (when (and (org-heading-p)
+          (when (and (org-at-heading-p)
                      (null (get-char-property (match-end 0) 'gptel)))
             (let* ((subtree-end (or (save-excursion (org-end-of-subtree) (point))
                                     (point-max)))
@@ -3925,25 +3925,27 @@ The new agent buffer is left for review; with prefix argument SEND,
 the request is sent immediately."
     (interactive
      (list (read-string "Meta task (e.g. summarise, verify, judge the result): ")
-           (read-buffer (format "Conversation buffer (default %s): "
-                                (or (buffer-name fanshi/gptel-last-agent-buffer) ""))
-                        t
+           (read-buffer "Conversation buffer: "
                         (buffer-name fanshi/gptel-last-agent-buffer)
-                        (lambda (b) (and (buffer-local-value 'gptel-mode b)
-                                         (eq (buffer-local-value 'major-mode b)
-                                             'org-mode))))
+                        t
+                        (lambda (b)
+                          (and-let* ((buf (get-buffer (or (car-safe b) b)))
+                                     ((buffer-local-value 'gptel-mode buf))
+                                     ((eq (buffer-local-value 'major-mode buf)
+                                          'org-mode)))
+                            t)))
            current-prefix-arg))
     (setq source-buf (get-buffer source-buf))
     (unless source-buf
       (user-error "No gptel conversation buffer selected"))
-    (let ((orig-buffer (current-buffer))
-          (transcript
-           (with-current-buffer source-buf
-             (unless (derived-mode-p 'org-mode)
-               (user-error "%s is not an org-mode gptel buffer" source-buf))
-             (if (and (eq source-buf orig-buffer) (region-active-p))
-                 (fanshi/gptel--extract-transcript (region-beginning) (region-end))
-               (fanshi/gptel--extract-transcript)))))
+    (let* ((orig-buffer (current-buffer))
+           (transcript
+            (with-current-buffer source-buf
+              (unless (derived-mode-p 'org-mode)
+                (user-error "%s is not an org-mode gptel buffer" source-buf))
+              (if (and (eq source-buf orig-buffer) (region-active-p))
+                  (fanshi/gptel--extract-transcript (region-beginning) (region-end))
+                (fanshi/gptel--extract-transcript)))))
       (when (string-blank-p transcript)
         (user-error "No conversation turns found in %s" source-buf))
       (let ((fence (fanshi/gptel--code-fence transcript))
@@ -4182,7 +4184,8 @@ Stores them in `fanshi/gptel--status' for marginalia annotation."
                                                (cdr (assq 'duration last-request))))
                                       'face 'marginalia-size)))))))
   (add-to-list 'marginalia-annotators '(gptel-buffer fanshi/gptel--annotate))
-  (add-to-list 'marginalia-command-categories '(+llm/open-in-same-window . gptel-buffer)))
+  (add-to-list 'marginalia-command-categories '(+llm/open-in-same-window . gptel-buffer))
+  (add-to-list 'marginalia-command-categories '(fanshi/gptel-meta-request . gptel-buffer)))
 #+end_src
 ** Time statistics for gptel requests
 How long does a request take, how long until the first token arrives,
