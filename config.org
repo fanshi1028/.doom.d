@@ -1067,6 +1067,8 @@ gptel--insert-response use org-cycle to hide some block in response which in tur
   (defun fanshi/restrict-to-projectile-files-a (&rest args)
     "Restrict file writes to project root.  No context exceptions."
     (let ((path (car args)))
+      (unless (file-exists-p path)
+        (error "Error: File or directory %s does not exist." path))
       (if-let* ((root (projectile-project-root))
                 (abs-root (expand-file-name root))
                 (abs-path (expand-file-name path)))
@@ -1089,6 +1091,8 @@ stores the full content of oversized tool results in a
 `gptel-agent-temp' directory under `temporary-file-directory' and
 tells the model to read them with the Read tool."
     (let ((file-path (expand-file-name (car args))))
+      (unless (file-exists-p file-path)
+        (error "Error: File or directory %s does not exist." file-path))
       (unless
           (or
            ;; Allow files explicitly added as gptel context
@@ -1204,10 +1208,14 @@ Raises an error if PATTERN is empty, PATH is not readable, or the
 `tree' executable is not found."
     (when (string-empty-p pattern)
       (error "Error: pattern must not be empty"))
-    (if path
-        (unless (and (file-readable-p path) (file-directory-p path))
-          (error "Error: path %s is not readable" path))
-      (setq path "."))
+    (if (not path)
+        (setq path ".")
+      (unless (file-exists-p path)
+        (error "Error: path %s doesn't exist" path))
+      (unless (file-readable-p path)
+        (error "Error: path %s is not readable" path))
+      (unless (file-directory-p path)
+        (error "Error: path %s is not a directory" path)))
     (unless (executable-find "tree")
       (error "Error: Executable `tree` not found.  This tool cannot be used"))
 
@@ -1248,6 +1256,8 @@ CONTEXT-LINES specifies the number of lines of context to show
 Returns a string containing matches grouped by file, with line numbers
 and optional context.  Results are limited to 1000 or fewer matches per
 file.  Results are sorted by modification time."
+    (unless (file-exists-p path)
+      (error "Error: File or directory %s does not exist" path))
     (unless (file-readable-p path)
       (error "Error: File or directory %s is not readable" path))
 
