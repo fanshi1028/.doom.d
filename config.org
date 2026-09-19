@@ -400,6 +400,80 @@ Corfu detected an error:
   (org-gtd-mode))
 #+end_src
 
+** Org Capture Template for AI Tasks
+All AI task entries (delegated tasks, queued gptel requests) are created
+through a single org-capture template instead of hand-inserted strings.
+`fanshi/ai-task--capture' is the programmatic entry point: callers pass a
+heading, optional body and properties, and get back the org-id of the new
+entry.  The template is registered in `org-gtd-capture-templates' under
+`fanshi/ai-task-capture-key' (bound to =a=), so it can also be used interactively
+via =org-gtd-capture= (=SPC X a=).  The registration claims that key
+(replacing any pre-existing template with it), and the programmatic path
+depends on the entry remaining in `org-gtd-capture-templates' -- do not
+remove it.
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! org-gtd
+  (defvar fanshi/ai-task-capture-key "a"
+    "Capture key of the AI task template in `org-gtd-capture-templates'.")
+
+  (defvar-local fanshi/ai-task--capture-data nil
+    "Plist with the entry data for the current AI task capture.
+Keys: :heading (required), :body, :properties (alist).")
+
+  (defvar fanshi/ai-task--captured-id nil
+    "Org-id of the entry created by the current AI task capture, set by
+`fanshi/ai-task--capture-insert-body'.")
+
+  (defun fanshi/ai-task--capture-insert-body ()
+    "Insert the properties and body of `fanshi/ai-task--capture-data' at point.
+Runs as the `:hook' template function, with point in the new entry in
+the capture buffer, before `:immediate-finish' finalizes the capture.
+Also ensures the entry has an org-id and stores it in
+`fanshi/ai-task--captured-id'."
+    (let* ((data fanshi/ai-task--capture-data)
+           (body (plist-get data :body))
+           (properties (remove nil (plist-get data :properties))))
+      (org-back-to-heading)
+      (dolist (prop properties)
+        (org-entry-put (point) (car prop) (cdr prop)))
+      (setq fanshi/ai-task--captured-id (org-id-get-create (point)))
+      (when (and body (string-trim body))
+        (save-excursion
+          (org-end-of-subtree t)
+          (insert (if (bolp) (concat body "\n") (concat "\n" body "\n")))))))
+
+  (setf (alist-get fanshi/ai-task-capture-key org-gtd-capture-templates nil nil #'string=)
+        (list "AI task" 'entry
+              `(file ,(org-gtd--path "org-gtd-ai-tasks"))
+              (string-join `("* TODO %?"
+                             ":PROPERTIES:"
+                             ,(concat ":" (org-gtd-type-property 'delegated :who) ": ai")
+                             ":END:"
+                             "%U")
+                           "\n")
+              :immediate-finish t
+              :hook #'fanshi/ai-task--capture-insert-body))
+
+  (defun fanshi/ai-task--capture (heading &optional body properties)
+    "Create a TODO entry in the AI tasks file via the org-capture template.
+HEADING is the heading text (without the TODO keyword); it fills the
+`%?' placeholder of the template.  BODY is optional text stored below
+the heading; PROPERTIES is an optional alist of org properties to set
+on the new entry (nil entries are ignored).
+Returns the org-id of the new entry."
+    (unwind-protect
+        (cl-letf (((declare (special org-capture-initial))
+                   org-capture-initial heading))
+          (setq fanshi/ai-task--capture-data
+                (list :heading heading :body body :properties properties))
+          (setq fanshi/ai-task--captured-id nil)
+          (org-gtd-capture nil fanshi/ai-task-capture-key))
+      (setq fanshi/ai-task--capture-data nil))
+    (unless fanshi/ai-task--captured-id
+      (error "AI task capture did not produce an entry"))
+    fanshi/ai-task--captured-id))
+#+end_src
+
 ** Paste image with pngpaste
 #+begin_src emacs-lisp :tangle yes
 (after! org
@@ -4641,101 +4715,6 @@ from `fanshi/gptel-request-stats-file', which is pruned to
 
 (defvar fanshi/ai-task-time-limit 1800
   "Seconds to spend on each task (default 30min).")
-#+end_src
-** Org Capture Template for AI Tasks
-All AI task entries (delegated tasks, queued gptel requests) are created
-through a single org-capture template instead of hand-inserted strings.
-`fanshi/ai-task--capture' is the only entry point: callers pass a heading,
-optional body and properties, and get back the org-id of the new entry.
-#+begin_src emacs-lisp :tangle yes :lexical t
-(after! org
-  (defvar fanshi/ai-task-capture-key "a"
-    "The org-capture template key for AI tasks in `org-capture-templates'.")
-
-  (defvar fanshi/ai-task--capture-data nil
-    "Plist with the entry data for the current AI task capture.
-Keys: :heading (required), :body, :properties (alist).")
-
-  (defvar fanshi/ai-task--last-captured-id nil
-    "Org-id of the entry created by the last `fanshi/ai-task--capture'.")
-
-  (defun fanshi/ai-task--capture-file ()
-    "Path of the AI tasks org file, created with a title if missing."
-    (let ((file (org-gtd--path "org-gtd-ai-tasks")))
-      (unless (file-exists-p file)
-        (with-temp-file file (insert "# AI Tasks\n")))
-      file))
-
-  (defun fanshi/ai-task--escape-template (text)
-    "Escape `org-capture-fill-template' placeholders in TEXT.
-Only sequences that would actually be expanded or prompt are escaped,
-so ordinary percent signs pass through unchanged."
-    (replace-regexp-in-string
-     "%\\(:[-A-Za-z]+\\|<[^\\n>]+>\\|\\^\\|\\\\\\(\\*\\)?[0-9]\\|[aAcfFikKlLntTuUx]\\)"
-     "\\\\&" text))
-
-  (defun fanshi/ai-task--capture-template-text ()
-    "Return the TODO heading for the current `fanshi/ai-task--capture-data'.
-A `(function ...)' capture template must return the text to insert, so
-this returns only the heading; the body and properties are inserted by
-`fanshi/ai-task--capture-insert-body' instead, because the template
-text is %-expanded and the body (a raw gptel prompt) must not be."
-    (let ((heading (plist-get fanshi/ai-task--capture-data :heading)))
-      (unless (and heading (string-trim heading))
-        (error "AI task capture requires a heading"))
-      (concat "* TODO " (fanshi/ai-task--escape-template heading) "\n")))
-
-  (defun fanshi/ai-task--capture-insert-body ()
-    "Insert the properties and body of `fanshi/ai-task--capture-data' at point.
-Runs as the `:hook' template function, with point in the new entry in
-the capture buffer, before `:immediate-finish' finalizes the capture."
-    (let* ((data fanshi/ai-task--capture-data)
-           (body (plist-get data :body))
-           (properties (remove nil (plist-get data :properties))))
-      (org-back-to-heading)
-      (dolist (prop properties)
-        (org-entry-put (point) (car prop) (cdr prop)))
-      (when (and body (string-trim body))
-        (save-excursion
-          (org-end-of-subtree t)
-          (insert (if (bolp) (concat body "\n") (concat "\n" body "\n")))))))
-
-  (defun fanshi/ai-task--capture-finalize ()
-    "Stash the org-id of the just-captured entry.
-Runs as the `:before-finalize' template function, with point in the new
-entry, before the capture buffer is saved."
-    (setq fanshi/ai-task--last-captured-id (org-id-get nil t)))
-
-  (defun fanshi/ai-task--capture (heading &optional body properties)
-    "Create a TODO entry in the AI tasks file via the org-capture template.
-HEADING is the heading text (without the TODO keyword).  BODY is
-optional text stored below the heading; PROPERTIES is an optional alist
-of org properties to set on the new entry (nil entries are ignored).
-A one-shot template is bound around the `org-capture' call, so the
-user's `org-capture-templates' is left untouched.
-Returns the org-id of the new entry."
-    (let (id)
-      (unwind-protect
-          (progn
-            (setq fanshi/ai-task--capture-data
-                  (list :heading heading :body body :properties properties))
-            ;; `letf' (not `let'): `org-capture' is dynamically compiled,
-            ;; so the template variable must be set dynamically for it to
-            ;; see the one-shot template.
-            (letf ((org-capture-templates
-                    (list (list fanshi/ai-task-capture-key "AI task" 'entry
-                                `(file ,(fanshi/ai-task--capture-file))
-                                '(function fanshi/ai-task--capture-template-text)
-                                :immediate-finish t
-                                :hook #'fanshi/ai-task--capture-insert-body
-                                :before-finalize #'fanshi/ai-task--capture-finalize))))
-              (org-capture nil fanshi/ai-task-capture-key))
-            (setq id fanshi/ai-task--last-captured-id))
-        (setq fanshi/ai-task--capture-data nil
-              fanshi/ai-task--last-captured-id nil))
-      (unless id
-        (error "AI task capture did not produce an entry"))
-      id)))
 #+end_src
 ** fanshi/delegated-to-ai-p
 #+begin_src emacs-lisp :tangle yes
