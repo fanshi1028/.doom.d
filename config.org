@@ -4920,19 +4920,6 @@ SUMMARY: brief description of what was accomplished and tell us why"
    :category "task"
    :async nil)
 
-  (defun fanshi/ai-delegate--create-task (task &optional priority time-limit deadline schedule)
-    "Create a new TODO entry for TASK in the AI tasks org file.
-Sets PRIORITY, TIME_LIMIT (defaulting to `fanshi/ai-task-time-limit'),
-DEADLINE and SCHEDULE properties when given.
-Returns the org-id of the new entry."
-    (fanshi/ai-task--capture
-     (s-truncate 60 (replace-regexp-in-string "[\n\r]" " " (string-trim task)))
-     task
-     (list (when priority (cons "PRIORITY" priority))
-           (cons "TIME_LIMIT" (number-to-string (or time-limit fanshi/ai-task-time-limit)))
-           (when deadline (cons "DEADLINE" deadline))
-           (when schedule (cons "SCHEDULE" schedule)))))
-
   (defun fanshi/ai-delegate--tool-delegate (cb task agent &optional task-id priority time-limit deadline schedule)
     "Write TASK into the AI tasks backlog and delegate it to AGENT.
 CB is the async result callback (see `gptel--handle-tool-use').
@@ -4961,7 +4948,14 @@ working on TASK in an isolated jj workspace."
               (error "Cannot delegate to user without task-id"))
           ;; Delegate to AI agent
           (unless task-id
-            (setq task-id (fanshi/ai-delegate--create-task task priority time-limit deadline schedule)))
+            (setq task-id
+                  (fanshi/ai-task--capture
+                   (s-truncate 60 (replace-regexp-in-string "[\n\r]" " " (string-trim task)))
+                   task
+                   (list (when priority (cons "PRIORITY" priority))
+                         (cons "TIME_LIMIT" (number-to-string (or time-limit fanshi/ai-task-time-limit)))
+                         (when deadline (cons "DEADLINE" deadline))
+                         (when schedule (cons "SCHEDULE" schedule))))))
           (let* ((task-marker (org-id-find task-id 'marker))
                  (depends-on (and task-marker
                                   (org-entry-get task-marker "DEPENDS_ON")))
@@ -5077,7 +5071,12 @@ working on TASK in an isolated jj workspace."
                 (gptel-send))
               (funcall cb (format "Task delegated to agent buffer '%s' in jj workspace.\nOrg entry updated to DELEGATED.\nYou can observe progress by visiting the agent buffer."
                                   (buffer-name agent-buf))))))
-      (error (funcall cb (format "Error delegating task: %s" (if (stringp err) err (cadr err)))))))
+      (error
+       (funcall cb
+                (format "Error delegating task: %s"
+                        (if (stringp err)
+                            err
+                          (error-message-string err)))))))
 
   (gptel-make-tool
    :name "Delegate"
@@ -5431,6 +5430,12 @@ TODO entry with proper org-id and properties. Returns a summary of created tasks
       (error "Task file %s does not exist" task-file))
     (unless subtasks
       (error "BREAKDOWN_TASK requires at least one subtask"))
+    ;; gptel decodes the tool call's JSON with `json-read', which turns
+    ;; JSON arrays into vectors; coerce to lists so the loops below can
+    ;; iterate them (a vector here would otherwise crash or silently
+    ;; iterate only once).
+    (when (vectorp subtasks)
+      (setq subtasks (seq-into subtasks 'list)))
     ;; A relative project path would otherwise resolve against the delegating
     ;; buffer's default-directory, so reject it up front.
     (when project
