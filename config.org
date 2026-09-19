@@ -6007,6 +6007,11 @@ adapted from
   (setq vc-handled-backends
         (append '(JJ) (remq 'JJ vc-handled-backends))))
 #+end_src
+* Dired
+** Fix "ls: unrecognized option `--dired'" on macOS
+#+begin_src emacs-lisp :tangle yes
+(after! dired (setq dired-use-ls-dired nil))
+#+end_src
 * Custom
 #+begin_src emacs-lisp :tangle yes
 ;; Here are some additional functions/macros that could help you configure Doom:
