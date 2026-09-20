@@ -2107,6 +2107,239 @@ retry after calling `Imenu' first."
   (add-hook 'gptel-pre-tool-call-functions #'fanshi/gptel--dedup-immutable-tools)
   (add-hook 'gptel-post-tool-call-functions #'fanshi/gptel--dedup-mutable-tools))
 #+end_src
+** Loop Guard: detect and break degenerate LLM loops
+Two loop types, two detectors (complements the tool-call deduplication above):
+
+- *Type A — mid-stream degeneration*: one completion repeats the same passage
+  verbatim (e.g. the same C code block 30 times). Detected incrementally by a
+  rolling shingle counter in `gptel-post-stream-hook'; on trip, abort the
+  request immediately (the partial output is unsalvageable) and notify.
+- *Type B — inter-turn repetition*: consecutive assistant responses are
+  near-duplicates (same analysis rephrased, "Let me check ldata.c..." over and
+  over). Detected in the post-response hook via bigram Jaccard similarity;
+  one auto-nudge, then hard stop.
+
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defcustom fanshi/gptel-loop-guard-enabled t
+    "If non-nil, detect and break degenerate LLM loops."
+    :type 'boolean
+    :group 'gptel)
+
+  ;; ---------- Type A: mid-stream shingle detector ----------
+
+  (defcustom fanshi/gptel-loop-shingle-words 12
+    "Number of words per shingle for mid-stream loop detection."
+    :type 'integer
+    :group 'gptel)
+
+  (defcustom fanshi/gptel-loop-repeat-threshold 3
+    "Occurrences of the same shingle (re-occurring within `fanshi/gptel-loop-repeat-max-gap') before a loop is declared."
+    :type 'integer
+    :group 'gptel)
+
+  (defcustom fanshi/gptel-loop-repeat-max-gap 300
+    "Maximum word distance between re-occurrences of a shingle to count as repetition."
+    :type 'integer
+    :group 'gptel)
+
+  (defcustom fanshi/gptel-loop-redundancy-window 60
+    "Rolling window (in shingles) for the redundancy-rate check."
+    :type 'integer
+    :group 'gptel)
+
+  (defcustom fanshi/gptel-loop-redundancy-threshold 0.6
+    "Fraction of shingles in the window already seen before a loop is declared."
+    :type 'float
+    :group 'gptel)
+
+  (defcustom fanshi/gptel-loop-min-words 150
+    "Minimum response length (words) before mid-stream loop detection activates."
+    :type 'integer
+    :group 'gptel)
+
+  (defvar-local fanshi/gptel-loop--state nil
+    "Buffer-local state for mid-stream loop detection.
+A list (NORM-PREV PREV-WORDS SHINGLE-POS RING RING-POS RING-COUNT), where
+NORM-PREV is the normalized text scanned so far, PREV-WORDS its word list,
+SHINGLE-POS maps shingle -> (COUNT . LAST-WORD-POS), RING holds the last
+`fanshi/gptel-loop-redundancy-window' shingles, RING-POS the next write
+slot and RING-COUNT the number of slots filled.")
+
+  (defun fanshi/gptel-loop--normalize (text)
+    "Collapse whitespace and downcase TEXT for shingling."
+    (downcase (replace-regexp-in-string "[[:space:]]+" " " text)))
+
+  (defun fanshi/gptel-loop--detect-response (text)
+    "Incrementally scan response TEXT for degenerate repetition.
+Returns a human-readable reason, or nil. Only words added since the
+previous call are processed, so this can be called with the full
+response region on every streamed chunk. State is reset automatically
+when the response region restarts (new response) or shrinks."
+    (let* ((sw fanshi/gptel-loop-shingle-words)
+           (rw fanshi/gptel-loop-redundancy-window)
+           (norm (fanshi/gptel-loop--normalize text))
+           (state fanshi/gptel-loop--state)
+           (norm-prev (nth 0 state))
+           (prev-words (nth 1 state))
+           (shingle-pos (nth 2 state))
+           (ring (nth 3 state))
+           (ring-pos (nth 4 state))
+           (ring-count (nth 5 state))
+           (words nil) (i 0) (reason nil))
+      (cond
+       ;; New response (region restarted, or text changed underneath us).
+       ((or (null state)
+            (< (length norm) (length norm-prev))
+            (not (string-prefix-p norm-prev norm)))
+        (setq words (split-string norm " " 'suppress-empty)
+              shingle-pos (make-hash-table :test #'equal :size 512)
+              ring (make-vector rw nil)
+              ring-pos 0
+              ring-count 0
+              i 0))
+       ;; Continue: process only shingles starting at new words.
+       (t (setq words (nconc prev-words
+                              (split-string (substring norm (length norm-prev)) " " 'suppress-empty))
+             i (length prev-words))))
+      (let ((n (length words)))
+        (when (>= n fanshi/gptel-loop-min-words)
+          (while (and (< i n) (not reason))
+            (let ((shingle (mapconcat #'identity (seq-subseq words i (+ i sw)) " "))
+                  (prev (gethash shingle nil shingle-pos)))
+              (if prev
+                  (let ((count (1+ (car prev))))
+                    (puthash shingle (cons count i) shingle-pos)
+                    (when (and (<= (- i (cdr prev)) fanshi/gptel-loop-repeat-max-gap)
+                               (>= count fanshi/gptel-loop-repeat-threshold))
+                      (setq reason (format "shingle repeated %d times: \"%s...\""
+                                           count (substring shingle 0 (min 60 (length shingle)))))))
+                (puthash shingle (cons 1 i) shingle-pos)))
+            (aset ring ring-pos shingle)
+            (setq ring-pos (mod (1+ ring-pos) rw)
+                  ring-count (min (1+ ring-count) rw))
+            ;; Redundancy check: fraction of the last `fanshi/gptel-loop-redundancy-window'
+            ;; shingles that have re-occurred within `fanshi/gptel-loop-repeat-max-gap' words.
+            (when (= ring-count rw)
+              (let ((seen 0))
+                (dolist (s ring)
+                  (when-let ((entry (and s (gethash s nil shingle-pos))))
+                    (when (and (>= (car entry) 2)
+                               (<= (- i (cdr entry)) fanshi/gptel-loop-repeat-max-gap))
+                      (cl-incf seen))))
+                (when (>= (/ (float seen) rw) fanshi/gptel-loop-redundancy-threshold)
+                  (setq reason (format "redundancy: %d of last %d shingles re-occur within %d words"
+                                       seen rw fanshi/gptel-loop-repeat-max-gap)))))
+            (cl-incf i)))
+        (setq fanshi/gptel-loop--state (list norm words shingle-pos ring ring-pos ring-count))
+        reason)))
+
+  (defun fanshi/gptel-loop--stream-check ()
+    "`gptel-post-stream-hook' handler: abort the request if the response is degenerating."
+    (when (and fanshi/gptel-loop-guard-enabled gptel-mode)
+      (let ((start (save-excursion
+                     (text-property-search-backward 'gptel 'response t)
+                     (point))))
+        (when start
+          (let ((text (buffer-substring-no-properties start (point-max))))
+            (when-let ((reason (fanshi/gptel-loop--detect-response text)))
+              (setq-local fanshi/gptel-loop--state nil)
+              (message "gptel-loop-guard: mid-stream loop detected (%s), aborting." reason)
+              (ignore-errors (gptel-abort (current-buffer)))
+              (fanshi/notify)))))))
+  (add-hook 'gptel-post-stream-hook #'fanshi/gptel-loop--stream-check)
+
+  ;; ---------- Type B: inter-turn similarity ----------
+
+  (defcustom fanshi/gptel-loop-similarity-threshold 0.8
+    "Bigram Jaccard similarity between two consecutive responses above which a loop is suspected."
+    :type 'float
+    :group 'gptel)
+
+  (defcustom fanshi/gptel-loop-nudge-max 1
+    "Number of auto-nudges before giving up on an inter-turn loop."
+    :type 'integer
+    :group 'gptel)
+
+  (defvar-local fanshi/gptel-loop--last-response nil
+    "Normalized bigram multiset of the previous assistant response.")
+
+  (defvar-local fanshi/gptel-loop--nudge-count 0
+    "Number of loop nudges sent in the current conversation.")
+
+  (defun fanshi/gptel-loop--normalize-words (text)
+    "Strip markup and return a list of lowercase words of TEXT."
+    (split-string
+     (replace-regexp-in-string
+      "[#*+|`~\\[\\]{}=:-]" " "
+      (downcase (replace-regexp-in-string "[[:space:]]+" " " text)))
+     " " 'suppress-empty))
+
+  (defun fanshi/gptel-loop--jaccard (a b)
+    "Bigram Jaccard similarity between word lists A and B."
+    (if (or (null a) (null b))
+        0.0
+      (let* ((ba (make-hash-table :test #'equal))
+             (bb (make-hash-table :test #'equal))
+             (inter 0) (union 0))
+        (cl-loop for w1 on a
+                 while (cdr a)
+                 for bg = (concat w1 " " (cadr a))
+                 do (puthash bg (1+ (gethash bg 0)) ba))
+        (cl-loop for w1 on b
+                 while (cdr b)
+                 for bg = (concat w1 " " (cadr b))
+                 do (puthash bg (1+ (gethash bg 0)) bb))
+        (maphash (lambda (bg va)
+                   (let ((vb (gethash bg 0 bb)))
+                     (cl-incf union (max va vb))
+                     (when vb (cl-incf inter (min va vb)))))
+                 ba)
+        (maphash (lambda (bg vb)
+                   (unless (gethash bg ba) (cl-incf union vb))) bb)
+        (if (= union 0) 1.0 (/ (float inter) union))))))
+
+  (defun fanshi/gptel-loop--nudge ()
+    "Send a nudge asking the agent to break its loop."
+    (let ((fanshi/prevent-duplicate-gptel-send nil))
+      (without-restriction
+        (goto-char (point-max))
+        (insert "\n\n"
+                "STOP: you are repeating the same content with no progress. "
+                "Do not repeat what you just wrote. Either take a concrete different action, "
+                "or state in one sentence exactly what is blocking you.\n")
+        (gptel-send))))
+
+  (defun fanshi/gptel-loop--post-response-check (beg end)
+    "`gptel-post-response-functions' handler: detect near-duplicate consecutive responses."
+    (when (and fanshi/gptel-loop-guard-enabled (not fanshi/gptel--aborted))
+      (let ((response (buffer-substring-no-properties beg end))
+            (words (fanshi/gptel-loop--normalize-words response)))
+        (when (>= (length words) 40)
+          (let ((sim (when fanshi/gptel-loop--last-response
+                       (fanshi/gptel-loop--jaccard fanshi/gptel-loop--last-response words))))
+            (setq fanshi/gptel-loop--last-response words)
+            (when (and sim (>= sim fanshi/gptel-loop-similarity-threshold))
+              (cond
+               ((< fanshi/gptel-loop--nudge-count fanshi/gptel-loop-nudge-max)
+                (cl-incf fanshi/gptel-loop--nudge-count)
+                (message "gptel-loop-guard: response %.0f%% similar to previous, nudging (%d/%d)."
+                         (* 100 sim) fanshi/gptel-loop--nudge-count fanshi/gptel-loop-nudge-max)
+                (fanshi/gptel-loop--nudge))
+               (t
+                (message "gptel-loop-guard: repeated near-identical responses (sim %.0f%%), giving up."
+                         (* 100 sim))
+                (fanshi/notify))))))))
+  (add-hook 'gptel-post-response-functions #'fanshi/gptel-loop--post-response-check)
+
+  ;; Reset turn-level state on manual sends.
+  (defun fanshi/gptel-send--reset-loop-state-a (&optional arg)
+    (unless arg
+      (setq-local fanshi/gptel-loop--last-response nil
+                  fanshi/gptel-loop--nudge-count 0
+                  fanshi/gptel-loop--state nil)))
+  (advice-add 'gptel-send :after #'fanshi/gptel-send--reset-loop-state-a))
+#+end_src
 ** Inject TOOLS and TOOL_USAGE into Agent specification dynamically
 *** fanshi/gptel-agent--tool-system
 #+begin_src emacs-lisp :tangle yes
