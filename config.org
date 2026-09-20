@@ -1087,7 +1087,8 @@ mid-word end)."
 
                  ;; --- No truncation detected ---
                  (t (fanshi/notify))))))))))
-  (add-hook 'gptel-post-response-functions #'fanshi/gptel--not-done-auto-continue-or-notify))
+  ;; Weight 100: after the loop guard's nudge (10), before jj auto-commit (110).
+  (add-hook 'gptel-post-response-functions #'fanshi/gptel--not-done-auto-continue-or-notify 100))
 #+end_src
 ** Token Escape
 - ref :: https://github.com/ggml-org/llama.cpp/issues/19947#issuecomment-3971115828
@@ -2053,9 +2054,9 @@ cheap insurance — the contract is gptel-internal).
 The abort arms *both* flags at detection: =fanshi/gptel--aborted= so the
 auto-continue handler skips the degenerating turn (the guard bypasses
 =gptel-abort=, whose advice would normally set it), and its own
-=fanshi/gptel-loop--aborted= for the Type B handler to consume — reading the
-auto-continue flag there would race, since that hook runs first in
-=gptel-post-response-functions= and clears it. Manual aborts arm both via
+=fanshi/gptel-loop--aborted= for the Type B handler to consume — the Type B
+handler runs *first* (position 10, ahead of the auto-continue hook at 100), so it
+consumes its own flag. Manual aborts arm both via
 =fanshi/gptel-mark-turn-aborted=, except that the guard's flag is *not* re-armed
 while a trip is pending: harmless for the tripped request (already set), but under
 multisend a second request's trip would otherwise keep the single per-buffer flag
@@ -2746,6 +2747,7 @@ the shingle state armed."
                     (error-message-string err)))
           ;; Must return nil -- see the docstring.
           nil))))
+
   (add-hook 'gptel-post-stream-hook #'fanshi/gptel-loop--stream-check)
 
   ;; ---------- Type B: inter-turn similarity ----------
@@ -2831,6 +2833,7 @@ give-up."
     (setq-local fanshi/gptel-loop--from-nudge t)
     (let ((fanshi/prevent-duplicate-gptel-send nil))
       (without-restriction
+        (setq-local fanshi/gptel--auto-continued t)
         (goto-char (point-max))
         (insert "\n\n"
                 "STOP: you are repeating the same content with no progress. "
@@ -2853,6 +2856,11 @@ different data look identical.
 
 The similarity must be computed *before* the nudge is sent, because `gptel-send'
 runs the reset advice that clears the state read here.
+
+Registered at position 10, ahead of the auto-continue hook at 100: a nudge is a
+`gptel-send', so auto-continue must not fire a parallel request for the same turn.
+Auto-continue still sees the nudge turn's text when it runs next, and may append
+its own re-send — acceptable, the two address different failure modes.
 
 Unlike Type A, this does *not* abort — the turn is already complete. The policy is
 `fanshi/gptel-loop-nudge-max' nudges, then stop intervening; the give-up branch
@@ -2878,8 +2886,7 @@ threshold (a clean turn, which refills the budget)."
                                      ;; Consume the guard's own flag — comparing a
                                      ;; truncated response would otherwise nudge on
                                      ;; top of an abort. Not `fanshi/gptel--aborted',
-                                     ;; which the auto-continue handler (earlier in
-                                     ;; this hook) already consumes.
+                                     ;; which belongs to the auto-continue handler.
                                      (not (prog1 fanshi/gptel-loop--aborted
                                             (setq-local fanshi/gptel-loop--aborted nil))))
                             (let* ((response (fanshi/gptel-loop--response-text beg end))
@@ -2928,7 +2935,9 @@ threshold (a clean turn, which refills the budget)."
                     ((and (guard trip (null trip)) sim)
                      (setq-local fanshi/gptel-loop--nudge-count 0)))))))
 
-  (add-hook 'gptel-post-response-functions #'fanshi/gptel-loop--post-response-check)
+  ;; Position 10: run before the auto-continue hook (at 100), so a nudge here does
+  ;; not trigger a parallel auto-continue request.
+  (add-hook 'gptel-post-response-functions #'fanshi/gptel-loop--post-response-check 10)
 
   ;; Reset turn-level state on every send, including the nudge's own. The nudge
   ;; counter is deliberately not reset here (it is a per-buffer budget, refilled
@@ -3905,6 +3914,8 @@ allow cloned subtrees to maintain their own history context."
          (proc (car req-at-point))
          (fsm (cadr req-at-point))
          (fsm-info (gptel-fsm-info fsm))
+         ;; `cl-find-if' yields the cons cell, so this entry is
+         ;; (proc . (fsm . abort-fn)) and the abort closure is `caddr'.
          (abort-fn (caddr req-at-point))
          (cb (plist-get fsm-info :callback))
          ((functionp cb)))
@@ -4999,9 +5010,9 @@ Called from a timer (not from the process-filter context), so
                   (message "jj auto-commit failed: %s"
                            (error-message-string err)))))))))))
 
-  ;; Weight 100: run after the auto-continue hook (weight 0), so
-  ;; `fanshi/gptel--auto-continued' is already set when we need it.
-  (add-hook 'gptel-post-response-functions #'fanshi/gptel--jj-auto-commit 100))
+  ;; Weight 110: run after the auto-continue hook (100), so
+  ;; `fanshi/gptel--auto-continued' is settled before we commit.
+  (add-hook 'gptel-post-response-functions #'fanshi/gptel--jj-auto-commit 110))
 #+end_src
 ** Meta request on previous conversations
 Start a new conversation based on the content of a previous gptel-agent
