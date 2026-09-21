@@ -2529,25 +2529,39 @@ Each value is a list of tool name strings to add to the base coding tools.")
     (append tools extra-tools)))
 #+end_src
 **** Post-response code checkers
-- the fixing prompt names the ~cmd~ that produced the error (tangling the
-  doom ~config.org~ and loading the tangled ~config.el~) and wraps the error
-  itself in an ~#+begin_example~ block
+When a check fails, the fix is *not* sent as a follow-up in the current
+conversation — that would resend the whole (often huge) context just to fix
+what is usually a local syntax error.  Instead a fresh `gptel-agent' buffer
+is spawned in the same project, prompted with only:
+- the failing ~cmd~ (tangling the doom ~config.org~ and loading the tangled
+  ~config.el~), the file the error was found in, and the source file to fix,
+  with the error itself wrapped in an ~#+begin_example~ block
+- the current jj diff (only when the project is a jj repo), produced by
+  executing a ~#+begin_src~ block in the fixer buffer — the same trick as
+  `fanshi/gptel-code-review-jj-diff' — so its output lands in a results
+  drawer and the agent sees the diff as part of the prompt
 - a file stays in ~fanshi/gptel--edited-files~ until its check passes, so a
-  failing file is re-checked after the auto-fix response; once everything
+  failing file is re-checked after the next response; once everything
   passes, ~fanshi/gptel--code-check-fix-count~ is reset too
-- the fixing prompt looks like this:
+- the fixer inherits the spawning buffer's retry count, so a chain of
+  failing fixers (each fixer re-checks its own edits) is still bounded by
+  `fanshi/gptel-code-check-auto-fix-max-retries'
+- the fixing prompt looks like this (the diff block only appears in jj
+  repos):
 #+begin_src text :tangle no
-The post-response code check failed.
+@coding Command(org-babel-tangle-file "/Users/francischan/.doom.d/config.org") failed.
 
-cmd: org-babel-tangle-file "/Users/francischan/.doom.d/config.org" && emacs --batch -l /Users/francischan/.doom.d/config.el
-file: /Users/francischan/.doom.d/config.el
-source: /Users/francischan/.doom.d/config.org
-
+In /Users/francischan/.doom.d/config.el:
 #+begin_example
 config.el: Unbalanced parentheses at line 2312, column 8.
 #+end_example
 
-Fix the error in the source file above (not in the tangled output),  then report the fix.
+Please fix the error in the source file(/Users/francischan/.doom.d/config.org) then report the fix.
+
+For context, the current jj diff is:
+\#+begin_src sh :results verbatim drawer replace output
+jj diff --color=never
+\#+end_src
 #+end_src
 
 #+begin_src emacs-lisp :tangle yes
@@ -2595,33 +2609,62 @@ Return an error message string on a scan error, nil otherwise."
                      (save-excursion (goto-char pos) (current-column)))))))))
 
   (defun fanshi/gptel--code-check-auto-fix (failure)
-    "Auto-continue with FAILURE as user prompt to fix a code check failure.
+    "Auto-fix a code check failure in a fresh gptel-agent buffer.
 FAILURE is the plist returned by `fanshi/gptel--post-response-check/doom'
 with the keys :cmd (the command that produced the error), :file (the file
 the error was found in, e.g. the tangled .el), :source (the Org file to fix)
-and :error.  The error text is wrapped in an example block so that it is
-quoted verbatim to the model.
-Increments `fanshi/gptel--code-check-fix-count' to track retry depth."
+and :error.
+
+Instead of re-sending the whole conversation (the error is usually a local
+syntax error that needs none of the solution's context), spawn a new
+`gptel-agent' buffer in the same project, primed with the @coding preset
+(so the fixer gets the coding system prompt/tools, and its own
+post-response check re-runs on its edits), the failure details, the error
+wrapped in an example block (quoted verbatim to the model), and — when the
+project is a jj repo — a src block running `jj diff' so the agent sees the
+current changes as part of the prompt (see
+`fanshi/gptel-code-review-jj-diff').  In a jj repo the fixer runs in a
+dedicated sub-workspace (see `fanshi/gptel-agent'), so its change is
+auto-committed per response by `fanshi/gptel--jj-auto-commit'.
+Increments `fanshi/gptel--code-check-fix-count' to track retry depth, and
+hands the count to the fixer buffer so a chain of failing fixers (each
+fixer re-checks its own edits) stays bounded by
+`fanshi/gptel-code-check-auto-fix-max-retries'."
     (incf fanshi/gptel--code-check-fix-count)
-    (message "Gptel code check failed (attempt %d/%d), auto-fixing..."
+    (message "Gptel code check failed (attempt %d/%d), spawning fixer agent..."
              fanshi/gptel--code-check-fix-count
              fanshi/gptel-code-check-auto-fix-max-retries)
-    (let* ((fanshi/prevent-duplicate-gptel-send nil)
-            (err (plist-get failure :error))
-            (err-block (if (derived-mode-p 'org-mode)
-                           (format "#+begin_example\n%s\n#+end_example" err)
-                         (format "```\n%s\n```" err)))
-            (formated-err (format "In %s:\n%s" (plist-get failure :file) err-block))
-            (prompt
-             (format
-              "Command(%s) failed.\n\n%s\n\nPlease fix the error in the source file(%s) then report the fix."
-              (plist-get failure :cmd)
-              formated-err
-              (plist-get failure :source))))
-      (without-restriction
-        (goto-char (point-max))
-        (insert "\n\n" prompt)
-        (gptel-send))))
+    (let* ((err (plist-get failure :error))
+           (err-block (if (derived-mode-p 'org-mode)
+                          (format "#+begin_example\n%s\n#+end_example" err)
+                        (format "```\n%s\n```" err)))
+           (formated-err (format "In %s:\n%s" (plist-get failure :file) err-block))
+           (prompt
+            (format
+             "Command(%s) failed.\n\n%s\n\nPlease fix the error in the source file(%s) then report the fix."
+             (plist-get failure :cmd)
+             formated-err
+             (plist-get failure :source))))
+      (let ((buf (fanshi/gptel-agent "")))
+        (with-current-buffer buf
+          (setq-local fanshi/gptel--code-check-fix-count fanshi/gptel--code-check-fix-count)
+          ;; Apply the @coding preset (right after the prompt prefix, where
+          ;; `fanshi/process-preset-til-end' expects markers to be).
+          (goto-char (point-min))
+          (let ((prompt-prefix (alist-get gptel-default-mode gptel-prompt-prefix-alist)))
+            (re-search-forward (rx (literal prompt-prefix))))
+          (insert "@coding ")
+          (goto-char (point-max))
+          (insert (format "%s\n" prompt))
+          (when (ignore-errors (shell-command-to-string "jj root"))
+            (insert (concat
+                     "\nFor context, the current jj diff is:\n"
+                     "#+begin_src sh :results verbatim drawer replace output\n"
+                     "jj diff --color=never\n"
+                     "#+end_src"))
+            (org-babel-execute-src-block))
+          (goto-char (point-max))
+          (gptel-send)))))
 
   (defun fanshi/gptel--check-tangled-file (file)
     "Tangle the Org FILE and syntax-check what it tangled.
