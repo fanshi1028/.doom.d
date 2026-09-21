@@ -4076,8 +4076,12 @@ Safety:
   moved buffer can never commit in the wrong workspace
 - while a response auto-continues (task still in flight) the commit is
   deferred to the final response, so one task is not split across commits
-- the whole thing is wrapped in `ignore-errors': a failing commit must never
-  break the post-response hook (the changes just stay in the working copy)
+- the whole thing is deferred via `run-at-time' and wrapped in
+  `condition-case': the post-response hook runs inside gptel's process
+  filter, and calling the (asynchronous) `gptel-request' from there corrupts
+  the new request's process filter (`Symbol's value as variable is void:
+  response'); running from a timer is safe, and a failing commit must never
+  break the hook (the changes just stay in the working copy)
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
   (defvar-local fanshi/gptel-jj-workspace nil
@@ -4117,46 +4121,74 @@ all), so the jj commands below can never run in the wrong workspace."
                     (string-trim (shell-command-to-string "jj log -r @ -T description --no-graph --color never"))))))
       (and (not (string-blank-p desc)) desc)))
 
-  (defun fanshi/gptel--jj-generate-commit-message (diff)
+  (defun fanshi/gptel--jj-generate-commit-message (diff callback)
     "Ask the LLM for a commit message for the JJ diff DIFF.
-Returns the message string, or nil if generation fails — in which
-case the caller falls back to a generic message."
-    (let (msg)
-      (gptel-request
-          (format "Write a concise commit message (imperative mood, max 72 chars) for this jj diff.\nReturn ONLY the message text, no quotes, no explanation.\n\n#+begin_example\n%s\n#+end_example"
-                  diff)
-        :system "You write concise commit messages."
-        :callback (lambda (response _)
-                    (when (stringp response)
-                      (setq msg (string-trim response)))))
-      (and (not (string-blank-p msg)) (substring msg 0 (min 200 (length msg))))))
+CALLBACK is called with the message string, or nil if generation
+fails — in which case the caller falls back to a generic message."
+    (condition-case err
+        (gptel-request
+            (format "Write a concise commit message (imperative mood, max 72 chars) for this jj diff.\nReturn ONLY the message text, no quotes, no explanation.\n\n#+begin_example\n%s\n#+end_example"
+                    diff)
+          :system "You write concise commit messages."
+          :callback (lambda (response _)
+                      (if (stringp response)
+                          (let ((msg (string-trim response)))
+                            (funcall callback
+                                     (if (not (string-blank-p msg))
+                                         (substring msg 0 (min 200 (length msg)))
+                                       nil)))
+                        (funcall callback nil))))
+      (error (funcall callback nil))))
 
   (defun fanshi/gptel--jj-auto-commit (&rest _args)
     "Post-response hook: auto-commit the jj working copy of a sub-workspace buffer.
-See the section notes for the full behavior and safety checks."
+See the section notes for the full behavior and safety checks.
+Deferred via `run-at-time' so that `gptel-request' (async) is not
+called from within the process-filter context of the post-response
+hook, which would corrupt the new request's process filter."
     (when (and fanshi/gptel-jj-auto-commit-enabled
                fanshi/gptel-jj-workspace
-               (not fanshi/gptel--auto-continued)
-               (fanshi/gptel--jj-workspace-check fanshi/gptel-jj-workspace))
+               (not fanshi/gptel--auto-continued))
+      (let ((buf (current-buffer))
+            (ws fanshi/gptel-jj-workspace))
+        (run-at-time 0 nil
+                     (lambda ()
+                       (when (buffer-live-p buf)
+                         (with-current-buffer buf
+                           (condition-case err
+                               (fanshi/gptel--jj-do-auto-commit ws)
+                             (error
+                              (message "jj auto-commit failed: %s"
+                                       (error-message-string err)))))))))))
+
+  (defun fanshi/gptel--jj-do-auto-commit (ws)
+    "Perform the auto-commit for workspace WS.
+Called from a timer (not from the process-filter context), so
+`gptel-request' can be used safely."
+    (when (fanshi/gptel--jj-workspace-check ws)
       (let ((diff (ignore-errors
-                    (let ((default-directory fanshi/gptel-jj-workspace))
+                    (let ((default-directory ws))
                       (shell-command-to-string "jj diff --color never")))))
         (when (and diff (not (string-blank-p diff)))
-          (condition-case err
-              (if-let ((desc (fanshi/gptel--jj-working-copy-description)))
-                  (progn
-                    (fanshi/call-jj "new")
-                    (message "jj auto-commit: committed working copy (kept description: %s)" (string-trim desc)))
-                (let* ((msg (or (fanshi/gptel--jj-generate-commit-message
-                                 (substring diff 0 (min fanshi/gptel-jj-auto-commit-diff-limit
-                                                        (length diff))))
-                                "gptel: auto-commit"))
-                       (ci-msg (replace-regexp-in-string "[\r\n]+" " " msg)))
-                  ;; `--message=' not `-m': a generated message could start
-                  ;; with a hyphen, which clap would read as a flag.
-                  (fanshi/call-jj "ci" (format "--message=%s" ci-msg))
-                  (message "jj auto-commit: committed working copy (%s)" ci-msg)))
-            (message "jj auto-commit failed: %s" (error-message-string err)))))))
+          (if-let ((desc (fanshi/gptel--jj-working-copy-description)))
+              (progn
+                (fanshi/call-jj "new")
+                (message "jj auto-commit: committed working copy (kept description: %s)" (string-trim desc)))
+            (fanshi/gptel--jj-generate-commit-message
+             (substring diff 0 (min fanshi/gptel-jj-auto-commit-diff-limit
+                                    (length diff)))
+             (lambda (msg)
+               (condition-case err
+                   (let ((ci-msg (replace-regexp-in-string
+                                  "[\r\n]+" " "
+                                  (or msg "gptel: auto-commit"))))
+                     ;; `--message=' not `-m': a generated message could
+                     ;; start with a hyphen, which clap would read as a flag.
+                     (fanshi/call-jj "ci" (format "--message=%s" ci-msg))
+                     (message "jj auto-commit: committed working copy (%s)" ci-msg))
+                 (error
+                  (message "jj auto-commit failed: %s"
+                           (error-message-string err)))))))))))
 
   ;; Weight 100: run after the auto-continue hook (weight 0), so
   ;; `fanshi/gptel--auto-continued' is already set when we need it.
