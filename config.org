@@ -2200,8 +2200,8 @@ when the response region restarts (new response) or shrinks."
               i 0))
        ;; Continue: process only shingles starting at new words.
        (t (setq words (nconc prev-words
-                              (split-string (substring norm (length norm-prev)) " " 'suppress-empty))
-             i (length prev-words))))
+                             (split-string (substring norm (length norm-prev)) " " 'suppress-empty))
+                i (length prev-words))))
       (let ((n (length words)))
         (when (>= n fanshi/gptel-loop-min-words)
           (while (and (< i n) (not reason))
@@ -2296,8 +2296,9 @@ when the response region restarts (new response) or shrinks."
                      (when vb (cl-incf inter (min va vb)))))
                  ba)
         (maphash (lambda (bg vb)
-                   (unless (gethash bg ba) (cl-incf union vb))) bb)
-        (if (= union 0) 1.0 (/ (float inter) union))))))
+                   (unless (gethash bg ba) (cl-incf union vb)))
+                 bb)
+        (if (= union 0) 1.0 (/ (float inter) union)))))
 
   (defun fanshi/gptel-loop--nudge ()
     "Send a nudge asking the agent to break its loop."
@@ -2329,7 +2330,8 @@ when the response region restarts (new response) or shrinks."
                (t
                 (message "gptel-loop-guard: repeated near-identical responses (sim %.0f%%), giving up."
                          (* 100 sim))
-                (fanshi/notify))))))))
+                (fanshi/notify)))))))))
+
   (add-hook 'gptel-post-response-functions #'fanshi/gptel-loop--post-response-check)
 
   ;; Reset turn-level state on manual sends.
@@ -2338,6 +2340,7 @@ when the response region restarts (new response) or shrinks."
       (setq-local fanshi/gptel-loop--last-response nil
                   fanshi/gptel-loop--nudge-count 0
                   fanshi/gptel-loop--state nil)))
+
   (advice-add 'gptel-send :after #'fanshi/gptel-send--reset-loop-state-a))
 #+end_src
 ** Inject TOOLS and TOOL_USAGE into Agent specification dynamically
