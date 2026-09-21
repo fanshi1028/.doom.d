@@ -2164,7 +2164,11 @@ A list (NORM-PREV PREV-WORDS SHINGLE-POS RING RING-POS RING-COUNT), where
 NORM-PREV is the normalized text scanned so far, PREV-WORDS its word list,
 SHINGLE-POS maps shingle -> (COUNT . LAST-WORD-POS), RING holds the last
 `fanshi/gptel-loop-redundancy-window' shingles, RING-POS the next write
-slot and RING-COUNT the number of slots filled.")
+SLOT and RING-COUNT the number of slots filled.")
+
+  (defvar-local fanshi/gptel-loop--pending-abort nil
+    "Non-nil if a mid-stream loop was detected and the deferred abort has not yet run.
+Cleared by the deferred abort itself, or by `gptel-send' (new turn).")
 
   (defun fanshi/gptel-loop--normalize (text)
     "Collapse whitespace and downcase TEXT for shingling."
@@ -2239,18 +2243,44 @@ when the response region restarts (new response) or shrinks."
         reason)))
 
   (defun fanshi/gptel-loop--stream-check ()
-    "`gptel-post-stream-hook' handler: abort the request if the response is degenerating."
-    (when (and fanshi/gptel-loop-guard-enabled gptel-mode)
-      (let ((start (save-excursion
-                     (text-property-search-backward 'gptel 'response t)
-                     (point))))
-        (when start
-          (let ((text (buffer-substring-no-properties start (point-max))))
-            (when-let ((reason (fanshi/gptel-loop--detect-response text)))
-              (setq-local fanshi/gptel-loop--state nil)
-              (message "gptel-loop-guard: mid-stream loop detected (%s), aborting." reason)
-              (ignore-errors (gptel-abort (current-buffer)))
-              (fanshi/notify)))))))
+    "`gptel-post-stream-hook' handler: abort the request if the response is degenerating.
+This hook runs *inside* gptel's process filter (see
+`gptel-curl--stream-insert-response'), while that function's lexical
+`response' binding is still live and the streaming insert is mid-flight.
+Calling `gptel-abort' synchronously here re-enters gptel's request/abort
+machinery (tearing down the in-flight request and its
+`gptel--request-alist' entry) while the filter is still executing, which
+corrupts the in-flight state and surfaces as
+\"error in process filter: ... void: response\".  So we only *detect* the
+loop here and defer the actual abort to idle time, once the filter has
+returned and its `response' binding has unwound.  The whole check is also
+contained so a bug in the detector can never take down the request
+pipeline.  `fanshi/gptel-loop--pending-abort' deduplicates: without it the
+hook would re-detect the same loop on every subsequent chunk (the detector
+state was reset, so it re-scans the whole response) and schedule a burst of
+duplicate aborts and notifications before the first one fires."
+    (when (and fanshi/gptel-loop-guard-enabled gptel-mode
+               (not fanshi/gptel-loop--pending-abort))
+      (condition-case _err
+          (let ((start (save-excursion
+                         (text-property-search-backward 'gptel 'response t)
+                         (point))))
+            (when start
+              (let ((text (buffer-substring-no-properties start (point-max))))
+                (when-let ((reason (fanshi/gptel-loop--detect-response text)))
+                  (setq-local fanshi/gptel-loop--state nil
+                              fanshi/gptel-loop--pending-abort t)
+                  (message "gptel-loop-guard: mid-stream loop detected (%s), aborting." reason)
+                  (let ((buf (current-buffer)))
+                    (run-with-idle-timer
+                     0 nil
+                     (lambda ()
+                       (when (buffer-live-p buf)
+                         (with-current-buffer buf
+                           (ignore-errors (gptel-abort buf))
+                           (setq-local fanshi/gptel-loop--pending-abort nil)
+                           (fanshi/notify)))))))))
+        (error nil)))))
   (add-hook 'gptel-post-stream-hook #'fanshi/gptel-loop--stream-check)
 
   ;; ---------- Type B: inter-turn similarity ----------
@@ -2343,7 +2373,8 @@ when the response region restarts (new response) or shrinks."
     (unless arg
       (setq-local fanshi/gptel-loop--last-response nil
                   fanshi/gptel-loop--nudge-count 0
-                  fanshi/gptel-loop--state nil)))
+                  fanshi/gptel-loop--state nil
+                  fanshi/gptel-loop--pending-abort nil)))
 
   (advice-add 'gptel-send :after #'fanshi/gptel-send--reset-loop-state-a))
 #+end_src
