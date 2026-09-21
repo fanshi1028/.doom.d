@@ -2205,8 +2205,12 @@ when the response region restarts (new response) or shrinks."
       (let ((n (length words)))
         (when (>= n fanshi/gptel-loop-min-words)
           (while (and (< i n) (not reason))
-            (let ((shingle (mapconcat #'identity (seq-subseq words i (+ i sw)) " "))
-                  (prev (gethash shingle nil shingle-pos)))
+            ;; `let*', not `let': a plain `let' evaluates its init forms in
+            ;; parallel, so `(prev (gethash shingle ...))' would read `shingle'
+            ;; before it is bound (void-variable:shingle, surfacing as
+            ;; "error in process sentinel").
+            (let* ((shingle (mapconcat #'identity (seq-subseq words i (+ i sw)) " "))
+                   (prev (gethash shingle nil shingle-pos)))
               (if prev
                   (let ((count (1+ (car prev))))
                     (puthash shingle (cons count i) shingle-pos)
