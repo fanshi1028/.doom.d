@@ -5904,10 +5904,24 @@ working on TASK in an isolated jj workspace."
                                 (format "Agent (%s)" agent))
                 (fanshi/call-jj "config" "set" "--workspace" "user.email"
                                 (format "%s-agent@local" agent))))
+            ;; Hard preset gate: validate BEFORE creating the jj workspace so a
+            ;; bad agent name cannot leave an orphan workspace behind.  The
+            ;; lookup goes through `gptel-get-preset' directly because
+            ;; gptel-agent's own registry cannot resolve the preset here
+            ;; (`gptel-agent-dirs' is nil and `gptel-agent-update' is ignored
+            ;; in this config); mirrors the check in
+            ;; `fanshi/gptel-agent--task'.
+            (unless (gptel-get-preset (intern-soft (if (symbolp agent) (symbol-name agent) agent)))
+              (error "gptel preset %s not found" agent))
             ;; 2. Create the child agent buffer.
             ;; `gptel-agent' creates its OWN gptel buffer and returns it;
             ;; we must configure that buffer (not a separately-named one).
-            (let ((agent-buf (gptel-agent target-dir agent)))
+            ;; `gptel-agent's AGENT-PRESET argument names a gptel preset, so
+            ;; pass AGENT as a symbol (not a list); it resolves it via
+            ;; `gptel-get-preset', bypassing gptel-agent's own (empty) agent
+            ;; registry.
+            (let ((agent-buf (gptel-agent target-dir
+                                           (intern (if (symbolp agent) (symbol-name agent) agent)))))
               ;; 3. Update org entry with DELEGATED status and properties
               (save-excursion
                 (org-id-goto task-id)
