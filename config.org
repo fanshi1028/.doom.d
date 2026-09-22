@@ -920,10 +920,64 @@ not act while a task is still in flight (e.g. jj auto-commit).")
 *** fanshi/gptel--aborted related advices
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (defun fanshi/gptel-abort--set-aborted-flag-a (buf)
-    "Set the aborted flag in BUF to skip auto-continue on next post-response."
+  ;; Forward declarations: these are `defvar-local' in the loop-guard block
+  ;; further down this file, tangled after this one.  They are *load-order*
+  ;; requirements -- the abort paths here run at abort time, long after load,
+  ;; but the global default must exist before the first buffer-local read.
+  ;; Keep the two blocks in this order; do not "clean up" these declarations.
+  (defvar fanshi/gptel-loop--pending-abort)
+  (defvar fanshi/gptel-loop--aborted)
+
+  (defun fanshi/gptel-mark-turn-aborted (&optional buf)
+    "Mark the current turn in BUF as aborted.
+Sets `fanshi/gptel--aborted' so `fanshi/gptel--not-done-auto-continue-or-notify'
+does not auto-continue the truncated response, and re-arms
+`fanshi/gptel-loop--aborted' so the loop guard's post-response handler skips it
+too -- unless a *live* trip is already pending, recorded in
+`fanshi/gptel-loop--pending-abort' (it holds the tripped request's *process*, so
+liveness is tested with `processp' and `process-live-p', exactly as the other
+consumers of that variable do).  That test matters for the multisend case:
+for the request whose trip this is, the flag was already set at detection and
+the skip is a no-op, but for a *different* request's trip in the same buffer,
+re-arming would keep the guard's single per-buffer flag armed past the turn it
+covers, and the guard would skip the check on the turn after that trip too.
+A trip whose process has already exited is not live, so it does not suppress
+re-arming: the deferred timer drops such a trip and clears the flags with it,
+and a bare non-nil test here would rely on the `gptel-send' reset advice having
+run first to avoid suppressing this turn's check.
+
+The guard's flag is deliberately *not* cleared here: at this point we do not
+know which request the user aborted, and clearing it unconditionally would
+suppress the guard's check on the turn right after a guard-triggered abort.
+It is cleared by `fanshi/gptel-loop--post-response-check' (which consumes it)
+and by the loop-state reset advice on `gptel-send' when no trip is still live
+(see `fanshi/gptel-send--reset-loop-state-a').
+
+Callers: the advice on `gptel-abort', and the abort paths that *bypass*
+`gptel-abort' (`fanshi/gptel-abort-at-point-a' and
+`fanshi/gptel-abort-all-in-buffer', which abort through the FSM and abort
+closure directly, so the advice never runs for them).  It is therefore the only
+correct place for this logic: setting the flags inline in the advice left every
+bypass path unable to skip auto-continue on its own truncated response.  Note
+that `fanshi/gptel-abort-at-point-a' marks the turn only once it has actually
+located and is about to abort a request at point; when its match fails it returns
+nil, the original `gptel-abort' runs, and *that* is what calls this helper via
+its own `:before' advice.
+
+The guard's *own* abort paths deliberately do not call this:
+`fanshi/gptel-loop--stream-check' arms both flags inline at detection, and so
+does the deferred timer body, because the pending-trip test above would skip the
+guard's flag on exactly those paths.  The trip is consumed before the timer calls
+out, which is what keeps a leaked trip from disabling the guard."
     (with-current-buffer (or buf (current-buffer))
-      (setq-local fanshi/gptel--aborted t)))
+      (setq-local fanshi/gptel--aborted t)
+      (unless (let ((p fanshi/gptel-loop--pending-abort))
+                (and (processp p) (process-live-p p)))
+        (setq-local fanshi/gptel-loop--aborted t))))
+
+  (defun fanshi/gptel-abort--set-aborted-flag-a (buf)
+    "Set the aborted flags in BUF (see `fanshi/gptel-mark-turn-aborted')."
+    (fanshi/gptel-mark-turn-aborted buf))
   (advice-add 'gptel-abort :before #'fanshi/gptel-abort--set-aborted-flag-a)
 
   (defun fanshi/gptel-send--unset-aborted-flag-a (&optional arg)
@@ -2152,7 +2206,9 @@ retry after calling `Imenu' first."
   (add-hook 'gptel-post-tool-call-functions #'fanshi/gptel--dedup-mutable-tools))
 #+end_src
 ** Loop Guard: detect and break degenerate LLM loops
-Two loop types, two detectors (complements the tool-call deduplication above):
+*** Two loop types, two detectors
+Two loop types, two detectors (complements the tool-call deduplication
+above):
 
 - *Type A — mid-stream degeneration*: one completion repeats the same passage
   verbatim (e.g. the same C code block 30 times). Detected incrementally by a
@@ -2177,6 +2233,80 @@ Two loop types, two detectors (complements the tool-call deduplication above):
   near-duplicates (same analysis rephrased, "Let me check ldata.c..." over and
   over). Detected in the post-response hook via bigram Jaccard similarity;
   one auto-nudge, then hard stop.
+
+Both handlers catch errors from the detector only (it consumes buffer text,
+so a wrong-typed value surfaces as "Wrong type argument: stringp, nil" and
+would otherwise escape as "error in process filter" and take down the
+request), log the failure, and put the detector state back into a shape the
+next chunk can resume from — the tool-scan state is rolled back to the last
+consistent point, the shingle detector's state is dropped so it rescans from
+scratch. Logging matters because a guard that dies quietly just looks like a
+guard that never trips.  The catch is deliberately narrow: the rest of the body,
+including the nudge and the notify in the Type B handler, runs outside it, so a
+bug there surfaces instead of silently disabling the guard, and a failed
+=gptel-send= is still visible.  Both catches are plain =condition-case=, so a
+guard failure is logged with the detector's error message but does not open a
+debugger even under =debug-on-error=.  Only the *detector* calls are caught: the
+deferred abort that Type A schedules runs at idle time, outside the filter, and is
+left uncaught on purpose so a real bug there surfaces as a normal error.  A signal
+from it leaves the abort flags armed, which is the acceptable direction: the trip
+flag is consumed before any call-out, so the guard itself cannot be disabled that
+way, and the next =gptel-send= clears the rest.  (That
+=gptel-curl--stream-filter= hands the hook's return value back to the process
+machinery is verified against the installed gptel -- it *is* the process filter,
+and it ends by running the hook, so its return value is what the process
+machinery sees.  The trailing =nil= is kept as cheap insurance: the contract is
+gptel-internal and can change without warning.)
+
+The guard's abort sets *both* flags at detection: =fanshi/gptel--aborted= so
+the auto-continue handler skips the degenerating turn (the guard bypasses
+=gptel-abort=, so the advice that normally sets it does not run), and its own
+=fanshi/gptel-loop--aborted= for the Type B handler to consume — reading the
+auto-continue flag there instead would be a race, since that hook runs first in
+=gptel-post-response-functions= and clears it.  Both flags are set again by the
+manual-abort paths.  All of them go through =fanshi/gptel-mark-turn-aborted=: the
+advice on =gptel-abort=, plus =fanshi/gptel-abort-at-point-a= and
+=fanshi/gptel-abort-all-in-buffer=, which bypass =gptel-abort= and therefore have
+to call it directly — with one deliberate exception: while a trip is pending, the
+guard's flag must not be *re*-armed.  For the request whose trip this is the flag
+is already set, so the skip is a no-op; the case it actually protects is
+multisend, where a second request's trip would otherwise keep the guard's single
+per-buffer flag armed past the turn it covers.  If the stream finishes before the
+deferred abort runs there is nothing to abort, the trip is dropped silently, and
+both flags are cleared with it.
+
+Note the asymmetry in how the two loops are *broken*: Type A aborts the
+in-flight request, because there is one to abort.  Type B runs after the turn
+is complete, so nothing is left to stop — the give-up branch only notifies, and
+the guard's guarantee is that it stops spending tokens on further nudges, not
+that it silences the model.  =fanshi/gptel-auto-continue-max-retries= is the
+backstop when the repetition shows up as auto-continues instead of fresh turns.
+
+The nudge budget is a per-buffer budget that only a *clean* turn (compared, below
+the threshold) refills -- a turn that trips, and a nudge turn whose comparison is
+skipped, leave it spent.  That is what keeps =fanshi/gptel-loop-nudge-max= above 1
+exhaustible; with the default of 1 the policy is one nudge per loop, where a loop
+ends at the give-up notification or at the next distinct turn.
+
+Both detectors read the buffer but do not modify it, apart from the tool-call
+key, which ~read~'s the serialized call plist.  A *malformed* plist (bad syntax,
+or a non-list where a call was expected) makes
+~fanshi/gptel-loop--tool-call-key~ return nil, which breaks the streak rather
+than signalling.  A *truncated* plist is a different matter: ~read~ signals
+=end-of-file=, which the helper's =condition-case= deliberately does not catch,
+so that one escapes into the Type A catch — the reason there the shingle state is
+dropped outright rather than only rolled back (see
+=fanshi/gptel-loop--stream-check=).  Note that the key is read *before* the
+response region is examined, so this can happen on a chunk that contributes no
+text at all — which is also the chunk where the tool-call streak can still trip
+the guard with no region to hand, hence the detector state is dropped there too.
+
+Both handlers also require the response region to be *stable* between chunks --
+the shingler compares the previous normalized text as a prefix of the current one,
+so a buffer edit inside the in-flight response makes the region look like a new
+sub-response and the detector restarts from scratch.  That is the safe direction
+(no false trip), but it does mean an edit mid-stream costs the accumulated
+evidence.
 
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
@@ -2228,15 +2358,33 @@ Calls are counted across the whole agentic chain, not per sub-response."
 
   (defvar-local fanshi/gptel-loop--state nil
     "Buffer-local state for mid-stream loop detection.
-A list (NORM-PREV PREV-WORDS SHINGLE-POS RING RING-POS RING-COUNT), where
-NORM-PREV is the normalized text scanned so far, PREV-WORDS its word list,
-SHINGLE-POS maps shingle -> (COUNT . LAST-WORD-POS), RING holds the last
-`fanshi/gptel-loop-redundancy-window' shingles, RING-POS the next write
-SLOT and RING-COUNT the number of slots filled.")
+A list (NORM-PREV PREV-WORDS NEXT-I SHINGLE-POS RING RING-POS RING-COUNT),
+where NORM-PREV is the normalized text scanned so far, PREV-WORDS its word
+list, NEXT-I the first shingle start position not yet recorded (the
+recording frontier), SHINGLE-POS maps shingle -> (COUNT . LAST-WORD-POS),
+RING holds the last `fanshi/gptel-loop-redundancy-window' recorded
+shingles, RING-POS the next write SLOT and RING-COUNT the number of slots
+filled.
+
+NORM-PREV doubles as the detector's continuity check, so nil and the empty string
+mean different things: nil is \"no state\" and forces a fresh response, while a
+list whose NORM-PREV is the empty string is a live state that the next call
+continues from.  Drop the whole variable (set it to nil), never just the prefix,
+when the detector is skipped for a chunk.")
 
   (defvar-local fanshi/gptel-loop--pending-abort nil
     "Non-nil if a mid-stream loop was detected and the deferred abort has not yet run.
-Cleared by the deferred abort itself, or by `gptel-send' (new turn).")
+Holds the process of the request that tripped the guard, so the deferred
+abort can verify it still targets a live request.
+Cleared by the deferred abort *before* it calls the request's callback and abort
+closure (so a signal from them cannot leave it armed), and by `gptel-send' via
+`fanshi/gptel-send--reset-loop-state-a' when a new turn starts.
+
+Only one trip can be pending per buffer, so under multisend a second request's
+trip is *skipped* rather than recorded while the first is still outstanding.
+Which request the scan picks is likewise only unambiguous when the buffer has one
+live request: under `fanshi/gptel-multisend' `gptel--request-alist' can hold two
+for the same buffer, so the sibling may be the one aborted.")
 
   (defvar-local fanshi/gptel-loop--tool-scan-pos nil
     "Buffer position up to which tool-call blocks have been scanned.
@@ -2244,7 +2392,11 @@ Monotone within an agentic turn, but deliberately NOT keyed to the response
 region the shingle detector uses: that region's start is found by searching
 back for the `response' text property, and a tool block interrupts that run,
 so the two positions do not line up around a tool call (see
-`fanshi/gptel-loop--tool-gap-p').")
+`fanshi/gptel-loop--tool-gap-p').
+
+Monotone means the reset paths must not hand it a position behind where the scan
+already is -- the scan would re-key the blocks between and inflate the streak
+(see the trip path of `fanshi/gptel-loop--stream-check').")
 
   (defvar-local fanshi/gptel-loop--tool-last-key nil
     "Canonical key of the last full tool call scanned.")
@@ -2265,26 +2417,42 @@ rescans the whole remaining response on every chunk (quadratic in the length
 of a long agentic chain).")
 
   (defun fanshi/gptel-loop--normalize (text)
-    "Collapse whitespace and downcase TEXT for shingling."
+    "Collapse whitespace and downcase TEXT for shingling.
+Returns the empty string for nil or whitespace-only TEXT."
     (downcase (replace-regexp-in-string "[[:space:]]+" " " text)))
 
   (defun fanshi/gptel-loop--detect-response (text)
     "Incrementally scan response TEXT for degenerate repetition.
-Returns a human-readable reason, or nil. Only words added since the
-previous call are processed, so this can be called with the full
-response region on every streamed chunk. State is reset automatically
-when the response region restarts (new response) or shrinks."
+Returns a human-readable reason, or nil. Only shingles that became
+complete since the previous call are recorded, so this can be called with
+the full response region on every streamed chunk.  State is reset
+automatically when the response region restarts (new response) or shrinks.
+Below `fanshi/gptel-loop-min-words' nothing is recorded at all, and the
+recording frontier is left where it was so the shingles that arrived in the
+meantime are still keyed against later occurrences (see the comment on the
+record loop).
+The caller must NOT skip this function while leaving the state armed -- see the
+comment on the continuation branch for why a state that survives an unseen chunk
+is not benign."
     (let* ((sw fanshi/gptel-loop-shingle-words)
            (rw fanshi/gptel-loop-redundancy-window)
            (norm (fanshi/gptel-loop--normalize text))
            (state fanshi/gptel-loop--state)
            (norm-prev (nth 0 state))
            (prev-words (nth 1 state))
-           (shingle-pos (nth 2 state))
-           (ring (nth 3 state))
-           (ring-pos (nth 4 state))
-           (ring-count (nth 5 state))
+           (next-i (nth 2 state))
+           (shingle-pos (nth 3 state))
+           (ring (nth 4 state))
+           (ring-pos (nth 5 state))
+           (ring-count (nth 6 state))
            (words nil) (i 0) (reason nil))
+      ;; TEXT is empty when the whole slice turned out to be tool blocks (see
+      ;; `fanshi/gptel-loop--detect-stream').  With a nil state that just records
+      ;; an empty prefix and an empty word list; with a non-nil state it is a
+      ;; *new* response, because a recorded prefix survives only if it is a prefix
+      ;; of TEXT.  Either way the streak does not carry across a tool block -- the
+      ;; tool-call detector is what does that (see
+      ;; `fanshi/gptel-loop--tool-scan-pos').
       (cond
        ;; New sub-response: region restarted, or text changed underneath us.
        ;; Restarting here is expected whenever gptel inserts a tool block
@@ -2298,20 +2466,48 @@ when the response region restarts (new response) or shrinks."
               ring (make-vector rw nil)
               ring-pos 0
               ring-count 0
-              i 0))
-       ;; Continue: process only shingles starting at new words.
+              i 0
+              next-i 0))
+       ;; Continue: resume recording at the frontier of shingle start
+       ;; positions that were still incomplete (within `sw' words of the
+       ;; end) on the previous call.
+       ;; Reaching this branch with a STALE `norm-prev' (a state that survived a
+       ;; gap in which the detector did not run) is not benign: `substring' at a
+       ;; length past the end of NORM signals "Wrong length argument", and a stale
+       ;; prefix that merely differs corrupts the word list and the counts.
+       ;; Callers must drop the state whenever they skip this function (see
+       ;; `fanshi/gptel-loop--stream-check').
+       ;; NOTE: `prev-words' can be nil even when `state' is non-nil and
+       ;; `norm-prev' is not empty: the recorded word list is empty whenever a
+       ;; sub-response normalized to whitespace only (or was empty), so
+       ;; `nconc's first argument must not be assumed non-nil.  `nconc' with a
+       ;; nil first argument copies the tail, which keeps the recorded list
+       ;; independent of the new chunk's list.
        (t (setq words (nconc prev-words
                              (split-string (substring norm (length norm-prev)) " " 'suppress-empty))
-                i (length prev-words))))
+                i next-i)))
       (let ((n (length words)))
+        ;; Record each shingle start position exactly once, on the first
+        ;; call in which the shingle is COMPLETE (all `sw' words arrived).
+        ;; Positions within `sw' words of the then-end of the stream were
+        ;; incomplete and are revisited from the `next-i' frontier on later
+        ;; calls.  Recording at word-arrival time instead would drop every
+        ;; shingle whose words span a chunk boundary (the common case in
+        ;; streaming), so identical repetitions would never accumulate
+        ;; counts and the guard could not fire.
+        ;;
+        ;; Below `fanshi/gptel-loop-min-words' the whole block is skipped, so the
+        ;; frontier does NOT advance: the next call re-walks the shingles that
+        ;; became complete meanwhile.  That is deliberate -- advancing to
+        ;; (- n sw) would record those shingles with a count of 1 but never let
+        ;; them be re-keyed against a later occurrence, so a response that starts
+        ;; short and then degenerates could never trip the repeat check.  The cost
+        ;; is at most `min-words' re-walked per chunk, which is bounded and small
+        ;; next to the `seq-subseq' + `mapconcat' the record loop already does.
         (when (>= n fanshi/gptel-loop-min-words)
-          (while (and (< i n) (not reason))
-            ;; `let*', not `let': a plain `let' evaluates its init forms in
-            ;; parallel, so `(prev (gethash shingle ...))' would read `shingle'
-            ;; before it is bound (void-variable:shingle, surfacing as
-            ;; "error in process sentinel").
+          (while (and (< i n) (<= (+ i sw) n) (not reason))
             (let* ((shingle (mapconcat #'identity (seq-subseq words i (+ i sw)) " "))
-                   (prev (gethash shingle nil shingle-pos)))
+                   (prev (gethash shingle shingle-pos)))
               (if prev
                   (let ((count (1+ (car prev))))
                     (puthash shingle (cons count i) shingle-pos)
@@ -2319,24 +2515,31 @@ when the response region restarts (new response) or shrinks."
                                (>= count fanshi/gptel-loop-repeat-threshold))
                       (setq reason (format "shingle repeated %d times: \"%s...\""
                                            count (substring shingle 0 (min 60 (length shingle)))))))
-                (puthash shingle (cons 1 i) shingle-pos)))
-            (aset ring ring-pos shingle)
-            (setq ring-pos (mod (1+ ring-pos) rw)
-                  ring-count (min (1+ ring-count) rw))
-            ;; Redundancy check: fraction of the last `fanshi/gptel-loop-redundancy-window'
-            ;; shingles that have re-occurred within `fanshi/gptel-loop-repeat-max-gap' words.
-            (when (= ring-count rw)
-              (let ((seen 0))
-                (dolist (s ring)
-                  (when-let ((entry (and s (gethash s nil shingle-pos))))
-                    (when (and (>= (car entry) 2)
-                               (<= (- i (cdr entry)) fanshi/gptel-loop-repeat-max-gap))
-                      (cl-incf seen))))
-                (when (>= (/ (float seen) rw) fanshi/gptel-loop-redundancy-threshold)
-                  (setq reason (format "redundancy: %d of last %d shingles re-occur within %d words"
-                                       seen rw fanshi/gptel-loop-repeat-max-gap)))))
-            (cl-incf i)))
-        (setq fanshi/gptel-loop--state (list norm words shingle-pos ring ring-pos ring-count))
+                (puthash shingle (cons 1 i) shingle-pos))
+              (aset ring ring-pos shingle)
+              (setq ring-pos (mod (1+ ring-pos) rw)
+                    ring-count (min (1+ ring-count) rw)))
+            (cl-incf i))
+          (setq next-i i))
+        ;; Redundancy check: fraction of the last `fanshi/gptel-loop-redundancy-window'
+        ;; recorded shingles that have re-occurred within
+        ;; `fanshi/gptel-loop-repeat-max-gap' words of the current end of the
+        ;; stream.  Runs after the record loop, so the ring holds only
+        ;; complete shingle keys.
+        (when (and (not reason) (= ring-count rw))
+          (let ((seen 0))
+            ;; RING is a vector; `dolist' walks with car/cdr, which signals
+            ;; `wrong-type-argument listp' on vectors -- index it instead.
+            (dotimes (idx rw)
+              (let ((s (aref ring idx)))
+                (when-let ((entry (and s (gethash s shingle-pos))))
+                  (when (and (>= (car entry) 2)
+                             (<= (- n (cdr entry)) fanshi/gptel-loop-repeat-max-gap))
+                    (cl-incf seen)))))
+            (when (>= (/ (float seen) rw) fanshi/gptel-loop-redundancy-threshold)
+              (setq reason (format "redundancy: %d of last %d shingles re-occur within %d words"
+                                   seen rw fanshi/gptel-loop-repeat-max-gap)))))
+        (setq-local fanshi/gptel-loop--state (list norm words next-i shingle-pos ring ring-pos ring-count))
         reason)))
 
   (defun fanshi/gptel-loop--tool-state-reset (&optional scan-pos)
@@ -2348,6 +2551,7 @@ SCAN-POS is the buffer position from which tool blocks should be scanned."
 
   (defun fanshi/gptel-loop--tool-call-key (beg)
     "Return a canonical key for the full tool call at BEG, or nil if unreadable.
+May also signal `end-of-file' -- see the `condition-case' note below.
 BEG should point at the beginning of the tool-call plist, or just before
 it (for example at the newline separating the header from the call).
 Arguments can be megabytes long (file contents) and keys are kept between
@@ -2362,7 +2566,16 @@ characters.)  `sxhash' is not stable across sessions,
 which is fine -- keys never outlive the request.  `prin1-to-string' is
 stable for the JSON-derived plists gptel builds, but a tool whose arguments
 embed a buffer or process object prints differently on every call, so its
-repeats would be missed."
+repeats would be missed.
+
+The `condition-case' catches `wrong-type-argument' (what `plist-member' or
+`plist-get' signal when the form at BEG reads as a non-cons -- a stray number or
+symbol where a call plist was expected) and `invalid-read-syntax' (what `read'
+signals on malformed markup), both of which just mean "this block cannot be
+    keyed" and are handled by returning nil.  It deliberately does NOT catch
+`end-of-file', which `read' signals on a *truncated* plist: that one is a real
+inconsistency and is meant to reach `fanshi/gptel-loop--stream-check', whose
+handler drops the shingle state along with the tool state."
     (save-excursion
       (condition-case nil
           (progn
@@ -2374,7 +2587,7 @@ repeats would be missed."
                           (or (plist-get call :name) "")
                           (sxhash args)
                           (truncate-string-to-width args 100 nil nil t))))))
-        (error nil))))
+        ((wrong-type-argument invalid-read-syntax) nil))))
 
   (defun fanshi/gptel-loop--tool-block-bounds-1 (block-start call-start end)
     "Return (BLOCK-START CALL-START BLOCK-END) for a tool block.
@@ -2515,7 +2728,8 @@ is exactly FROM.  The walk matters when FROM points into an earlier turn (the
 region then holds prose or user text and the answer is nil) and, defensively,
 for blocks whose markup is unpropertized or `ignore' rather than `tool'."
     (let ((pos from)
-          (junk (list (bound-and-true gptel-response-separator)
+          (junk (list (and (boundp 'gptel-response-separator)
+                           (default-value 'gptel-response-separator))
                       (and (fboundp 'gptel-response-prefix-string)
                            (ignore-errors (funcall #'gptel-response-prefix-string))))))
       (while (and pos (< pos to))
@@ -2556,8 +2770,9 @@ are the canonical tool-call keys of the tool blocks beginning at or after
 SCAN-START, and only when READ-KEYS is non-nil -- keying a block means
 `read'ing and printing its (possibly megabyte-long) arguments, so callers
 that want TEXT alone pass nil.  A key is `nil' for a block whose call could
-not be read.  SCAN-POS is the end of the last tool block scanned, SCAN-START
-if there was none.
+not be read, but a *truncated* call plist signals `end-of-file' out of
+`fanshi/gptel-loop--tool-call-key' rather than returning nil.  SCAN-POS is the
+end of the last tool block scanned, SCAN-START if there was none.
 
 The scan walks from (min SCAN-START TEXT-START): behind TEXT-START to pick up
 tool blocks inserted since the previous call, ahead of it to strip blocks
@@ -2603,7 +2818,11 @@ which is what the shingler wants (whitespace, and it normalizes it away)."
       (list (apply #'concat (nreverse segments)) (nreverse keys) scan-pos)))
 
   (defun fanshi/gptel-loop--response-text (start end)
-    "Return the response text from START to END with tool blocks removed."
+    "Return the response text from START to END with tool blocks removed.
+Returns the text of the WHOLE START END region.  Note that
+`fanshi/gptel-loop--detect-stream' does *not* use this: it passes its own
+scan position as TEXT-START to `fanshi/gptel-loop--response-parts', so the
+text the shingler sees is only the slice since the previous scan."
     (nth 0 (fanshi/gptel-loop--response-parts start end start)))
 
   (defun fanshi/gptel-loop--detect-tool-repetition (keys)
@@ -2646,7 +2865,18 @@ inserted START still points at the previous sub-response and only jumps past
 the block on the next chunk -- keying the streak off it reset the streak at
 every tool call.  Scan on from the previous scan position instead, and treat
 the gap between it and START as a genuinely new turn only when it is not tool
-blocks plus separators (`fanshi/gptel-loop--tool-gap-p')."
+blocks plus separators (`fanshi/gptel-loop--tool-gap-p').
+
+The only tool-state reset happens in that stale-position branch, i.e. *before*
+any scanning.  Worth knowing when reasoning about a rollback: a signal that
+reaches `fanshi/gptel-loop--stream-check' from here has already reset the
+state, so the rollback there can undo a reset that was already correct.
+
+TEXT is always handed to the shingler, even when it is empty -- an empty slice
+is normal here and is what records the empty prefix the next chunk continues
+from.  This function must never be *skipped* while leaving the shingle state
+armed: see `fanshi/gptel-loop--detect-response' for why a state that survives a
+chunk the detector did not see is not benign."
     (let* ((scan-start fanshi/gptel-loop--tool-scan-pos)
            parts text keys reason)
       ;; `> end' only guards a stale position left by a buffer edit:
@@ -2662,53 +2892,382 @@ blocks plus separators (`fanshi/gptel-loop--tool-gap-p')."
             text (nth 0 parts)
             keys (nth 1 parts))
       (setq fanshi/gptel-loop--tool-scan-pos (nth 2 parts))
+      ;; TEXT is the response slice from the previous scan position to END with the
+      ;; tool blocks removed, so it is empty when the whole slice turned out to be
+      ;; tool blocks (or the slice was empty to begin with).  That is a normal
+      ;; input and must still reach the detector: the detector records it as the
+      ;; prefix the next chunk continues from.  Note it is a SLICE, not the whole
+      ;; region, so a shingle straddling a tool block is dropped -- carrying state
+      ;; across blocks is the tool-call detector's job.
       (setq reason (fanshi/gptel-loop--detect-response text))
       (or reason (fanshi/gptel-loop--detect-tool-repetition keys))))
 
   (defun fanshi/gptel-loop--stream-check ()
     "`gptel-post-stream-hook' handler: abort the request if the response is degenerating.
-This hook runs *inside* gptel's process filter (see
-`gptel-curl--stream-insert-response'), while that function's lexical
-`response' binding is still live and the streaming insert is mid-flight.
-Calling `gptel-abort' synchronously here re-enters gptel's request/abort
-machinery (tearing down the in-flight request and its
-`gptel--request-alist' entry) while the filter is still executing, which
-corrupts the in-flight state and surfaces as
-\"error in process filter: ... void: response\".  So we only *detect* the
-loop here and defer the actual abort to idle time, once the filter has
-returned and its `response' binding has unwound.  The whole check is also
-contained so a bug in the detector can never take down the request
-pipeline.  `fanshi/gptel-loop--pending-abort' deduplicates: without it the
-hook would re-detect the same loop on every subsequent chunk (the detector
-state was reset, so it re-scans the whole response) and schedule a burst of
-duplicate aborts and notifications before the first one fires."
-    (when (and fanshi/gptel-loop-guard-enabled gptel-mode
+Runs from gptel's process filter, so anything it signals escapes as
+\"error in process filter\" and takes the request pipeline down -- see the
+invariants below, and the body comments for the mechanics.
+
+Invariants this relies on:
+
+- Runs *inside* gptel's process filter, with `gptel-curl--stream-insert-response'
+  still on the call stack and its lexical `response' binding live.  Aborting
+  synchronously here re-enters the request/abort machinery mid-flight and
+  surfaces as \"error in process filter: ... void: response\", so only *detection*
+  happens here; the abort is deferred to idle time and acts on the recorded
+  process directly through the FSM and abort closure, bypassing `gptel-abort'
+  (which would abort the first request found in the buffer and would drag in
+  `fanshi/gptel-abort-at-point-a', either of which may be a different request
+  than the one that tripped).
+
+- The response region comes from the `gptel' text property, never `point-max':
+  tool output carries `(tool . ID)' rather than `response', and feeding it in
+  pollutes both the shingler and its incremental prefix check.  At hook time
+  point sits just after the in-flight `response' run, so the run is found via the
+  property of `(1- point)' and delimited by a backward property search to `point'.
+  When point is not inside a `response' run there is no text to shingle, so the
+  detector is skipped and its state is dropped with it: a state kept armed across
+  a chunk the detector did not see is not benign (see
+  `fanshi/gptel-loop--detect-response'), and this hook is the one place that
+  knows a chunk went unseen.
+
+- `fanshi/gptel-loop--pending-abort' is both the dedup flag and the record of
+  which process to abort, and holds a *process* rather than t.  It is consumed by
+  the deferred abort *before* that abort calls out (a leaked trip permanently
+  disables the guard, since the dedup test never passes again; a leaked abort flag
+  only suppresses one turn), and by `gptel-send' via
+  `fanshi/gptel-send--reset-loop-state-a'.  Only one trip can be pending per
+  buffer, so under `fanshi/gptel-multisend' a second request's trip is *skipped*
+  while the first is outstanding, and the sibling may be the request aborted.
+
+- Both abort flags are armed here at detection and again in the timer body, not
+  through `fanshi/gptel-mark-turn-aborted': that helper deliberately skips the
+  guard's own flag while a trip is pending.  Whether the aborted request's
+  `gptel-post-response-functions' run at all is callback-dependent, so the guard
+  does not rely on them observing the abort.
+
+- Only the *detector* call is caught.  A signal from elsewhere in this hook
+  escapes as \"error in process filter\" and takes the pipeline down -- that is
+  intended, so a real bug surfaces instead of silently disabling the guard.  The
+  deferred abort likewise runs uncaught: at idle time a signal is an ordinary
+  command-loop error with a backtrace.
+
+- If the stream finished before the deferred abort runs there is nothing to
+  abort: the timer stays silent rather than notifying about an abort that never
+  happened, and clears both abort flags -- the request completed normally and its
+  own post-response hooks have already run, so leaving the guard's flag armed
+  would make the *next* turn look aborted.
+
+- Must return nil: `gptel-curl--stream-filter' ends with
+  `(run-hooks 'gptel-post-stream-hook)' and hands that value back to the process
+  machinery, so non-nil would look like a handoff to another streaming backend.
+  (Verified against the installed gptel: `gptel-curl--stream-filter' is the
+  process filter, so its return value is what the process machinery sees, and it
+  ends by running this hook.  The trailing `nil' is cheap insurance -- the
+  contract is gptel-internal and can change without warning.)"
+    (when (and fanshi/gptel-loop-guard-enabled
+               gptel-mode
                (not fanshi/gptel-loop--pending-abort))
-      (condition-case _err
-          ;; The search runs in a `save-excursion' because we are inside the
-          ;; process filter.  On failure it restores point, so the returned
-          ;; match -- not `point' -- is what says whether there is a response
-          ;; region here at all.
-          (let* ((match (save-excursion
-                          (text-property-search-backward 'gptel 'response t)))
-                 (start (and match (prop-match-beginning match))))
-            (when start
-              (let ((reason (fanshi/gptel-loop--detect-stream start (point-max))))
-                (when reason
-                  (setq-local fanshi/gptel-loop--state nil
-                              fanshi/gptel-loop--pending-abort t)
-                  (fanshi/gptel-loop--tool-state-reset)
-                  (message "gptel-loop-guard: mid-stream loop detected (%s), aborting." reason)
-                  (let ((buf (current-buffer)))
-                    (run-with-idle-timer
-                     0 nil
-                     (lambda ()
-                       (when (buffer-live-p buf)
-                         (with-current-buffer buf
-                           (ignore-errors (gptel-abort buf))
-                           (setq-local fanshi/gptel-loop--pending-abort nil)
-                           (fanshi/notify)))))))))
-            (error nil)))))
+      ;; The detector mutates state as it goes, so only the detector call is
+      ;; caught -- a bug elsewhere in this hook should surface.  On failure the
+      ;; tool-scan state is rolled back to the pre-call values as well as it can
+      ;; be (resuming from a half-updated position either re-counts a block or
+      ;; skips one); the backups are the values, not aliases, because the scan
+      ;; advances the streak with `cl-incf' and replaces the key with `setq'.
+      ;; It is only *best effort*: a reset can precede a signal that reaches this
+      ;; handler, from two places -- the stale-position branch of
+      ;; `fanshi/gptel-loop--detect-stream' (its `fanshi/gptel-loop--tool-gap-p'
+      ;; walk), and `fanshi/gptel-loop--tool-call-key', whose `save-excursion'
+      ;; wraps a `condition-case' that catches only `wrong-type-argument' (what
+      ;; `read' signals on a nil form), so `end-of-file' from a truncated call
+      ;; plist escapes into the handler below.  Undoing such a reset is harmless
+      ;; because the trip path resets the tool state again, and a failure means no
+      ;; trip, so the next chunk just rescans the gap.
+      ;; The shingle detector's state is *discarded* rather than restored: the
+      ;; list saved here is only a shallow copy (its ring and hash-table slots are
+      ;; the very objects the detector mutates, and its word-list slot aliases the
+      ;; tail `nconc' splices into it), and the detector fills the hash table with
+      ;; `puthash' before it installs the new state list, so the saved list can
+      ;; point at a half-updated table.  A nil state is safe to resume from -- the
+      ;; detector treats it as a new response, rebuilds the table and
+      ;; re-shingles the whole region.
+      ;;
+      ;; The same drop happens when there is *no* response region at all (point not
+      ;; inside a `response' run, e.g. a chunk that is entirely tool output): the
+      ;; detector is skipped, so nothing re-validates the prefix recorded by an
+      ;; earlier sub-response, and the next chunk takes the continuation branch
+      ;; against it.  That is a real failure mode, not a theoretical one: a chunk
+      ;; that brings a tool block has to be scanned to key the call, and the scan
+      ;; runs *before* the region test, so a truncated call plist signals
+      ;; `end-of-file' out of `fanshi/gptel-loop--tool-call-key' (its
+      ;; `condition-case' catches only `wrong-type-argument'), the rollback below
+      ;; then restores the state the detector installed mid-scan, and the next
+      ;; continuation branch takes `substring' at a recorded length that no longer
+      ;; fits the text -- "Wrong length argument", which used to surface as
+      ;; "stream check failed" with the text detector blind for the rest of the
+      ;; turn.  Dropping the state makes the next chunk a fresh response.
+      ;; `SHINGLE-BAK' is cleared with plain `setq' -- NOT
+      ;; `kill-local-variable', which would make the buffer inherit the *global*
+      ;; default, and the rollback below would then put that foreign state back.
+      ;; (`setq' here is fine even though the variable is `defvar-local': this
+      ;; branch only runs when `gptel-mode' is on, so the buffer is a chat buffer
+      ;; whose local binding already exists.)
+      (let ((scan-bak fanshi/gptel-loop--tool-scan-pos)
+            (key-bak fanshi/gptel-loop--tool-last-key)
+            (count-bak fanshi/gptel-loop--tool-consecutive)
+            (shingle-bak fanshi/gptel-loop--state))
+        (condition-case err
+            (let* (;; Whether the shingle state was dropped because there was no
+                   ;; response region (see the comment above).  The trip path
+                   ;; below must not then hand the tool scan the region's start:
+                   ;; that position predates the tool blocks
+                   ;; `fanshi/gptel-loop--detect-stream' already keyed, so the
+                   ;; next chunk would count them a second time.
+                   (no-region-p nil)
+                   (region
+                    ;; Delimit the in-flight response region by the `gptel'
+                    ;; text property.  The hook fires from the stream callback
+                    ;; (`gptel-curl--stream-insert-response') right after
+                    ;; `(insert response)', so point sits at the end of the
+                    ;; just-inserted chunk, inside the in-flight `response'
+                    ;; run.  The old code searched forward from `point' and
+                    ;; then backward with NOT-CURRENT t, which returned nil on
+                    ;; some streamed chunks, so the detector never received
+                    ;; any text and the guard silently did nothing.
+                    (when (and (> (point) (point-min))
+                               (eq 'response (get-text-property (1- (point)) 'gptel)))
+                      (let ((match (save-excursion
+                                     (text-property-search-backward 'gptel 'response))))
+                        (cons (if match (prop-match-beginning match) (point-min))
+                              (point)))))
+                   ;; Scan up to `point', never `point-max': past `point' lies
+                   ;; tool output and whatever the next chunk will bring, and
+                   ;; feeding that to the shingler both pollutes the text
+                   ;; detector and resets its incremental prefix check.  The
+                   ;; tool-call detector keeps its own scan position (see
+                   ;; `fanshi/gptel-loop--detect-stream'), so scanning only to
+                   ;; `point' still counts a tool block inserted before here.
+                   (reason (if region
+                               (fanshi/gptel-loop--detect-stream (car region)
+                                                                 (cdr region))
+                             ;; No `response' run at point: there is nothing to
+                             ;; shingle.  The state has to go with it -- a state
+                             ;; left armed from an earlier sub-response makes the
+                             ;; next chunk take the detector's continuation branch
+                             ;; against a prefix nothing re-validated (see the
+                             ;; comment above this `let').  Dropping it makes the
+                             ;; next chunk a fresh response instead.
+                             ;; `SHINGLE-BAK' is cleared too, so the rollback
+                             ;; cannot put a state back; both are plain `setq',
+                             ;; not `kill-local-variable', or the buffer would
+                             ;; inherit the global default and the rollback would
+                             ;; restore that.
+                             (progn
+                               (setq shingle-bak nil
+                                     no-region-p t
+                                     fanshi/gptel-loop--state nil)
+                               nil))))
+              (when reason
+                (when-let* (;; Find the tripped request by buffer, like
+                            ;; `gptel-abort' does: the hook fires from this
+                            ;; buffer's stream callback, so its in-flight
+                            ;; request is the entry whose `:buffer' is the
+                            ;; current buffer.  (Taking the last alist entry
+                            ;; instead would be another buffer's request under
+                            ;; multisend.)
+                            (entry (cl-find-if
+                                    (lambda (e)
+                                      (eq (plist-get (gptel-fsm-info (cadr e)) :buffer)
+                                          (current-buffer)))
+                                    gptel--request-alist))
+                            (process (car entry))
+                            ;; A pending trip here belongs to a *different*
+                            ;; request: the hook's dedup test above returned early
+                            ;; once this stream's own trip was recorded, and the
+                            ;; flag is only cleared when a trip is consumed.  So
+                            ;; this is the multisend case, with an idle timer
+                            ;; still queued for the sibling.
+                            (other-trip-p
+                             (let ((p fanshi/gptel-loop--pending-abort))
+                               (and (processp p) (process-live-p p)))))
+                  ;; NOTE: `setq-local' without a VALUE only makes the
+                  ;; variable buffer-local, it does not set a local value --
+                  ;; the buffer keeps showing the global default (nil).  So the
+                  ;; old `(setq-local V1 nil V2 t)' left `pending-abort' nil
+                  ;; and the dedup never took effect.  Always pass an explicit
+                  ;; value: here the flag holds the process of the tripped
+                  ;; request, which the deferred abort acts on.  Skipping rather
+                  ;; than overwriting a pending trip is deliberate: overwriting
+                  ;; would leave the queued timer holding *this* request's process
+                  ;; while it was scheduled for the sibling.  Nothing else may be
+                  ;; touched in that case either -- the detector state resets
+                  ;; below belong to whichever trip is actually recorded.
+                  (if other-trip-p
+                      (message "gptel-loop-guard: mid-stream loop detected (%s), another trip pending; deferring."
+                               reason)
+                    (setq-local fanshi/gptel-loop--pending-abort process)
+                    ;; Drop the shingle state (it re-scans the whole region from
+                    ;; scratch on the next chunk) and reset the tool scan to the
+                    ;; end of the text just scanned, with an explicit position --
+                    ;; `fanshi/gptel-loop--tool-state-reset' with no argument
+                    ;; leaves the scan position nil, which the next call reads as
+                    ;; "nothing scanned yet".  With no region there is nothing to
+                    ;; rescan from, so leave the tool state as the detector left it
+                    ;; rather than rewinding onto already-keyed blocks.  Plain
+                    ;; `setq', not `kill-local-variable': the buffer must end up
+                    ;; with nil, not with whatever the global default holds.
+                    (setq fanshi/gptel-loop--state nil)
+                    (unless no-region-p
+                      (fanshi/gptel-loop--tool-state-reset (cdr region)))
+                    ;; Mark the turn as aborted so
+                    ;; `fanshi/gptel--not-done-auto-continue-or-notify' does not
+                    ;; auto-continue the degenerating response, which would just
+                    ;; re-trip the guard in a cycle.  Set at detection rather than
+                    ;; only in the deferred abort below: a manual abort in the
+                    ;; meantime still runs its post-response hooks, and this is
+                    ;; what closes the window between detection and the idle timer
+                    ;; firing.  Not `fanshi/gptel-mark-turn-aborted': that helper
+                    ;; skips the guard's own flag while a trip is pending, and the
+                    ;; trip is recorded until the deferred abort runs.
+                    (setq-local fanshi/gptel--aborted t
+                                fanshi/gptel-loop--aborted t)
+                    (message "gptel-loop-guard: mid-stream loop detected (%s), aborting." reason)
+                    (let ((buf (current-buffer)))
+                      (run-with-idle-timer
+                       0 nil
+                       (lambda ()
+                         (when (buffer-live-p buf)
+                           (with-current-buffer buf
+                             ;; Abort directly via the FSM + abort closure from
+                             ;; the request entry, like
+                             ;; `fanshi/gptel-abort-all-in-buffer'.  Reasons not
+                             ;; to call `gptel-abort' here:
+                             ;; 1. It aborts the FIRST request found in the
+                             ;;    buffer, which under multisend may not be the
+                             ;;    request that tripped the guard.
+                             ;;
+                             ;; 2. `gptel-abort' is itself advice, so it would
+                             ;;    drag in the advice that marks the turn aborted:
+                             ;;    `fanshi/gptel-abort-at-point-a' is a
+                             ;;    `:before-until' advice that intercepts it: when
+                             ;;    it finds a request at point it aborts that
+                             ;;    one and returns non-nil, suppressing the
+                             ;;    original `gptel-abort' -- again possibly a
+                             ;;    different request than the one that tripped.
+                             ;;
+                             ;; Either way the tripped request could keep
+                             ;; streaming while the user gets a "loop broken"
+                             ;; notification.
+                             ;;
+                             ;; NOTE: nothing here is wrapped in
+                             ;; `condition-case'.  The *detector* call above is
+                             ;; caught because it runs inside gptel's process
+                             ;; filter, where a signal becomes "error in process
+                             ;; filter" and takes the pipeline down; this timer
+                             ;; body runs at idle time instead, so a signal is an
+                             ;; ordinary command-loop error (backtrace, debugger
+                             ;; if `debug-on-error') and stays visible.  A signal
+                             ;; here leaves the abort flags armed, which is
+                             ;; acceptable: the trip is consumed before any
+                             ;; call-out, so the guard cannot be disabled this
+                             ;; way, and the next `gptel-send' clears the rest.
+                             (let* ((pending fanshi/gptel-loop--pending-abort)
+                                    (proc (and (processp pending)
+                                               (process-live-p pending)
+                                               pending))
+                                    (entry (and proc (alist-get proc gptel--request-alist)))
+                                    (fsm (and entry (car entry)))
+                                    (abort-fn (and entry (cdr entry)))
+                                    (fsm-info (and fsm (gptel-fsm-info fsm)))
+                                    (cb (and fsm-info (plist-get fsm-info :callback))))
+                               ;; Consume the trip *before* calling out, for two
+                               ;; reasons: a trip still recorded makes
+                               ;; `fanshi/gptel-mark-turn-aborted' skip the guard's
+                               ;; own flag, so a manual abort landing while the
+                               ;; request is torn down would leave
+                               ;; `fanshi/gptel-loop--aborted' unarmed for this
+                               ;; turn; and a call-out that signals cannot then
+                               ;; leave the trip armed forever -- a leaked trip
+                               ;; permanently disables the guard (the hook's dedup
+                               ;; test never passes again), whereas a leaked abort
+                               ;; flag only suppresses one turn and the following
+                               ;; `gptel-send' clears it.  That same skip is why
+                               ;; the abort flags are set inline just below rather
+                               ;; than through the helper.
+                               ;;
+                               ;; Marking the turn aborted is done inline rather
+                               ;; than through `fanshi/gptel-mark-turn-aborted':
+                               ;; that helper deliberately skips the guard's own
+                               ;; flag while a trip is pending, and this path must
+                               ;; arm the guard's flag while its trip is still
+                               ;; recorded.
+                               (setq-local fanshi/gptel-loop--pending-abort nil)
+                               (when (and proc fsm (functionp abort-fn))
+                                 ;; Mark the turn as aborted so
+                                 ;; `fanshi/gptel--not-done-auto-continue-or-notify'
+                                 ;; does not auto-continue the degenerating
+                                 ;; response, which would just re-trip the guard in
+                                 ;; a cycle.  Set *before* the callback runs: its
+                                 ;; abort path can dispatch the response, which runs
+                                 ;; the post-response hooks inline, and they must
+                                 ;; see the turn as aborted.
+                                 (setq-local fanshi/gptel--aborted t
+                                             fanshi/gptel-loop--aborted t)
+                                 (when (functionp cb)
+                                   (with-demoted-errors "loop-guard callback: %S"
+                                     (funcall cb 'abort fsm-info)))
+                                 (ignore-errors (funcall abort-fn))
+                                 (setf (alist-get proc gptel--request-alist nil 'remove) nil)
+                                 (gptel--fsm-transition fsm 'ABRT)
+                                 ;; Re-arm after the teardown: if the callback
+                                 ;; dispatched the response, its post-response hooks
+                                 ;; already consumed both flags.  They do not run at
+                                 ;; all when the callback ignores the abort signal
+                                 ;; (`gptel-abort' does not run them either, so this
+                                 ;; matches the manual-abort behaviour); the flags
+                                 ;; then stay armed until
+                                 ;; `fanshi/gptel-send--reset-loop-state-a' clears
+                                 ;; them on the next send.
+                                 (setq-local fanshi/gptel--aborted t
+                                             fanshi/gptel-loop--aborted t)
+                                 ;; `fanshi/notify' is what clears
+                                 ;; `fanshi/gptel--auto-continue-count' and
+                                 ;; `fanshi/gptel--auto-continued' for this turn.
+                                 (fanshi/notify))
+                               ;; Trip with nothing to abort: the stream finished
+                               ;; (or the entry went away) between detection and
+                               ;; here, so the request completed normally and its
+                               ;; own `gptel-post-response-functions' have already
+                               ;; run -- the guard's abort flag must be dropped now
+                               ;; or the *next* turn is read as an aborted one and
+                               ;; its Type B check swallowed.  Staying silent is
+                               ;; deliberate: notifying about an abort that never
+                               ;; happened is worse than quiet.  (`proc' is also
+                               ;; nil when the trip was consumed earlier, in which
+                               ;; case this only re-clears the flags.)
+                               (unless proc
+                                 (setq-local fanshi/gptel--aborted nil
+                                             fanshi/gptel-loop--aborted nil))))))))))))
+          (error
+           ;; Best-effort rollback of the detector state (see the comment above):
+           ;; the shingle state is put back to the pre-call value -- `shingle-bak'
+           ;; is nil when the state had already been dropped here, so the drop
+           ;; sticks -- and the tool-call state is put back to the pre-call values
+           ;; even though the detector may already have reset it correctly, and the
+           ;; trip path clears it again anyway.  The state backup is only a shallow
+           ;; copy: the ring and the hash table are the live objects the detector
+           ;; mutates, so a resumed table can be half-updated.  That is tolerable
+           ;; because a `puthash' that landed belongs to a shingle of the current
+           ;; prefix, so the worst it does is *cost* a trip (the count was already
+           ;; credited once); it cannot invent a repetition that did not occur.
+           (setq fanshi/gptel-loop--state shingle-bak
+                 fanshi/gptel-loop--tool-scan-pos scan-bak
+                 fanshi/gptel-loop--tool-last-key key-bak
+                 fanshi/gptel-loop--tool-consecutive count-bak)
+           (message "gptel-loop-guard: stream check failed: %s"
+                    (error-message-string err))))
+        ;; NOTE: returning nil matters -- see the docstring.
+        nil)))
   (add-hook 'gptel-post-stream-hook #'fanshi/gptel-loop--stream-check)
 
   ;; ---------- Type B: inter-turn similarity ----------
@@ -2719,7 +3278,10 @@ duplicate aborts and notifications before the first one fires."
     :group 'gptel)
 
   (defcustom fanshi/gptel-loop-nudge-max 1
-    "Number of auto-nudges before giving up on an inter-turn loop."
+    "Number of auto-nudges before giving up on an inter-turn loop.
+The budget lives in `fanshi/gptel-loop--nudge-count', which is per-buffer and
+refilled when a turn is compared and comes out below the threshold (a nudged turn
+does not refill it, so a budget above 1 is exhaustible)."
     :type 'integer
     :group 'gptel)
 
@@ -2727,7 +3289,26 @@ duplicate aborts and notifications before the first one fires."
     "Normalized bigram multiset of the previous assistant response.")
 
   (defvar-local fanshi/gptel-loop--nudge-count 0
-    "Number of loop nudges sent in the current conversation.")
+    "Number of loop nudges sent in the current conversation.
+Deliberately *not* reset by `fanshi/gptel-send--reset-loop-state-a': it has to
+survive the nudge's own send and the turns that follow, or the guard would nudge
+forever and never reach the hard stop.  It is therefore a per-buffer budget, not
+per-loop: once `fanshi/gptel-loop-nudge-max' is spent, every later inter-turn
+loop in this buffer goes straight to the give-up notification until a turn
+completes *clean* (compared, below the threshold), which refills it (see
+`fanshi/gptel-loop--post-response-check').  A nudged turn does not refill it --
+that is what makes a budget above 1 exhaustible -- so the policy is one nudge per
+loop only when a distinct turn separates two loops.")
+
+  (defvar-local fanshi/gptel-loop--aborted nil
+    "Non-nil if this buffer's last request was aborted, by the guard or by the user.
+The guard sets it at *detection* (so a manual abort in the window before the idle
+timer still has its post-response hooks skipped) and again in the deferred abort,
+so it is visible to the `gptel-post-response-functions' that run once the aborted
+request finishes.  Manual aborts set it through `fanshi/gptel-mark-turn-aborted',
+including the paths that bypass `gptel-abort'.  Consumed (reset to nil) by
+`fanshi/gptel-loop--post-response-check', and cleared by
+`fanshi/gptel-send--reset-loop-state-a' when no trip is still live.")
 
   (defun fanshi/gptel-loop--normalize-words (text)
     "Strip markup and return a list of lowercase words of TEXT."
@@ -2738,32 +3319,77 @@ duplicate aborts and notifications before the first one fires."
      " " 'suppress-empty))
 
   (defun fanshi/gptel-loop--jaccard (a b)
-    "Bigram Jaccard similarity between word lists A and B."
-    (if (or (null a) (null b))
-        0.0
-      (let* ((ba (make-hash-table :test #'equal))
-             (bb (make-hash-table :test #'equal))
-             (inter 0) (union 0))
-        (cl-loop for w1 on a
-                 while (cdr a)
-                 for bg = (concat w1 " " (cadr a))
-                 do (puthash bg (1+ (gethash bg 0)) ba))
-        (cl-loop for w1 on b
-                 while (cdr b)
-                 for bg = (concat w1 " " (cadr b))
-                 do (puthash bg (1+ (gethash bg 0)) bb))
-        (maphash (lambda (bg va)
-                   (let ((vb (gethash bg 0 bb)))
-                     (cl-incf union (max va vb))
-                     (when vb (cl-incf inter (min va vb)))))
-                 ba)
-        (maphash (lambda (bg vb)
-                   (unless (gethash bg ba) (cl-incf union vb)))
-                 bb)
-        (if (= union 0) 1.0 (/ (float inter) union)))))
+    "Bigram Jaccard similarity between word lists A and B.
+Returns the coefficient of the bigram multisets, or nil when there is nothing to
+compare: either list nil, or either list shorter than two words (no bigram at
+all).  Returning nil instead of the vacuous 1.0 that a plain Jaccard gives for an
+empty union is deliberate -- the caller must not read \"nothing to compare\" as
+\"identical\" (`fanshi/gptel-loop--post-response-check' treats nil as
+not-a-loop).  Two lists that *do* have bigrams but share none are compared
+normally and return 0.0: \"no overlap\" is a real measurement, not a missing
+one."
+    (let ((inter 0) (union 0))
+      (when (and a b)
+        (let ((ba (make-hash-table :test #'equal))
+              (bb (make-hash-table :test #'equal)))
+          (cl-loop for w1 on a
+                   while (cdr w1)
+                   for bg = (concat (car w1) " " (cadr w1))
+                   do (puthash bg (1+ (gethash bg 0)) ba))
+          (cl-loop for w1 on b
+                   while (cdr w1)
+                   for bg = (concat (car w1) " " (cadr w1))
+                   do (puthash bg (1+ (gethash bg 0)) bb))
+          (maphash (lambda (bg va)
+                     (let ((vb (gethash bg 0 bb)))
+                       (cl-incf union (max va vb))
+                       (when vb (cl-incf inter (min va vb)))))
+                   ba)
+          (maphash (lambda (bg vb)
+                     (unless (gethash bg ba) (cl-incf union vb)))
+                   bb)))
+      ;; NIL when nothing was comparable: a nil or too-short list means no
+      ;; bigram exists, so UNION stays 0 and a plain Jaccard would report the
+      ;; vacuous 1.0.  Disjoint-but-non-empty lists are a real measurement
+      ;; and return 0.0 below.
+      (if (= union 0)
+          nil
+        (/ (float inter) union))))
+
+  (defvar-local fanshi/gptel-loop--from-nudge nil
+    "Non-nil if the current `gptel-send' was issued by the loop guard nudge.
+Read (and cleared) by `fanshi/gptel-loop--post-response-check', which skips
+the *comparison* for a nudge turn -- the nudge text is part of the response
+region that follows, so its own words would otherwise pollute the next
+similarity -- while still recording the fingerprint.  The nudge's own send is
+,*not* exempt from the state reset in `fanshi/gptel-send--reset-loop-state-a', so
+`fanshi/gptel-loop--last-response' is normally nil by the time a nudge response is
+checked; `from-nudge' is the explicit half of the pair and the one that documents
+intent.  `fanshi/gptel-loop--nudge-count' deliberately
+survives the reset, which is what lets the guard reach the hard stop; it is
+refilled only by a turn that was compared and came out below the threshold, so a
+nudge turn does not top up its own budget (see
+`fanshi/gptel-loop--post-response-check').
+
+Set by `fanshi/gptel-loop--nudge' and consumed by
+`fanshi/gptel-loop--post-response-check'.  If the nudge's send never leads to a
+response (swallowed by an advice, or an error before the request starts), the
+marker stays armed and the *next* turn's comparison is skipped as well -- one
+extra turn of blindness, then the fingerprint is recorded again and the guard
+resumes.
+
+`gptel-abort' does not run the post-response hooks, so aborting the nudge turn
+leaves the marker armed as well; it is consumed by the next turn that does reach
+the check, which is then compared without the nudge text -- the fingerprint it
+records is that turn's, so the comparison chain stays intact.")
 
   (defun fanshi/gptel-loop--nudge ()
-    "Send a nudge asking the agent to break its loop."
+    "Send a nudge asking the agent to break its loop.
+Runs from `fanshi/gptel-loop--post-response-check', i.e. from gptel's sentinel,
+so `gptel-send' here re-enters gptel while the previous request is finishing;
+that is why the similarity decision is taken *before* this is called (see the
+caller's docstring)."
+    (setq-local fanshi/gptel-loop--from-nudge t)
     (let ((fanshi/prevent-duplicate-gptel-send nil))
       (without-restriction
         (goto-char (point-max))
@@ -2771,39 +3397,233 @@ duplicate aborts and notifications before the first one fires."
                 "STOP: you are repeating the same content with no progress. "
                 "Do not repeat what you just wrote. Either take a concrete different action, "
                 "or state in one sentence exactly what is blocking you.\n")
+        ;; NOTE: `gptel-send' is non-blocking and returns before the response
+        ;; arrives, so nothing here can tell whether the request actually went
+        ;; out.  If it did not, the `from-nudge' marker set above stays armed
+        ;; (see its docstring), the budget stays spent, and the next turn that
+        ;; trips goes straight to the give-up branch.
         (gptel-send))))
 
   (defun fanshi/gptel-loop--post-response-check (beg end)
-    "`gptel-post-response-functions' handler: detect near-duplicate consecutive responses."
-    (when (and fanshi/gptel-loop-guard-enabled (not fanshi/gptel--aborted))
-      (let* ((response (fanshi/gptel-loop--response-text beg end))
-             (words (fanshi/gptel-loop--normalize-words response)))
-        (when (>= (length words) 40)
-          (let ((sim (when fanshi/gptel-loop--last-response
-                       (fanshi/gptel-loop--jaccard fanshi/gptel-loop--last-response words))))
-            (setq fanshi/gptel-loop--last-response words)
-            (when (and sim (>= sim fanshi/gptel-loop-similarity-threshold))
-              (cond
-               ((< fanshi/gptel-loop--nudge-count fanshi/gptel-loop-nudge-max)
-                (cl-incf fanshi/gptel-loop--nudge-count)
-                (message "gptel-loop-guard: response %.0f%% similar to previous, nudging (%d/%d)."
-                         (* 100 sim) fanshi/gptel-loop--nudge-count fanshi/gptel-loop-nudge-max)
-                (fanshi/gptel-loop--nudge))
-               (t
-                (message "gptel-loop-guard: repeated near-identical responses (sim %.0f%%), giving up."
-                         (* 100 sim))
-                (fanshi/notify)))))))))
+    "`gptel-post-response-functions' handler: detect near-duplicate consecutive responses.
+Like `fanshi/gptel-loop--stream-check', the detector call is caught: this
+hook runs from gptel's sentinel, and an error here takes the request down.
+The catch is *narrow* -- the nudge and the notify run outside it, so a
+failed `gptel-send' surfaces instead of vanishing after we have already told
+the user we were nudging.  A *clean* exit from the caught block also means \"no
+    decision\" -- the detector block ends with a `throw', so falling out of it normally
+is how \"guard off / aborted turn / short response\" reaches the action code below.
+
+The text compared is the response with tool blocks removed
+(`fanshi/gptel-loop--response-text'): a repeated tool call is Type A's job,
+and leaving the results in makes two turns that ran the same command on
+different data look identical.
+
+The similarity must be computed *before* the nudge is sent: `gptel-send' runs
+its own advice chain, and the reset advice clears the state this handler
+depends on, so the decision has to be taken with the fingerprint of the turn
+that just finished still in place.
+
+Unlike the Type A guard, this handler does *not* abort the request: by the time
+it runs the turn is already complete, so there is nothing left to stop.  The
+policy is `fanshi/gptel-loop-nudge-max' nudges (1 by default), then stop
+intervening -- the give-up branch only notifies.
+The model is free to keep repeating; what the guard guarantees is that it stops
+spending tokens on further nudges.  (`fanshi/gptel-auto-continue-max-retries'
+is the backstop if the repetition manifests as auto-continues rather than
+fresh turns.)
+
+The give-up branch clears `fanshi/gptel-loop--last-response' so the notification
+fires once per loop rather than once per repeating turn: with the fingerprint of
+the last loop still recorded, every further repetition trips the check again and
+the user gets a notification each time.  Clearing it means a *later* loop is
+still caught -- the next turn re-records a fingerprint and the comparison resumes
+-- but two consecutive post-give-up turns that are near-duplicates of each other
+are not reported until one distinct turn has been recorded in between.  That is
+the deliberate tradeoff: silence after give-up is preferable to a notification on
+every turn of an endless loop.
+
+The result is passed to the action code with `throw'/`catch' rather than mutable
+locals, so a partial or failed comparison cannot leave a stale decision behind.
+The thrown list carries a *clean* flag (the complement of the trip) rather than a
+\"checked\" one: only a turn that was compared and came out below the threshold
+refills the nudge budget.  A turn that trips -- and a nudge turn, whose comparison
+is skipped -- must leave the budget spent, otherwise a budget above 1 is refilled
+by the very turn that spends it and the give-up branch is unreachable.  With the
+default budget of 1 the observable policy is unchanged (one nudge, then give up on
+the next trip); the difference shows up only when `fanshi/gptel-loop-nudge-max' is
+raised, where the extra nudges now actually happen and the hard stop still fires.
+
+The decision is handed out of the caught block by `throw', so a signal from
+`fanshi/gptel-loop--response-text' or `fanshi/gptel-loop--jaccard' lands in the
+`condition-case' below and leaves the whole destructured list nil -- no action,
+and the nudge budget untouched.  Anything signalled from the `pcase' arms (the
+nudge's `gptel-send', the give-up `fanshi/notify') is outside the catch and
+surfaces as a normal error.
+
+The budget is therefore refilled by a *distinct* turn, not by the nudge turn: a
+loop of near-identical turns burns the whole budget and then falls silent, and a
+later loop needs one clean turn in between before it can be nudged again.  The
+other loop guard for this buffer, `fanshi/gptel-auto-continue-max-retries',
+counts auto-continues rather than fresh turns, so the two budgets stay
+independent: a nudge is a fresh `gptel-send', which does not touch
+`fanshi/gptel--auto-continue-count'."
+    (let ((from-nudge fanshi/gptel-loop--from-nudge))
+      (when from-nudge
+        ;; NOTE: consumed unconditionally, before the guard-enabled test below.
+        ;; Turning the guard off mid-nudge therefore drops the marker rather
+        ;; than leaking it into the next turn's comparison -- the cheap and
+        ;; conservative direction for a flag that is only ever set here.
+        (kill-local-variable 'fanshi/gptel-loop--from-nudge))
+      ;; TRIP, SIM and CLEAN are the decision taken by the detector block
+      ;; below: they are computed while the turn's fingerprint is still in place.
+      ;; The `catch' either returns the thrown list or falls through to NIL
+      ;; without deciding (guard off, aborted turn, short response, or an
+      ;; error -- in the last case there is deliberately nothing to act on), in
+      ;; which case the destructuring below binds all three to nil.
+      ;;
+      ;; TRIP and CLEAN are exact complements (CLEAN is `(not trip)'), so the
+      ;; `pcase' arms below are mutually exclusive: a trip never reaches the
+      ;; budget refill.  CLEAN is therefore "compared and below the threshold",
+      ;; which includes a turn with nothing comparable -- but NOT a nudge turn,
+      ;; whose comparison is skipped, so it does not refill the budget it spends.
+      (pcase-let* ((`(,trip ,sim ,clean)
+                    (catch 'fanshi/loop-check-done
+                      (condition-case err
+                          (when (and fanshi/gptel-loop-guard-enabled
+                                     ;; Consume the guard's own abort flag: the
+                                     ;; aborted request's post-response hooks run
+                                     ;; with it set, and comparing a truncated
+                                     ;; response to the previous one would otherwise
+                                     ;; nudge on top of the abort.  This is the
+                                     ;; guard's own flag, not
+                                     ;; `fanshi/gptel--aborted': that one belongs to
+                                     ;; the auto-continue handler, which runs first
+                                     ;; in this hook and consumes it, so reading it
+                                     ;; here would silently skip the check on every
+                                     ;; aborted turn.
+                                     (not (prog1 fanshi/gptel-loop--aborted
+                                            (setq-local fanshi/gptel-loop--aborted nil))))
+                            (let* ((response (fanshi/gptel-loop--response-text beg end))
+                                   (words (fanshi/gptel-loop--normalize-words response)))
+                              (when (>= (length words) 40)
+                                ;; Record the fingerprint even when this turn was
+                                ;; produced by our own nudge: if the model repeats
+                                ;; the same content *after* being told to stop, the
+                                ;; next response must still be compared against it
+                                ;; so the hard stop can fire.  Skipping the update
+                                ;; here made the guard nudge once and then go blind
+                                ;; forever.  The comparison itself is skipped for a
+                                ;; nudge turn: the nudge text is part of this
+                                ;; response region, so its own words would
+                                ;; otherwise count toward the next similarity.
+                                ;; NIL from `fanshi/gptel-loop--jaccard' means
+                                ;; nothing was comparable (a list too short to yield a
+                                ;; bigram), which is not a loop.  Disjoint-but-non-empty
+                                ;; lists return 0.0, also not a loop.
+                                (let ((sim (cond
+                                            ((or (null fanshi/gptel-loop--last-response)
+                                                 from-nudge)
+                                             nil)
+                                            (t (fanshi/gptel-loop--jaccard
+                                                fanshi/gptel-loop--last-response
+                                                words)))))
+                                  (setq fanshi/gptel-loop--last-response words)
+                                  ;; Hand the decision and the similarity (for the
+                                  ;; message) to the code below with the state still
+                                  ;; in place: both branches call out (`gptel-send'
+                                  ;; for the nudge, `fanshi/notify' for the give-up)
+                                  ;; and those run advice that resets turn-level loop
+                                  ;; state, so nothing there may still expect the old
+                                  ;; state.  A `throw' rather than mutable result
+                                  ;; locals, so there is no stale value to
+                                  ;; distinguish from a fresh one.
+                                  ;;
+                                  ;; CLEAN is the complement of TRIP, i.e. "compared
+                                  ;; and below the threshold" (which includes the nil
+                                  ;; case: nothing comparable).  It must be false when
+                                  ;; the turn tripped -- otherwise the nudging branch
+                                  ;; below would refill the budget it just spent on the
+                                  ;; same turn, and no budget above 1 could ever be
+                                  ;; exhausted.
+                                  (let ((trip (and sim
+                                                   (>= sim
+                                                       fanshi/gptel-loop-similarity-threshold))))
+                                    (throw 'fanshi/loop-check-done
+                                           (list trip sim (not trip)))))))
+                            (error
+                             (message "gptel-loop-guard: post-response check failed: %s"
+                                      (error-message-string err))))))
+                    ;; Act on the decision taken above.  TRIP is `sim' clipped by the
+                    ;; threshold test, so `trip' alone is enough and SIM is bound for the
+                    ;; message; CLEAN is its complement.  Both trip branches call out
+                    ;; (`gptel-send' for the nudge, `fanshi/notify' for the give-up) and
+                    ;; those run advice that resets turn-level loop state, so the decision
+                    ;; had to be taken before reaching here.  The budget refill lives here
+                    ;; and not inside the reset advice for the same reason:
+                    ;; `fanshi/gptel-loop--nudge-count' has to be read *before* the nudge's
+                    ;; send runs the advice chain.
+                    (trip
+                     (cond
+                      ((< fanshi/gptel-loop--nudge-count fanshi/gptel-loop-nudge-max)
+                       (cl-incf fanshi/gptel-loop--nudge-count)
+                       (message "gptel-loop-guard: response %.0f%% similar to previous, nudging (%d/%d)."
+                                (* 100 sim) fanshi/gptel-loop--nudge-count fanshi/gptel-loop-nudge-max)
+                       (fanshi/gptel-loop--nudge))
+                      (t
+                       (message "gptel-loop-guard: repeated near-identical responses (sim %.0f%%), giving up."
+                                (* 100 sim))
+                       ;; Drop the fingerprint so this loop is not reported again on the next
+                       ;; repetition (see the docstring).
+                       (setq-local fanshi/gptel-loop--last-response nil)
+                       (fanshi/notify))))
+                    ;; A clean turn refills the nudge budget: `fanshi/gptel-loop--nudge-count'
+                    ;; is a per-buffer budget that outlives the send advice, so without this
+                    ;; a session that took a nudge hours ago and has since been making
+                    ;; progress would refuse to nudge the next time it actually loops.
+                    ;; CLEAN is `(not trip)', so this arm is unreachable when the turn
+                    ;; tripped -- that is the point: a trip must leave the budget spent (see
+                    ;; the `throw' above).  A nudge turn is not clean either, because its
+                    ;; comparison is skipped, so it does not top up its own budget.  The
+                    ;; budget is therefore refilled by a *distinct* turn, which is what keeps
+                    ;; a `fanshi/gptel-loop-nudge-max' above 1 exhaustible while a loop of
+                    ;; near-identical turns still ends at the give-up branch.  A short
+                    ;; response or a failed check leaves the whole destructured list nil --
+                    ;; "no evidence of a loop" is not evidence of progress, and not worth
+                    ;; banking a budget on.
+                    (clean
+                     (setq-local fanshi/gptel-loop--nudge-count 0)))))))
 
   (add-hook 'gptel-post-response-functions #'fanshi/gptel-loop--post-response-check)
 
-  ;; Reset turn-level state on manual sends.
+  ;; Reset turn-level state on every send, including the nudge's own: the
+  ;; nudge counter is *not* reset here (it is a per-buffer budget, refilled by
+  ;; `fanshi/gptel-loop--post-response-check' when a turn is compared and comes
+  ;; out clean), and the nudge turn's similarity is skipped by
+  ;; `fanshi/gptel-loop--post-response-check' via `fanshi/gptel-loop--from-nudge'
+  ;; rather than by exempting the send from this reset.
   (defun fanshi/gptel-send--reset-loop-state-a (&optional arg)
     (unless arg
-      (setq-local fanshi/gptel-loop--last-response nil
-                  fanshi/gptel-loop--nudge-count 0
-                  fanshi/gptel-loop--state nil
-                  fanshi/gptel-loop--pending-abort nil)
-      (fanshi/gptel-loop--tool-state-reset)))
+      ;; Snapshot the pending trip *before* clearing it: the `unless' below has
+      ;; to test whether a live trip was pending at the moment of this send,
+      ;; and reading the variable after the `setq-local' would always see nil,
+      ;; making the guard a no-op and silently wiping the abort flag.
+      ;;
+      ;; `process-live-p' matters: a trip whose stream already finished is
+      ;; dropped by the deferred timer without aborting anything, so it must not
+      ;; hold the flag alive -- that is the swallowed-check failure described
+      ;; in `fanshi/gptel-mark-turn-aborted'.
+      (let ((trip-pending (let ((p fanshi/gptel-loop--pending-abort))
+                            (and (processp p) (process-live-p p)))))
+        (setq-local fanshi/gptel-loop--last-response nil
+                    fanshi/gptel-loop--state nil
+                    fanshi/gptel-loop--pending-abort nil)
+        ;; Clear the guard's abort flag unless a live trip is still pending (a
+        ;; manual abort would otherwise leave a stale flag; see
+        ;; `fanshi/gptel-mark-turn-aborted').
+        (unless trip-pending
+          (setq-local fanshi/gptel-loop--aborted nil))
+        (fanshi/gptel-loop--tool-state-reset))))
 
   (advice-add 'gptel-send :after #'fanshi/gptel-send--reset-loop-state-a))
 #+end_src
@@ -3730,6 +4550,16 @@ allow cloned subtrees to maintain their own history context."
          (abort-fn (caddr req-at-point))
          (cb (plist-get fsm-info :callback))
          ((functionp cb)))
+      ;; Mark the turn aborted *before* the callback runs, and *inside* the
+      ;; `when-let*' so a failed match does not mark a turn that was never
+      ;; aborted: this is a `:before-until' advice, so when it fires the
+      ;; original `gptel-abort' never runs and its advice chain (which sets the
+      ;; aborted flags via `fanshi/gptel-mark-turn-aborted') never runs either.
+      ;; When the match *does* fail the original runs and its own `:before'
+      ;; advice marks the turn, so marking here would only be correct by
+      ;; accident -- and would arm a stale flag whenever `gptel-abort' is called
+      ;; on a buffer with no request at point.
+      (fanshi/gptel-mark-turn-aborted buf)
       ;; Run :callback with abort signal
       (with-demoted-errors "Callback error: %S" (funcall cb 'abort fsm-info))
       (funcall abort-fn)
@@ -4283,10 +5113,17 @@ CONTEXT is an alist of (KEY . VALUE) for template substitution."
   (defun fanshi/gptel-abort-all-in-buffer (&optional buffer)
     "Abort all active GPTel requests in BUFFER.
 If called interactively, BUFFER defaults to the current buffer.
-Return the number of requests aborted."
+Return the number of requests aborted.
+
+Marks the turn aborted up front -- see `fanshi/gptel-mark-turn-aborted' --
+because this bypasses `gptel-abort' and its advice chain, and re-arms the flags
+after the teardown (the abort callback can dispatch the response, whose
+post-response hooks consume them).  When there turns out to be nothing to abort,
+the up-front marking is undone so a stale flag cannot suppress the next turn."
     (interactive (list (current-buffer)))
     (let ((buffer (or buffer (current-buffer)))
           (aborted 0))
+      (fanshi/gptel-mark-turn-aborted buffer)
       (with-demoted-errors "gptel-abort-all: %s"
         ;; Collect matching entries first to avoid modifying the alist during iteration.
         ;; We bypass `gptel-abort' (and its advice) because:
@@ -4295,6 +5132,8 @@ Return the number of requests aborted."
         ;;    and returns nil when given a non-buffer arg, preventing the original
         ;;    `gptel-abort' from running.
         ;; So we abort directly using the FSM and abort closure from each entry.
+        ;; Because we bypass `gptel-abort', its advice chain does not run either
+        ;; -- hence the `fanshi/gptel-mark-turn-aborted' call above.
         (cl-loop for entry in (copy-sequence gptel--request-alist)
                  when (eq (plist-get (gptel-fsm-info (cadr entry)) :buffer)
                           buffer)
@@ -4312,8 +5151,29 @@ Return the number of requests aborted."
                       (gptel--fsm-transition fsm 'ABRT)
                       (cl-incf aborted)))
         (if (> aborted 0)
-            (message "Aborted %d gptel request(s) in %s." aborted buffer)
-          (message "No active gptel request(s) to abort in %s." buffer))
+            (progn
+              (message "Aborted %d gptel request(s) in %s." aborted buffer)
+              ;; Re-arm the abort flags *after* the teardown, not just up front:
+              ;; the callback's abort path can dispatch the response, which runs
+              ;; `gptel-post-response-functions' inline, and those consume the
+              ;; flags (`fanshi/gptel--not-done-auto-continue-or-notify' clears
+              ;; `fanshi/gptel--aborted', the loop guard's post-response check
+              ;; clears `fanshi/gptel-loop--aborted').  Re-arming here matches
+              ;; the deferred abort in `fanshi/gptel-loop--stream-check'.
+              ;; `fanshi/gptel-mark-turn-aborted' switches to BUFFER itself, and
+              ;; BUFFER need not be the current buffer when this is invoked from
+              ;; `kill-buffer-hook' on another buffer.
+              (fanshi/gptel-mark-turn-aborted buffer))
+          (progn
+            ;; Nothing was aborted, so the up-front marking call armed flags for a
+            ;; turn that is not aborted: drop them again.  Leaving them armed
+            ;; would suppress the next turn's auto-continue and the Type B check.
+            ;; This runs in the `kill-buffer-hook' case too, but the buffer dies
+            ;; right after so it makes no difference there.
+            (with-current-buffer buffer
+              (setq-local fanshi/gptel--aborted nil
+                          fanshi/gptel-loop--aborted nil))
+            (message "No active gptel request(s) to abort in %s." buffer)))
         aborted)))
   (defun fanshi/gptel-agent--setup-abort-all ()
     (add-hook! 'kill-buffer-hook :local #'fanshi/gptel-abort-all-in-buffer))
