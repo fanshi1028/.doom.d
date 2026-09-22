@@ -5247,10 +5247,6 @@ Works even if the org file is not currently visited in a buffer."
     (save-buffer)
     (message "Task %s: %s — %s" task-id status summary))
 
-
-
-
-
   ;; --- Human review tools for jj workspace integration ---
   ;; All jj plumbing goes through `fanshi/call-jj' (see the
   ;; `fanshi/gptel-agent' section): it returns stdout as a string and raises
@@ -5536,254 +5532,7 @@ alone now) or a stale workspace must not stop the cleanup."
   ;; - AbortTask abandons NOTHING: it only describes @ as "ABORTED: ..." and
   ;;   leaves the workspace in place, so a KILLed task can still be reviewed
   ;;   before `fanshi/ai-delegate--discard-task' throws it away
-
-  ;; --- Task Breakdown Tool ---
-  (defun fanshi/ai-delegate--breakdown-task (task-file parent-heading task-description subtasks &optional dependencies project)
-    "Break down TASK-DESCRIPTION into SUBTASKS under PARENT-HEADING in TASK-FILE.
-
-TASK-FILE: Path to the org file where tasks will be created.
-PARENT-HEADING: The heading under which to create subtasks (e.g., \"Implement feature X\").
-TASK-DESCRIPTION: Description of the parent task (used to create the parent heading if it doesn't exist).
-SUBTASKS: A list of plists, each with :title, :description, and optional :agent keys.
-DEPENDENCIES: Optional plist mapping subtask titles to lists of subtask titles they depend on
-(as decoded from the tool call's JSON object).
-PROJECT: Optional directory the subtasks run in; stored as SCOPED_PROJECT
-on each subtask so `Delegate` can find the right project root.
-
-Creates the parent heading if it doesn't exist, then adds each subtask as a child
-TODO entry with proper org-id and properties. Returns a summary of created tasks."
-    (unless (file-exists-p task-file)
-      (error "Task file %s does not exist" task-file))
-    (unless subtasks
-      (error "BREAKDOWN_TASK requires at least one subtask"))
-    ;; gptel decodes the tool call's JSON with `json-read', which turns
-    ;; JSON arrays into vectors; coerce to lists so the loops below can
-    ;; iterate them (a vector here would otherwise crash or silently
-    ;; iterate only once).
-    (when (vectorp subtasks)
-      (setq subtasks (seq-into subtasks 'list)))
-    ;; A relative project path would otherwise resolve against the delegating
-    ;; buffer's default-directory, so reject it up front.
-    (when project
-      (setq project (expand-file-name project))
-      (unless (file-directory-p project)
-        (error "Project directory %s does not exist" project)))
-    ;; The tool call's JSON object arrives as a plist; convert to an alist.
-    (unless (listp dependencies)
-      (setq dependencies nil))
-    (setq dependencies
-          (delq nil (mapcar
-                     (lambda (key)
-                       (let ((val (plist-get dependencies key)))
-                         (unless (listp val)
-                           (error "Dependencies for task '%s' must be a list of subtask titles"
-                                  (symbol-name key)))
-                         (cons (symbol-name key) val)))
-                     (doom-plist-keys dependencies))))
-    ;; Flatten newlines in the parent heading before it is inserted, so a
-    ;; multi-line model output cannot split a heading across lines.
-    (setq parent-heading
-          (string-trim (replace-regexp-in-string "[\n\r]+" " " parent-heading)))
-    (let (titles)
-      (dolist (subtask subtasks)
-        (let ((title (plist-get subtask :title)))
-          (unless (and title (string-trim title))
-            (error "Subtask is missing a title"))
-          ;; Flatten newlines the same way: a title with a newline would
-          ;; corrupt the org structure when inserted.
-          (setq title (string-trim (replace-regexp-in-string "[\n\r]+" " " title)))
-          (setf (plist-get subtask :title) title)
-          (when (member title titles)
-            (error "Duplicate subtask title: %s" title))
-          (push title titles)))
-      (dolist (deps dependencies)
-        (dolist (dep (cdr deps))
-          (unless (member dep titles)
-            (error "Dependency '%s' of task '%s' is not one of the subtasks created in this call"
-                   dep (car deps))))
-        (unless (member (car deps) titles)
-          (error "Dependency owner '%s' is not one of the subtasks created in this call"
-                 (car deps))))
-      ;; Reject circular dependencies (e.g. A -> B -> A).
-      (cl-labels ((visit (node visiting)
-                    (when (member node visiting)
-                      (error "Circular dependency detected involving task '%s'" node))
-                    (dolist (dep (cdr (assoc node dependencies)))
-                      (visit dep (cons node visiting)))))
-        (dolist (title titles)
-          (visit title nil)))
-      (with-current-buffer (find-file-noselect task-file)
-        (let ((created-tasks '())
-              (task-title-map (make-hash-table :test 'equal))
-              child-level
-              ;; (title . marker) pairs for every heading in the file, used
-              ;; for both the idempotency check and the parent lookup so both
-              ;; use exact title comparison instead of a regex (which
-              ;; mishandles tags, level boundaries and the keyword space).
-              headings)
-          (save-excursion
-            (goto-char (point-min))
-            (while (org-next-heading nil t)
-              (push (cons (org-get-heading t t t) (point)) headings)))
-          ;; Idempotency: a chatty model will happily break the same task down
-          ;; twice.  Reject the whole call before writing anything if any
-          ;; title already exists in the file, so the model sees the error
-          ;; and does not retry.
-          (dolist (title titles)
-            (when (assoc title headings)
-              (error "Subtask '%s' already exists in %s; breakdown is idempotent, do not retry"
-                     title task-file)))
-          ;; Find or create parent heading (exact title match, with or without
-          ;; a TODO keyword)
-          (unless (assoc parent-heading headings)
-            ;; Create parent heading at end of file.  It is a plain (non-TODO)
-            ;; container so the nightly dispatcher doesn't try to delegate it.
-            (goto-char (point-max))
-            (insert "\n\n* " parent-heading "\n"
-                    (format "  %s\n" task-description))
-            (org-back-to-heading))
-          (setq child-level (1+ (save-excursion (org-back-to-heading) (org-outline-level))))
-          (org-end-of-subtree t t)
-
-          ;; Create each subtask
-          (dolist (subtask subtasks)
-            (let* ((title (plist-get subtask :title))
-                   (desc (or (plist-get subtask :description) ""))
-                   (agent (or (plist-get subtask :agent) "coding"))
-                   task-id)
-              ;; Create the subtask entry
-              (insert (format "\n%s TODO %s\n" (make-string child-level ?*) title)
-                      "  :PROPERTIES:\n"
-                      "  :DELEGATED_TO: ai\n"
-                      (format "  :AGENT: %s\n" agent)
-                      (format "  :TIME_LIMIT: %s\n" fanshi/ai-task-time-limit)
-                      (when project (format "  :SCOPED_PROJECT: %s\n" project))
-                      "  :END:\n"
-                      (mapconcat (lambda (l) (format "  %s" l))
-                                 (split-string desc "\n") "\n"))
-              (org-back-to-heading)
-              ;; Store mapping
-              (setq task-id (org-id-get nil t))
-              (puthash title task-id task-title-map)
-              (push (cons title task-id) created-tasks)
-              ;; Point past this entry so the next insert appends after it.
-              (org-end-of-subtree t t)))
-
-          ;; Update dependencies with org-ids
-          (dolist (deps dependencies)
-            (let ((dep-ids (mapcar (lambda (d) (gethash d task-title-map)) (cdr deps))))
-              (save-excursion
-                (org-id-goto (gethash (car deps) task-title-map))
-                (org-entry-put (point) "DEPENDS_ON" (string-join dep-ids ", ")))))
-          (save-buffer)
-          (format "Created %d subtasks under '%s':\n%s"
-                  (length created-tasks)
-                  parent-heading
-                  (mapconcat (lambda (item)
-                               (format "- %s (ID: %s)" (car item) (cdr item)))
-                             created-tasks "\n"))))))
-
-  (gptel-make-tool
-   :name "BreakdownTask"
-   :function #'fanshi/ai-delegate--breakdown-task
-   :description "Break down a high-level task into subtasks and write them to an org file.
-Finds the parent heading (matching its title, with or without a TODO keyword) or creates it as a plain container heading, then adds each subtask as a child TODO entry.
-Each subtask gets a unique org-id, is marked for AI delegation (DELEGATED_TO: ai), and stores its agent preset (AGENT) and a default TIME_LIMIT.
-DEPENDENCIES are stored as DEPENDS_ON properties (comma-separated org-ids).
-The call is idempotent: if any subtask title already exists in the file, nothing is written and an error is returned — do not retry or reword to force a second entry.
-
-TASK-FILE: Path to the org file where tasks will be created.
-PARENT-HEADING: The title of the heading under which to create subtasks.
-TASK-DESCRIPTION: Description of the parent task (used only if the heading must be created).
-SUBTASKS: A list of subtask objects, each with:
-  - title (string): The subtask title (must be unique within this call and not already present in the file)
-  - description (string): Detailed description of what to do
-  - agent (string, optional): A valid gptel agent preset name to delegate to (e.g. \"coding\", \"research\"); defaults to \"coding\"
-DEPENDENCIES: Optional object mapping subtask titles to arrays of subtask titles they depend on.
-Only subtasks created in this same call may be referenced, and the graph must be acyclic.
-PROJECT: Optional absolute path of the project directory the subtasks run in (stored as SCOPED_PROJECT)."
-   :args '((:name "task-file" :type string
-            :description "Path to the org file where tasks will be created")
-           (:name "parent-heading" :type string
-            :description "The heading under which to create subtasks")
-           (:name "task-description" :type string
-            :description "Description of the parent/feature task")
-           (:name "subtasks" :type array
-            :description "List of subtask objects with title, description, and optional agent"
-            :items '(:type object
-                     :properties (:title (:type string)
-                                  :description (:type string)
-                                  :agent (:type string))))
-           (:name "dependencies" :type object
-            :description "Optional mapping of subtask titles to arrays of dependent task titles"
-            :optional t)
-           (:name "project" :type string
-            :description "Optional absolute path of the project directory the subtasks run in"
-            :optional t))
-   :category "agents"
-   :async nil)
-
-  ;; --- Interactive breakdown: thin wrapper over the BreakdownTask tool ---
-  (defun fanshi/ai-breakdown (topic)
-    "Have the Scrum Master decompose TOPIC into subtasks in the AI tasks file.
-Opens the =scrum= preset in a dedicated gptel-agent buffer pointed at the GTD
-directory and asks it to emit one =BreakdownTask= call.  The subtasks land in
-the AI tasks org file as =TODO= entries, ready for `fanshi/ai-nightly--run'
-or a manual =Delegate=.
-
-With an active region TOPIC is the region text.  When point sits on an org
-heading, its title becomes the parent heading and its body the description."
-    (interactive
-     (list (if (use-region-p)
-               (buffer-substring-no-properties (region-beginning) (region-end))
-             (read-string "Break down: "))))
-    (when (string-blank-p topic)
-      (user-error "Nothing to break down"))
-    (let* ((tasks-file (org-gtd--path "org-gtd-ai-tasks"))
-           (parent-heading (when (and (derived-mode-p 'org-mode) (org-at-heading-p))
-                             (org-get-heading t t t)))
-           ;; `org-get-entry' includes the heading line, which is already sent
-           ;; as PARENT-HEADING; use the plain subtree and drop the first line
-           ;; so only the body becomes the description.
-           (parent-desc (when parent-heading
-                          (let ((body (save-excursion
-                                        (org-back-to-heading)
-                                        (org-get-plain-subtree))))
-                            (setq body (replace-regexp-in-string "^.*\n" "" body))
-                            (if (string-blank-p body) nil body))))
-           (default-directory (file-name-directory tasks-file)))
-      ;; `gptel-agent' forwards an active region as its own initial prompt;
-      ;; deactivate the mark so TOPIC is not sent twice.
-      (deactivate-mark)
-      (let ((buf (gptel-agent default-directory 'scrum)))
-        (with-current-buffer buf
-          (goto-char (point-max))
-          (insert (format
-                   (concat "# Task Breakdown\n\n"
-                           "Decompose the following into independently executable subtasks.\n\n"
-                           "<task>\n%s\n</task>\n\n"
-                           "Rules:\n"
-                           "1. 3-7 subtasks. Each one is a single action a worker agent finishes in one sitting.\n"
-                           "2. Call BreakdownTask exactly once with all subtasks and their dependencies, and do nothing else.\n"
-                           "   (The only exception: if rule 5 applies, escalate in prose instead of calling BreakdownTask.)\n"
-                           "3. Fill in each subtask's description: what to change, where, and the acceptance criteria.\n"
-                           "4. Do NOT call Delegate. Decomposition only; dispatch happens later.\n"
-                           "5. If the task is too vague to decompose safely, do not invent subtasks:\n"
-                           "   escalate instead and name the specific decision you need.\n\n"
-                           "Write to: %s\n")
-                   (string-trim topic)
-                   tasks-file))
-          (when parent-heading
-            (goto-char (point-max))
-            (insert (format
-                     "Use parent-heading \"%s\"%s.\n"
-                     parent-heading
-                     (when parent-desc
-                       (format " and task-description \"%s\""
-                               (replace-regexp-in-string "\n" " " parent-desc))))))
-          (gptel-send))
-        (message "AI Breakdown: decomposing into %s" tasks-file)
-        buf))))
+  )
 #+end_src
 ** fanshi/ai-delegate--tool-delegate
 #+begin_src emacs-lisp :tangle yes
@@ -6032,6 +5781,258 @@ SUMMARY: brief description of what was accomplished and tell us why"
             :description "Brief explain of why the task was aborted"))
    :category "task"
    :async nil))
+#+end_src
+** Breakdown Task
+*** fanshi/ai-delegate--breakdown-task
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/ai-delegate--breakdown-task (task-file parent-heading task-description subtasks &optional dependencies project)
+    "Break down TASK-DESCRIPTION into SUBTASKS under PARENT-HEADING in TASK-FILE.
+
+TASK-FILE: Path to the org file where tasks will be created.
+PARENT-HEADING: The heading under which to create subtasks (e.g., \"Implement feature X\").
+TASK-DESCRIPTION: Description of the parent task (used to create the parent heading if it doesn't exist).
+SUBTASKS: A list of plists, each with :title, :description, and optional :agent keys.
+DEPENDENCIES: Optional plist mapping subtask titles to lists of subtask titles they depend on
+(as decoded from the tool call's JSON object).
+PROJECT: Optional directory the subtasks run in; stored as SCOPED_PROJECT
+on each subtask so `Delegate` can find the right project root.
+
+Creates the parent heading if it doesn't exist, then adds each subtask as a child
+TODO entry with proper org-id and properties. Returns a summary of created tasks."
+    (unless (file-exists-p task-file)
+      (error "Task file %s does not exist" task-file))
+    (unless subtasks
+      (error "BREAKDOWN_TASK requires at least one subtask"))
+    ;; gptel decodes the tool call's JSON with `json-read', which turns
+    ;; JSON arrays into vectors; coerce to lists so the loops below can
+    ;; iterate them (a vector here would otherwise crash or silently
+    ;; iterate only once).
+    (when (vectorp subtasks)
+      (setq subtasks (seq-into subtasks 'list)))
+    ;; A relative project path would otherwise resolve against the delegating
+    ;; buffer's default-directory, so reject it up front.
+    (when project
+      (setq project (expand-file-name project))
+      (unless (file-directory-p project)
+        (error "Project directory %s does not exist" project)))
+    ;; The tool call's JSON object arrives as a plist; convert to an alist.
+    (unless (listp dependencies)
+      (setq dependencies nil))
+    (setq dependencies
+          (delq nil (mapcar
+                     (lambda (key)
+                       (let ((val (plist-get dependencies key)))
+                         (unless (listp val)
+                           (error "Dependencies for task '%s' must be a list of subtask titles"
+                                  (symbol-name key)))
+                         (cons (symbol-name key) val)))
+                     (doom-plist-keys dependencies))))
+    ;; Flatten newlines in the parent heading before it is inserted, so a
+    ;; multi-line model output cannot split a heading across lines.
+    (setq parent-heading
+          (string-trim (replace-regexp-in-string "[\n\r]+" " " parent-heading)))
+    (let (titles)
+      (dolist (subtask subtasks)
+        (let ((title (plist-get subtask :title)))
+          (unless (and title (string-trim title))
+            (error "Subtask is missing a title"))
+          ;; Flatten newlines the same way: a title with a newline would
+          ;; corrupt the org structure when inserted.
+          (setq title (string-trim (replace-regexp-in-string "[\n\r]+" " " title)))
+          (setf (plist-get subtask :title) title)
+          (when (member title titles)
+            (error "Duplicate subtask title: %s" title))
+          (push title titles)))
+      (dolist (deps dependencies)
+        (dolist (dep (cdr deps))
+          (unless (member dep titles)
+            (error "Dependency '%s' of task '%s' is not one of the subtasks created in this call"
+                   dep (car deps))))
+        (unless (member (car deps) titles)
+          (error "Dependency owner '%s' is not one of the subtasks created in this call"
+                 (car deps))))
+      ;; Reject circular dependencies (e.g. A -> B -> A).
+      (cl-labels ((visit (node visiting)
+                    (when (member node visiting)
+                      (error "Circular dependency detected involving task '%s'" node))
+                    (dolist (dep (cdr (assoc node dependencies)))
+                      (visit dep (cons node visiting)))))
+        (dolist (title titles)
+          (visit title nil)))
+      (with-current-buffer (find-file-noselect task-file)
+        (let ((created-tasks '())
+              (task-title-map (make-hash-table :test 'equal))
+              child-level
+              ;; (title . marker) pairs for every heading in the file, used
+              ;; for both the idempotency check and the parent lookup so both
+              ;; use exact title comparison instead of a regex (which
+              ;; mishandles tags, level boundaries and the keyword space).
+              headings)
+          (save-excursion
+            (goto-char (point-min))
+            (while (org-next-heading nil t)
+              (push (cons (org-get-heading t t t) (point)) headings)))
+          ;; Idempotency: a chatty model will happily break the same task down
+          ;; twice.  Reject the whole call before writing anything if any
+          ;; title already exists in the file, so the model sees the error
+          ;; and does not retry.
+          (dolist (title titles)
+            (when (assoc title headings)
+              (error "Subtask '%s' already exists in %s; breakdown is idempotent, do not retry"
+                     title task-file)))
+          ;; Find or create parent heading (exact title match, with or without
+          ;; a TODO keyword)
+          (unless (assoc parent-heading headings)
+            ;; Create parent heading at end of file.  It is a plain (non-TODO)
+            ;; container so the nightly dispatcher doesn't try to delegate it.
+            (goto-char (point-max))
+            (insert "\n\n* " parent-heading "\n"
+                    (format "  %s\n" task-description))
+            (org-back-to-heading))
+          (setq child-level (1+ (save-excursion (org-back-to-heading) (org-outline-level))))
+          (org-end-of-subtree t t)
+
+          ;; Create each subtask
+          (dolist (subtask subtasks)
+            (let* ((title (plist-get subtask :title))
+                   (desc (or (plist-get subtask :description) ""))
+                   (agent (or (plist-get subtask :agent) "coding"))
+                   task-id)
+              ;; Create the subtask entry
+              (insert (format "\n%s TODO %s\n" (make-string child-level ?*) title)
+                      "  :PROPERTIES:\n"
+                      "  :DELEGATED_TO: ai\n"
+                      (format "  :AGENT: %s\n" agent)
+                      (format "  :TIME_LIMIT: %s\n" fanshi/ai-task-time-limit)
+                      (when project (format "  :SCOPED_PROJECT: %s\n" project))
+                      "  :END:\n"
+                      (mapconcat (lambda (l) (format "  %s" l))
+                                 (split-string desc "\n") "\n"))
+              (org-back-to-heading)
+              ;; Store mapping
+              (setq task-id (org-id-get nil t))
+              (puthash title task-id task-title-map)
+              (push (cons title task-id) created-tasks)
+              ;; Point past this entry so the next insert appends after it.
+              (org-end-of-subtree t t)))
+
+          ;; Update dependencies with org-ids
+          (dolist (deps dependencies)
+            (let ((dep-ids (mapcar (lambda (d) (gethash d task-title-map)) (cdr deps))))
+              (save-excursion
+                (org-id-goto (gethash (car deps) task-title-map))
+                (org-entry-put (point) "DEPENDS_ON" (string-join dep-ids ", ")))))
+          (save-buffer)
+          (format "Created %d subtasks under '%s':\n%s"
+                  (length created-tasks)
+                  parent-heading
+                  (mapconcat (lambda (item)
+                               (format "- %s (ID: %s)" (car item) (cdr item)))
+                             created-tasks "\n"))))))
+  (gptel-make-tool
+   :name "BreakdownTask"
+   :function #'fanshi/ai-delegate--breakdown-task
+   :description "Break down a high-level task into subtasks and write them to an org file.
+Finds the parent heading (matching its title, with or without a TODO keyword) or creates it as a plain container heading, then adds each subtask as a child TODO entry.
+Each subtask gets a unique org-id, is marked for AI delegation (DELEGATED_TO: ai), and stores its agent preset (AGENT) and a default TIME_LIMIT.
+DEPENDENCIES are stored as DEPENDS_ON properties (comma-separated org-ids).
+The call is idempotent: if any subtask title already exists in the file, nothing is written and an error is returned — do not retry or reword to force a second entry.
+
+TASK-FILE: Path to the org file where tasks will be created.
+PARENT-HEADING: The title of the heading under which to create subtasks.
+TASK-DESCRIPTION: Description of the parent task (used only if the heading must be created).
+SUBTASKS: A list of subtask objects, each with:
+  - title (string): The subtask title (must be unique within this call and not already present in the file)
+  - description (string): Detailed description of what to do
+  - agent (string, optional): A valid gptel agent preset name to delegate to (e.g. \"coding\", \"research\"); defaults to \"coding\"
+DEPENDENCIES: Optional object mapping subtask titles to arrays of subtask titles they depend on.
+Only subtasks created in this same call may be referenced, and the graph must be acyclic.
+PROJECT: Optional absolute path of the project directory the subtasks run in (stored as SCOPED_PROJECT)."
+   :args '((:name "task-file" :type string
+            :description "Path to the org file where tasks will be created")
+           (:name "parent-heading" :type string
+            :description "The heading under which to create subtasks")
+           (:name "task-description" :type string
+            :description "Description of the parent/feature task")
+           (:name "subtasks" :type array
+            :description "List of subtask objects with title, description, and optional agent"
+            :items '(:type object
+                     :properties (:title (:type string)
+                                  :description (:type string)
+                                  :agent (:type string))))
+           (:name "dependencies" :type object
+            :description "Optional mapping of subtask titles to arrays of dependent task titles"
+            :optional t)
+           (:name "project" :type string
+            :description "Optional absolute path of the project directory the subtasks run in"
+            :optional t))
+   :category "agents"
+   :async nil))
+#+end_src
+*** fanshi/ai-breakdown
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/ai-breakdown (topic)
+    "Have the Scrum Master decompose TOPIC into subtasks in the AI tasks file.
+Opens the =scrum= preset in a dedicated gptel-agent buffer pointed at the GTD
+directory and asks it to emit one =BreakdownTask= call.  The subtasks land in
+the AI tasks org file as =TODO= entries, ready for `fanshi/ai-nightly--run'
+or a manual =Delegate=.
+
+With an active region TOPIC is the region text.  When point sits on an org
+heading, its title becomes the parent heading and its body the description."
+    (interactive
+     (list (if (use-region-p)
+               (buffer-substring-no-properties (region-beginning) (region-end))
+             (read-string "Break down: "))))
+    (when (string-blank-p topic)
+      (user-error "Nothing to break down"))
+    (let* ((tasks-file (org-gtd--path "org-gtd-ai-tasks"))
+           (parent-heading (when (and (derived-mode-p 'org-mode) (org-at-heading-p))
+                             (org-get-heading t t t)))
+           ;; `org-get-entry' includes the heading line, which is already sent
+           ;; as PARENT-HEADING; use the plain subtree and drop the first line
+           ;; so only the body becomes the description.
+           (parent-desc (when parent-heading
+                          (let ((body (save-excursion
+                                        (org-back-to-heading)
+                                        (org-get-plain-subtree))))
+                            (setq body (replace-regexp-in-string "^.*\n" "" body))
+                            (if (string-blank-p body) nil body))))
+           (default-directory (file-name-directory tasks-file)))
+      ;; `gptel-agent' forwards an active region as its own initial prompt;
+      ;; deactivate the mark so TOPIC is not sent twice.
+      (deactivate-mark)
+      (let ((buf (gptel-agent default-directory 'scrum)))
+        (with-current-buffer buf
+          (goto-char (point-max))
+          (insert (format
+                   (concat "# Task Breakdown\n\n"
+                           "Decompose the following into independently executable subtasks.\n\n"
+                           "<task>\n%s\n</task>\n\n"
+                           "Rules:\n"
+                           "1. 3-7 subtasks. Each one is a single action a worker agent finishes in one sitting.\n"
+                           "2. Call BreakdownTask exactly once with all subtasks and their dependencies, and do nothing else.\n"
+                           "   (The only exception: if rule 5 applies, escalate in prose instead of calling BreakdownTask.)\n"
+                           "3. Fill in each subtask's description: what to change, where, and the acceptance criteria.\n"
+                           "4. Do NOT call Delegate. Decomposition only; dispatch happens later.\n"
+                           "5. If the task is too vague to decompose safely, do not invent subtasks:\n"
+                           "   escalate instead and name the specific decision you need.\n\n"
+                           "Write to: %s\n")
+                   (string-trim topic)
+                   tasks-file))
+          (when parent-heading
+            (goto-char (point-max))
+            (insert (format
+                     "Use parent-heading \"%s\"%s.\n"
+                     parent-heading
+                     (when parent-desc
+                       (format " and task-description \"%s\""
+                               (replace-regexp-in-string "\n" " " parent-desc))))))
+          (gptel-send))
+        (message "AI Breakdown: decomposing into %s" tasks-file)
+        buf))))
 #+end_src
 ** fanshi/ai-nightly--run
 Spawn a Scrum Master agent to process all AI-delegated tasks.
