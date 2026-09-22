@@ -5247,191 +5247,9 @@ Works even if the org file is not currently visited in a buffer."
     (save-buffer)
     (message "Task %s: %s — %s" task-id status summary))
 
-  (defun fanshi/ai-delegate--tool-delegate (cb task agent &optional task-id priority time-limit deadline schedule)
-    "Write TASK into the AI tasks backlog and delegate it to AGENT.
-CB is the async result callback (see `gptel--handle-tool-use').
-If TASK-ID is given, the task already exists in the org file and is
-delegated in place; otherwise a new TODO entry is created first.
-PRIORITY (\"A\"-\"E\"), TIME-LIMIT (seconds), DEADLINE and SCHEDULE
-(\"YYYY-MM-DD[ HH:MM]\") are stored as org properties when given.
-If AGENT is \"user\", the task is marked as pending human input, using
-TASK as the description of what is needed.
-Otherwise, spawn a dedicated gptel-agent buffer with AGENT
-working on TASK in an isolated jj workspace."
-    (condition-case err
-        (if (string= (if (symbolp agent) (symbol-name agent) agent) "user")
-            ;; Delegate to human
-            (if task-id
-                (progn
-                  (org-id-goto task-id)
-                  (org-entry-put (point) "DELEGATED_TO" "user")
-                  (org-end-of-subtree t t)
-                  (insert (format "\n- %s [USER]: %s"
-                                  (format-time-string "%Y-%m-%d %H:%M")
-                                  task))
-                  (save-buffer)
-                  (message "Task delegated to user: %s" task)
-                  (funcall cb (format "Task delegated to user: %s" task)))
-              (error "Cannot delegate to user without task-id"))
-          ;; Delegate to AI agent
-          (unless task-id
-            (setq task-id
-                  (fanshi/ai-task--capture
-                   (s-truncate 60 (replace-regexp-in-string "[\n\r]" " " (string-trim task)))
-                   task
-                   (list (when priority (cons "PRIORITY" priority))
-                         (cons "TIME_LIMIT" (number-to-string (or time-limit fanshi/ai-task-time-limit)))
-                         (when deadline (cons "DEADLINE" deadline))
-                         (when schedule (cons "SCHEDULE" schedule))))))
-          (let* ((task-marker (org-id-find task-id 'marker))
-                 (depends-on (and task-marker
-                                  (org-entry-get task-marker "DEPENDS_ON")))
-                 ;; Expand relative paths against the delegating buffer's
-                 ;; default-directory up front so `file-directory-p' checks the
-                 ;; right location.
-                 (scoped-project (and task-marker
-                                      (let ((p (org-entry-get task-marker "SCOPED_PROJECT")))
-                                        (and p (expand-file-name p)))))
-                 (project-root (or (and scoped-project (file-directory-p scoped-project)
-                                        scoped-project)
-                                   (projectile-project-root)))
-                 (branch-name (format "task-%s-%s" task-id (format-time-string "%Y%m%d-%H%M%S")))
-                 (target-dir (expand-file-name (concat ".trees/" branch-name) project-root)))
-            ;; A task-id the model made up (or that was archived) would
-            ;; otherwise silently skip the gate below, so treat it as fatal.
-            (unless task-marker
-              (error "Task %s not found" task-id))
-            ;; Hard dependency gate: the nightly prompt telling the Scrum
-            ;; Master to skip blocked tasks is a soft guarantee; this is not.
-            ;; DEPENDS_ON is stored comma-separated, so split on both.  Most
-            ;; tasks carry no dependency at all, hence the `or'.
-            (dolist (dep (split-string (or depends-on "") "[, ]+"))
-              (unless (string-blank-p dep)
-                (let ((dep-m (org-id-find dep 'marker)))
-                  (cond
-                   ((not dep-m)
-                    (error "Task %s has a dependency %s that does not exist" task-id dep))
-                   ((not (string= (org-entry-get dep-m "TODO") "DONE"))
-                    (error "Task %s is blocked by %s which is not DONE" task-id dep))))))
-            ;; 1. Create jj workspace if needed.
-            ;; jj derives the repo and the workspace context from its working
-            ;; directory, so every command gets an explicit
-            ;; `default-directory': the repo-level one runs in PROJECT-ROOT
-            ;; (also the main workspace here), the rest inside the new
-            ;; workspace.  `fanshi/call-jj' turns a non-zero exit into an
-            ;; error carrying jj's own message, so the model sees the reason
-            ;; instead of a bare exit code.
-            (unless (file-directory-p target-dir)
-              (make-directory (file-name-directory target-dir) t)
-              (let ((default-directory (file-name-as-directory project-root)))
-                ;; `workspace add' checks the new workspace out on top of the
-                ;; PARENTS of this workspace's @: the agent starts from the
-                ;; same base commit as the main workspace, deliberately without
-                ;; the user's uncommitted changes in @ (which is exactly what
-                ;; lets `fanshi/ai-delegate--integrate-task' squash the work
-                ;; back in cleanly).  `--message=' records the task as that
-                ;; commit's description.  (The old `jj new main@' assumed a
-                ;; workspace literally named "main"; jj names the first
-                ;; workspace after the repo, so that revspec usually failed and
-                ;; the description was lost.  `--message=' over `-m' because
-                ;; clap would read a leading hyphen in the task text as a
-                ;; flag; `-m' also requires a jj new enough to support it.)
-                (fanshi/call-jj "workspace" "add"
-                                (format "--message=%s" task) target-dir))
-              (let ((default-directory (file-name-as-directory target-dir)))
-                ;; Identity is per-workspace (`--workspace'): all agent
-                ;; workspaces share one repo, so `--repo' would let the last
-                ;; delegation overwrite every earlier agent's name.
-                (fanshi/call-jj "config" "set" "--workspace" "user.name"
-                                (format "Agent (%s)" agent))
-                (fanshi/call-jj "config" "set" "--workspace" "user.email"
-                                (format "%s-agent@local" agent))))
-            ;; 2. Create the child agent buffer.
-            ;; `gptel-agent' creates its OWN gptel buffer and returns it;
-            ;; we must configure that buffer (not a separately-named one).
-            (let ((agent-buf (gptel-agent target-dir agent)))
-              ;; 3. Update org entry with DELEGATED status and properties
-              (save-excursion
-                (org-id-goto task-id)
-                (when priority (org-entry-put (point) "PRIORITY" priority))
-                (when time-limit (org-entry-put (point) "TIME_LIMIT" (number-to-string time-limit)))
-                (when deadline (org-entry-put (point) "DEADLINE" deadline))
-                (when schedule (org-entry-put (point) "SCHEDULE" schedule))
-                (org-entry-put (point) "WORKTREE_DIR" target-dir)
-                ;; Where the work lands: integration and discard must not have
-                ;; to guess the main workspace from the shape of WORKTREE_DIR.
-                (when project-root
-                  (org-entry-put (point) "MAIN_WORKSPACE"
-                                 (file-name-as-directory project-root)))
-                (org-entry-put (point) "DELEGATED_TO" (if (symbolp agent) (symbol-name agent) agent))
-                (org-entry-put (point) "DELEGATED_AT" (format-time-string "%Y-%m-%d %H:%M:%S"))
-                (org-entry-put (point) "AGENT_BUF" (buffer-name agent-buf))
-                (org-todo "DELEGATED")
-                (save-buffer))
-              ;; 4. Configure the agent buffer and send the task
-              (with-current-buffer agent-buf
-                ;; NOTE: `fanshi/gptel-jj-workspace' is deliberately left nil
-                ;; so the post-response auto-commit hook
-                ;; (`fanshi/gptel--jj-auto-commit') stays off in this buffer:
-                ;; it would commit each response and leave an empty @ behind,
-                ;; and `fanshi/ai-delegate--integrate-task' integrates @ only,
-                ;; so the work would silently be dropped at integration time.
-                (setq-local fanshi/ai-delegate--current-task-id task-id)
-                ;; Auto-integrate the agent's commit once the task becomes DONE
-                (add-hook 'gptel-post-response-functions
-                          #'fanshi/ai-delegate--post-response-integrate nil t)
-                (goto-char (point-max))
-                (insert
-                 (string-join
-                  (list "# Delegated Task"
-                        ""
-                        task
-                        ""
-                        (format "You are working in the isolated jj workspace %s (workspace name \"%s\"), based on the commit the main workspace was on."
-                                (file-name-as-directory target-dir) branch-name)
-                        "jj snapshots your file changes into the working-copy commit (@) automatically; FinishTask hands that commit over for integration, so do NOT run `jj new`, `jj squash` or `jj abandon` yourself."
-                        "When you complete the task, call the FinishTask tool with a summary."
-                        "If you cannot complete it, call AbortTask with a reason: your workspace and its partial work stay on disk for the human to review or discard."
-                        "If you need human input, call Delegate with agent=\"user\" and a task description."
-                        "")
-                  "\n"))
-                (gptel-send))
-              (funcall cb (format "Task delegated to agent buffer '%s' in jj workspace.\nOrg entry updated to DELEGATED.\nYou can observe progress by visiting the agent buffer."
-                                  (buffer-name agent-buf))))))
-      (error
-       (funcall cb
-                (format "Error delegating task: %s"
-                        (if (stringp err)
-                            err
-                          (error-message-string err)))))))
 
-  (gptel-make-tool
-   :name "Delegate"
-   :function #'fanshi/ai-delegate--tool-delegate
-   :description "Write a task into the AI tasks backlog and delegate it, in one step.
-TASK: description of the task (also what the human needs to provide when agent is \"user\").
-AGENT: name of the agent preset to delegate to (e.g. \"coding\", \"research\"), or \"user\" for human input.
-TASK-ID: org-id of an existing backlog entry; omit it to create a new entry first.
-PRIORITY: \"A\"-\"E\", A most urgent.
-TIME-LIMIT: seconds the agent may spend on the task.
-DEADLINE: \"YYYY-MM-DD[ HH:MM]\" by when the task must be done.
-SCHEDULE: \"YYYY-MM-DD[ HH:MM]\" when the task should start."
-   :args '((:name "task" :type string
-            :description "Description of the task to delegate, or what human input is needed")
-           (:name "agent" :type string
-            :description "Name of the agent preset to delegate to, or \"user\" for human input")
-           (:name "task-id" :type string :optional t
-            :description "The org-id of an existing backlog entry; omit to create a new task entry")
-           (:name "priority" :type string :optional t :enum ["A" "B" "C" "D" "E"]
-            :description "Priority, A most urgent to E least urgent")
-           (:name "time-limit" :type integer :optional t
-            :description "Seconds the agent may spend on the task")
-           (:name "deadline" :type string :optional t
-            :description "When the task must be done, YYYY-MM-DD or YYYY-MM-DD HH:MM")
-           (:name "schedule" :type string :optional t
-            :description "When the task should start, YYYY-MM-DD or YYYY-MM-DD HH:MM"))
-   :category "agents"
-   :async t)
+
+
 
   ;; --- Human review tools for jj workspace integration ---
   ;; All jj plumbing goes through `fanshi/call-jj' (see the
@@ -5985,6 +5803,194 @@ heading, its title becomes the parent heading and its body the description."
           (gptel-send))
         (message "AI Breakdown: decomposing into %s" tasks-file)
         buf))))
+#+end_src
+** fanshi/ai-delegate--tool-delegate
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/ai-delegate--tool-delegate (cb task agent &optional task-id priority time-limit deadline schedule)
+    "Write TASK into the AI tasks backlog and delegate it to AGENT.
+CB is the async result callback (see `gptel--handle-tool-use').
+If TASK-ID is given, the task already exists in the org file and is
+delegated in place; otherwise a new TODO entry is created first.
+PRIORITY (\"A\"-\"E\"), TIME-LIMIT (seconds), DEADLINE and SCHEDULE
+(\"YYYY-MM-DD[ HH:MM]\") are stored as org properties when given.
+If AGENT is \"user\", the task is marked as pending human input, using
+TASK as the description of what is needed.
+Otherwise, spawn a dedicated gptel-agent buffer with AGENT
+working on TASK in an isolated jj workspace."
+    (condition-case err
+        (if (string= (if (symbolp agent) (symbol-name agent) agent) "user")
+            ;; Delegate to human
+            (if task-id
+                (progn
+                  (org-id-goto task-id)
+                  (org-entry-put (point) "DELEGATED_TO" "user")
+                  (org-end-of-subtree t t)
+                  (insert (format "\n- %s [USER]: %s"
+                                  (format-time-string "%Y-%m-%d %H:%M")
+                                  task))
+                  (save-buffer)
+                  (message "Task delegated to user: %s" task)
+                  (funcall cb (format "Task delegated to user: %s" task)))
+              (error "Cannot delegate to user without task-id"))
+          ;; Delegate to AI agent
+          (unless task-id
+            (setq task-id
+                  (fanshi/ai-task--capture
+                   (s-truncate 60 (replace-regexp-in-string "[\n\r]" " " (string-trim task)))
+                   task
+                   (list (when priority (cons "PRIORITY" priority))
+                         (cons "TIME_LIMIT" (number-to-string (or time-limit fanshi/ai-task-time-limit)))
+                         (when deadline (cons "DEADLINE" deadline))
+                         (when schedule (cons "SCHEDULE" schedule))))))
+          (let* ((task-marker (org-id-find task-id 'marker))
+                 (depends-on (and task-marker
+                                  (org-entry-get task-marker "DEPENDS_ON")))
+                 ;; Expand relative paths against the delegating buffer's
+                 ;; default-directory up front so `file-directory-p' checks the
+                 ;; right location.
+                 (scoped-project (and task-marker
+                                      (let ((p (org-entry-get task-marker "SCOPED_PROJECT")))
+                                        (and p (expand-file-name p)))))
+                 (project-root (or (and scoped-project (file-directory-p scoped-project)
+                                        scoped-project)
+                                   (projectile-project-root)))
+                 (branch-name (format "task-%s-%s" task-id (format-time-string "%Y%m%d-%H%M%S")))
+                 (target-dir (expand-file-name (concat ".trees/" branch-name) project-root)))
+            ;; A task-id the model made up (or that was archived) would
+            ;; otherwise silently skip the gate below, so treat it as fatal.
+            (unless task-marker
+              (error "Task %s not found" task-id))
+            ;; Hard dependency gate: the nightly prompt telling the Scrum
+            ;; Master to skip blocked tasks is a soft guarantee; this is not.
+            ;; DEPENDS_ON is stored comma-separated, so split on both.  Most
+            ;; tasks carry no dependency at all, hence the `or'.
+            (dolist (dep (split-string (or depends-on "") "[, ]+"))
+              (unless (string-blank-p dep)
+                (let ((dep-m (org-id-find dep 'marker)))
+                  (cond
+                   ((not dep-m)
+                    (error "Task %s has a dependency %s that does not exist" task-id dep))
+                   ((not (string= (org-entry-get dep-m "TODO") "DONE"))
+                    (error "Task %s is blocked by %s which is not DONE" task-id dep))))))
+            ;; 1. Create jj workspace if needed.
+            ;; jj derives the repo and the workspace context from its working
+            ;; directory, so every command gets an explicit
+            ;; `default-directory': the repo-level one runs in PROJECT-ROOT
+            ;; (also the main workspace here), the rest inside the new
+            ;; workspace.  `fanshi/call-jj' turns a non-zero exit into an
+            ;; error carrying jj's own message, so the model sees the reason
+            ;; instead of a bare exit code.
+            (unless (file-directory-p target-dir)
+              (make-directory (file-name-directory target-dir) t)
+              (let ((default-directory (file-name-as-directory project-root)))
+                ;; `workspace add' checks the new workspace out on top of the
+                ;; PARENTS of this workspace's @: the agent starts from the
+                ;; same base commit as the main workspace, deliberately without
+                ;; the user's uncommitted changes in @ (which is exactly what
+                ;; lets `fanshi/ai-delegate--integrate-task' squash the work
+                ;; back in cleanly).  `--message=' records the task as that
+                ;; commit's description.  (The old `jj new main@' assumed a
+                ;; workspace literally named "main"; jj names the first
+                ;; workspace after the repo, so that revspec usually failed and
+                ;; the description was lost.  `--message=' over `-m' because
+                ;; clap would read a leading hyphen in the task text as a
+                ;; flag; `-m' also requires a jj new enough to support it.)
+                (fanshi/call-jj "workspace" "add"
+                                (format "--message=%s" task) target-dir))
+              (let ((default-directory (file-name-as-directory target-dir)))
+                ;; Identity is per-workspace (`--workspace'): all agent
+                ;; workspaces share one repo, so `--repo' would let the last
+                ;; delegation overwrite every earlier agent's name.
+                (fanshi/call-jj "config" "set" "--workspace" "user.name"
+                                (format "Agent (%s)" agent))
+                (fanshi/call-jj "config" "set" "--workspace" "user.email"
+                                (format "%s-agent@local" agent))))
+            ;; 2. Create the child agent buffer.
+            ;; `gptel-agent' creates its OWN gptel buffer and returns it;
+            ;; we must configure that buffer (not a separately-named one).
+            (let ((agent-buf (gptel-agent target-dir agent)))
+              ;; 3. Update org entry with DELEGATED status and properties
+              (save-excursion
+                (org-id-goto task-id)
+                (when priority (org-entry-put (point) "PRIORITY" priority))
+                (when time-limit (org-entry-put (point) "TIME_LIMIT" (number-to-string time-limit)))
+                (when deadline (org-entry-put (point) "DEADLINE" deadline))
+                (when schedule (org-entry-put (point) "SCHEDULE" schedule))
+                (org-entry-put (point) "WORKTREE_DIR" target-dir)
+                ;; Where the work lands: integration and discard must not have
+                ;; to guess the main workspace from the shape of WORKTREE_DIR.
+                (when project-root
+                  (org-entry-put (point) "MAIN_WORKSPACE"
+                                 (file-name-as-directory project-root)))
+                (org-entry-put (point) "DELEGATED_TO" (if (symbolp agent) (symbol-name agent) agent))
+                (org-entry-put (point) "DELEGATED_AT" (format-time-string "%Y-%m-%d %H:%M:%S"))
+                (org-entry-put (point) "AGENT_BUF" (buffer-name agent-buf))
+                (org-todo "DELEGATED")
+                (save-buffer))
+              ;; 4. Configure the agent buffer and send the task
+              (with-current-buffer agent-buf
+                ;; NOTE: `fanshi/gptel-jj-workspace' is deliberately left nil
+                ;; so the post-response auto-commit hook
+                ;; (`fanshi/gptel--jj-auto-commit') stays off in this buffer:
+                ;; it would commit each response and leave an empty @ behind,
+                ;; and `fanshi/ai-delegate--integrate-task' integrates @ only,
+                ;; so the work would silently be dropped at integration time.
+                (setq-local fanshi/ai-delegate--current-task-id task-id)
+                ;; Auto-integrate the agent's commit once the task becomes DONE
+                (add-hook 'gptel-post-response-functions
+                          #'fanshi/ai-delegate--post-response-integrate nil t)
+                (goto-char (point-max))
+                (insert
+                 (string-join
+                  (list "# Delegated Task"
+                        ""
+                        task
+                        ""
+                        (format "You are working in the isolated jj workspace %s (workspace name \"%s\"), based on the commit the main workspace was on."
+                                (file-name-as-directory target-dir) branch-name)
+                        "jj snapshots your file changes into the working-copy commit (@) automatically; FinishTask hands that commit over for integration, so do NOT run `jj new`, `jj squash` or `jj abandon` yourself."
+                        "When you complete the task, call the FinishTask tool with a summary."
+                        "If you cannot complete it, call AbortTask with a reason: your workspace and its partial work stay on disk for the human to review or discard."
+                        "If you need human input, call Delegate with agent=\"user\" and a task description."
+                        "")
+                  "\n"))
+                (gptel-send))
+              (funcall cb (format "Task delegated to agent buffer '%s' in jj workspace.\nOrg entry updated to DELEGATED.\nYou can observe progress by visiting the agent buffer."
+                                  (buffer-name agent-buf))))))
+      (error
+       (funcall cb
+                (format "Error delegating task: %s"
+                        (if (stringp err)
+                            err
+                          (error-message-string err)))))))
+  (gptel-make-tool
+   :name "Delegate"
+   :function #'fanshi/ai-delegate--tool-delegate
+   :description "Write a task into the AI tasks backlog and delegate it, in one step.
+TASK: description of the task (also what the human needs to provide when agent is \"user\").
+AGENT: name of the agent preset to delegate to (e.g. \"coding\", \"research\"), or \"user\" for human input.
+TASK-ID: org-id of an existing backlog entry; omit it to create a new entry first.
+PRIORITY: \"A\"-\"E\", A most urgent.
+TIME-LIMIT: seconds the agent may spend on the task.
+DEADLINE: \"YYYY-MM-DD[ HH:MM]\" by when the task must be done.
+SCHEDULE: \"YYYY-MM-DD[ HH:MM]\" when the task should start."
+   :args '((:name "task" :type string
+            :description "Description of the task to delegate, or what human input is needed")
+           (:name "agent" :type string
+            :description "Name of the agent preset to delegate to, or \"user\" for human input")
+           (:name "task-id" :type string :optional t
+            :description "The org-id of an existing backlog entry; omit to create a new task entry")
+           (:name "priority" :type string :optional t :enum ["A" "B" "C" "D" "E"]
+            :description "Priority, A most urgent to E least urgent")
+           (:name "time-limit" :type integer :optional t
+            :description "Seconds the agent may spend on the task")
+           (:name "deadline" :type string :optional t
+            :description "When the task must be done, YYYY-MM-DD or YYYY-MM-DD HH:MM")
+           (:name "schedule" :type string :optional t
+            :description "When the task should start, YYYY-MM-DD or YYYY-MM-DD HH:MM"))
+   :category "agents"
+   :async t))
 #+end_src
 ** fanshi/ai-delegate--tool-finish-task
 #+begin_src emacs-lisp :tangle yes :lexical t
