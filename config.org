@@ -5247,31 +5247,6 @@ Works even if the org file is not currently visited in a buffer."
     (save-buffer)
     (message "Task %s: %s — %s" task-id status summary))
 
-  (defun fanshi/ai-delegate--tool-finish-task (summary)
-    "Tool for the gptel-agent to signal task completion.
-SUMMARY is a brief description of what was accomplished."
-    (when fanshi/ai-delegate--current-task-id
-      ;; Record SUMMARY as the description of @ (in this buffer's workspace);
-      ;; `fanshi/ai-delegate--integrate-task' reads it back as the squash
-      ;; message.  A failure is only a warning: the task is still DONE and
-      ;; integration falls back to a generated description.
-      (condition-case err
-          (fanshi/call-jj "describe" (format "--message=%s" summary))
-        (error
-         (message "Warning: jj describe failed: %s" (error-message-string err))))
-      (fanshi/ai-delegate--update-task-by-id fanshi/ai-delegate--current-task-id "DONE" summary)
-      (format "Task finished: %s" summary)))
-
-  (gptel-make-tool
-   :name "FinishTask"
-   :function #'fanshi/ai-delegate--tool-finish-task
-   :description "Call this tool when the task is complete.
-SUMMARY: brief description of what was accomplished."
-   :args '((:name "summary" :type string
-            :description "Brief summary of what was accomplished"))
-   :category "task"
-   :async nil)
-
   (defun fanshi/ai-delegate--tool-delegate (cb task agent &optional task-id priority time-limit deadline schedule)
     "Write TASK into the AI tasks backlog and delegate it to AGENT.
 CB is the async result callback (see `gptel--handle-tool-use').
@@ -6010,6 +5985,34 @@ heading, its title becomes the parent heading and its body the description."
           (gptel-send))
         (message "AI Breakdown: decomposing into %s" tasks-file)
         buf))))
+#+end_src
+** fanshi/ai-delegate--tool-finish-task
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defun fanshi/ai-delegate--tool-finish-task (summary)
+    "Tool for the gptel-agent to signal task completion.
+SUMMARY is a brief description of what was accomplished."
+    (when fanshi/ai-delegate--current-task-id
+      ;; Record SUMMARY as the description of @ (in this buffer's workspace);
+      ;; `fanshi/ai-delegate--integrate-task' reads it back as the squash
+      ;; message.  A failure is only a warning: the task is still DONE and
+      ;; integration falls back to a generated description.
+      (condition-case err
+          (fanshi/call-jj "describe" (format "--message=%s" summary))
+        (error
+         (message "Warning: jj describe failed: %s" (error-message-string err))))
+      (fanshi/ai-delegate--update-task-by-id fanshi/ai-delegate--current-task-id "DONE" summary)
+      (format "Task finished: %s" summary)))
+
+  (gptel-make-tool
+   :name "FinishTask"
+   :function #'fanshi/ai-delegate--tool-finish-task
+   :description "Call this tool when the task is complete.
+SUMMARY: brief description of what was accomplished."
+   :args '((:name "summary" :type string
+            :description "Brief summary of what was accomplished"))
+   :category "task"
+   :async nil))
 #+end_src
 ** fanshi/ai-delegate--tool-abort-task
 #+begin_src emacs-lisp :tangle yes :lexical t
