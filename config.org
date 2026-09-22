@@ -6107,6 +6107,7 @@ SUMMARY: brief description of what was accomplished."
    :async nil))
 #+end_src
 ** fanshi/ai-delegate--tool-abort-task
+AbortTask abandons NOTHING: it only describes @ as "ABORTED: ..." and leaves the workspace in place, so a KILLed task can still be reviewed before `fanshi/ai-delegate--discard-task' throws it away
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
   (defun fanshi/ai-delegate--tool-abort-task (summary)
