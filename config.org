@@ -5256,26 +5256,7 @@ Works even if the org file is not currently visited in a buffer."
   ;; `fanshi/gptel-agent' section): it returns stdout as a string and raises
   ;; an error carrying jj's stderr, so a failing `jj diff' cannot surface as
   ;; an empty review buffer plus a cheerful "Diff shown" message.
-  (defun fanshi/ai-delegate--jj-output (&rest args)
-    "Return the stdout of `jj ARGS' as a string.
-Runs in the current buffer's `default-directory'.  Unlike `fanshi/call-jj'
-(that one sends stdout into its own discarded temp buffer) this keeps
-stdout, while still reporting jj's stderr on failure: otherwise a failing
-`jj diff' would surface as an empty review buffer plus a cheerful \"Diff
-shown\" message.  stderr goes to a temp file because the stderr slot of
-`call-process' accepts nil, t or a file name, not a buffer."
-    (let ((stderr-file (make-temp-file "jj-stderr")))
-      (unwind-protect
-          (with-temp-buffer
-            (unless (zerop (apply #'call-process "jj" nil `(t ,stderr-file) nil args))
-              (error "jj %s failed: %s"
-                     (mapconcat #'identity args " ")
-                     (with-temp-buffer
-                       (insert-file-contents stderr-file)
-                       (let ((msg (ansi-color-apply (string-trim (buffer-string)))))
-                         (if (string-empty-p msg) "unknown error" msg)))))
-            (buffer-string))
-        (delete-file stderr-file))))
+
   (defun fanshi/ai-delegate--jj-output (&rest args)
     "Return the stdout of `jj ARGS' as a string.
 Runs in the current buffer's `default-directory'.  Unlike `fanshi/call-jj'
