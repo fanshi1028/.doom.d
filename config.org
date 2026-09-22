@@ -5262,25 +5262,6 @@ SUMMARY is a brief description of what was accomplished."
       (fanshi/ai-delegate--update-task-by-id fanshi/ai-delegate--current-task-id "DONE" summary)
       (format "Task finished: %s" summary)))
 
-  (defun fanshi/ai-delegate--tool-abort-task (summary)
-    "Tool for the gptel-agent to signal task abortion.
-SUMMARY is a brief description of why the task is aborted.
-The working copy is deliberately NOT abandoned: partial work is frequently
-still worth reviewing, so the commit is only marked with an ABORTED:
-description and the workspace stays on disk.  Throwing it away is the
-human's call, via `fanshi/ai-delegate--discard-task'."
-    (when fanshi/ai-delegate--current-task-id
-      (condition-case err
-          (fanshi/call-jj "describe"
-                          (format "--message=ABORTED: %s"
-                                  (replace-regexp-in-string "[\r\n]+" " "
-                                                            (string-trim summary))))
-        (error
-         (message "Warning: jj describe failed: %s" (error-message-string err))))
-      (fanshi/ai-delegate--update-task-by-id fanshi/ai-delegate--current-task-id "KILL" summary)
-      (format "Task aborted: %s\nYour workspace %s and its partial changes are kept for review; discard them with M-x fanshi/ai-delegate--discard-task."
-              summary (abbreviate-file-name default-directory))))
-
   (gptel-make-tool
    :name "FinishTask"
    :function #'fanshi/ai-delegate--tool-finish-task
@@ -5288,16 +5269,6 @@ human's call, via `fanshi/ai-delegate--discard-task'."
 SUMMARY: brief description of what was accomplished."
    :args '((:name "summary" :type string
             :description "Brief summary of what was accomplished"))
-   :category "task"
-   :async nil)
-
-  (gptel-make-tool
-   :name "AbortTask"
-   :function #'fanshi/ai-delegate--tool-abort-task
-   :description "Call this tool when the task has to be abort.
-SUMMARY: brief description of what was accomplished and tell us why"
-   :args '((:name "reason" :type string
-            :description "Brief explain of why the task was aborted"))
    :category "task"
    :async nil)
 
@@ -6039,6 +6010,38 @@ heading, its title becomes the parent heading and its body the description."
           (gptel-send))
         (message "AI Breakdown: decomposing into %s" tasks-file)
         buf))))
+#+end_src
+** fanshi/ai-delegate--tool-abort-task
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defun fanshi/ai-delegate--tool-abort-task (summary)
+    "Tool for the gptel-agent to signal task abortion.
+SUMMARY is a brief description of why the task is aborted.
+The working copy is deliberately NOT abandoned: partial work is frequently
+still worth reviewing, so the commit is only marked with an ABORTED:
+description and the workspace stays on disk.  Throwing it away is the
+human's call, via `fanshi/ai-delegate--discard-task'."
+    (when fanshi/ai-delegate--current-task-id
+      (condition-case err
+          (fanshi/call-jj "describe"
+                          (format "--message=ABORTED: %s"
+                                  (replace-regexp-in-string "[\r\n]+" " "
+                                                            (string-trim summary))))
+        (error
+         (message "Warning: jj describe failed: %s" (error-message-string err))))
+      (fanshi/ai-delegate--update-task-by-id fanshi/ai-delegate--current-task-id "KILL" summary)
+      (format "Task aborted: %s\nYour workspace %s and its partial changes are kept for review; discard them with M-x fanshi/ai-delegate--discard-task."
+              summary (abbreviate-file-name default-directory))))
+
+  (gptel-make-tool
+   :name "AbortTask"
+   :function #'fanshi/ai-delegate--tool-abort-task
+   :description "Call this tool when the task has to be abort.
+SUMMARY: brief description of what was accomplished and tell us why"
+   :args '((:name "reason" :type string
+            :description "Brief explain of why the task was aborted"))
+   :category "task"
+   :async nil))
 #+end_src
 ** fanshi/ai-nightly--run
 Spawn a Scrum Master agent to process all AI-delegated tasks.
