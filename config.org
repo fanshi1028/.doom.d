@@ -5634,50 +5634,6 @@ Works even if the org file is not currently visited in a buffer."
     (save-buffer)
     (message "Task %s: %s — %s" task-id status summary))
 
-  ;; --- Human review tools for jj workspace integration ---
-  (defun fanshi/ai-delegate--review-task-diff (task-id)
-    "Review the changes made by an agent for TASK-ID.
-Opens a buffer showing the diff of the agent's working-copy commit."
-    (interactive "sTask ID: ")
-    (save-excursion
-      (org-id-goto task-id)
-      (let ((worktree-dir (org-entry-get (point) "WORKTREE_DIR")))
-        (unless (and worktree-dir (file-directory-p worktree-dir))
-          (error "No workspace found for task %s" task-id))
-        (let ((diff-buf (get-buffer-create (format "*jj diff: %s*" task-id))))
-          (with-current-buffer diff-buf
-            ;; Erase first: the buffer is reused, so a second review must not
-            ;; append to the previous diff.
-            (let ((inhibit-read-only t)
-                  (default-directory (file-name-as-directory worktree-dir)))
-              (erase-buffer)
-              (insert (fanshi/call-jj "diff"))
-              (diff-mode)))
-          (switch-to-buffer-other-window diff-buf)
-          (message "Showing jj diff for task %s" task-id)
-          (format "Diff shown in buffer for task %s" task-id)))))
-
-  (defun fanshi/ai-delegate--review-task-log (task-id)
-    "Review the commit log for TASK-ID's workspace.
-Shows the commit graph including the agent's changes."
-    (interactive "sTask ID: ")
-    (save-excursion
-      (org-id-goto task-id)
-      (let ((worktree-dir (org-entry-get (point) "WORKTREE_DIR")))
-        (unless (and worktree-dir (file-directory-p worktree-dir))
-          (error "No workspace found for task %s" task-id))
-        (let ((log-buf (get-buffer-create (format "*jj log: %s*" task-id))))
-          (with-current-buffer log-buf
-            (let ((inhibit-read-only t)
-                  (default-directory (file-name-as-directory worktree-dir)))
-              (erase-buffer)
-              (insert (fanshi/call-jj
-                       "log" "-T" "commit_id.short() ++ \" \" ++ description.firstline() ++ \"\\n\""))
-              (special-mode)))
-          (switch-to-buffer-other-window log-buf)
-          (message "Showing jj log for task %s" task-id)
-          (format "Log shown in buffer for task %s" task-id)))))
-
   (defun fanshi/ai-delegate--task-property (task-id property &optional value)
     "Read the org PROPERTY of TASK-ID without switching buffers or windows.
 With VALUE, set the property instead and return VALUE.  Org entries live in
@@ -5695,20 +5651,6 @@ files that may not be visited, so this goes through the org-id marker."
                     value)
                 (org-entry-get (point) property))
             (move-marker marker nil))))))
-
-  (defun fanshi/ai-delegate--main-workspace-dir (task-id worktree-dir)
-    "Return the main workspace directory for TASK-ID's agent WORKTREE-DIR.
-The MAIN_WORKSPACE property recorded at delegation time wins.  Otherwise fall
-back to the layout `fanshi/ai-delegate--tool-delegate' creates,
-<repo>/.trees/<branch>: two levels up.  `expand-file-name' so a relative
-property still yields a usable `default-directory'."
-    (let ((recorded (fanshi/ai-delegate--task-property task-id "MAIN_WORKSPACE")))
-      (file-name-as-directory
-       (expand-file-name
-        (if (and recorded (file-directory-p recorded))
-            recorded
-          (directory-file-name
-           (file-name-directory (file-name-directory worktree-dir))))))))
 
   (defun fanshi/ai-delegate--retarget-agent-buffer (task-id main-dir)
     "Point TASK-ID's agent buffer at MAIN-DIR once its workspace is gone.
@@ -5740,8 +5682,25 @@ generated one-liner is used.  MAIN-DIR is where the destination @ lives."
         (format "integrate task %s" task-id))
        ((string-empty-p dest) agent)
        ((string-empty-p agent) dest)
-       (t (format "%s\n\n%s" dest agent)))))
-
+       (t (format "%s\n\n%s" dest agent))))))
+#+end_src
+** fanshi/ai-delegate--tool-delegate
+integration happens automatically via `fanshi/ai-delegate--post-response-integrate' (which squashes the agent's @ into @ of the main workspace, marks the entry INTEGRATED and cleans the workspace up), but `fanshi/ai-delegate--integrate-task' stays interactive for the case where the auto-integration failed and the workspace still exists
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/ai-delegate--main-workspace-dir (task-id worktree-dir)
+    "Return the main workspace directory for TASK-ID's agent WORKTREE-DIR.
+The MAIN_WORKSPACE property recorded at delegation time wins.  Otherwise fall
+back to the layout `fanshi/ai-delegate--tool-delegate' creates,
+<repo>/.trees/<branch>: two levels up.  `expand-file-name' so a relative
+property still yields a usable `default-directory'."
+    (let ((recorded (fanshi/ai-delegate--task-property task-id "MAIN_WORKSPACE")))
+      (file-name-as-directory
+       (expand-file-name
+        (if (and recorded (file-directory-p recorded))
+            recorded
+          (directory-file-name
+           (file-name-directory (file-name-directory worktree-dir))))))))
   (defun fanshi/ai-delegate--integrate-task (task-id)
     "Integrate the agent's changes from TASK-ID into the main workspace.
 Moves the diff of the agent's working-copy commit into @ of the main
@@ -5846,58 +5805,6 @@ the human to discard."
                     task-id (error-message-string err)
                     (abbreviate-file-name default-directory)))))))
 
-  (defun fanshi/ai-delegate--discard-task (task-id)
-    "Discard all changes from TASK-ID's agent workspace.
-Abandons the working-copy commit, forgets the workspace and removes the
-directory.  Each step is best-effort on its own: the point of discard is to
-get the workspace gone, so an already-abandoned @ (AbortTask leaves it
-alone now) or a stale workspace must not stop the cleanup."
-    (interactive "sTask ID: ")
-    (let ((worktree-dir (fanshi/ai-delegate--task-property task-id "WORKTREE_DIR")))
-      (unless (and worktree-dir (file-directory-p worktree-dir))
-        (error "No workspace found for task %s" task-id))
-      (let ((main-dir (fanshi/ai-delegate--main-workspace-dir task-id worktree-dir))
-            (workspace-name (file-name-nondirectory (directory-file-name worktree-dir))))
-        ;; Abandon @ in the agent's workspace; `fanshi/call-jj' keeps jj's
-        ;; output out of the current buffer and reports why it failed.
-        (condition-case err
-            (let ((default-directory (file-name-as-directory worktree-dir)))
-              (fanshi/call-jj "abandon" "@"))
-          (error
-           (message "Discarding task %s: `jj abandon' failed (%s), cleaning up anyway"
-                    task-id (error-message-string err))))
-        ;; Forget the workspace before trashing the directory it lives in.
-        (condition-case err
-            (let ((default-directory main-dir))
-              (fanshi/call-jj "workspace" "forget" workspace-name))
-          (error
-           (message "Discarded task %s, but `jj workspace forget' failed: %s"
-                    task-id (error-message-string err))))
-        (condition-case err
-            (system-move-file-to-trash worktree-dir)
-          (error
-           (message "Discarded task %s, but trashing %s failed: %s"
-                    task-id worktree-dir (error-message-string err))))
-        (fanshi/ai-delegate--retarget-agent-buffer task-id main-dir)
-        (message "Discarded changes from task %s" task-id)
-        (format "Discarded changes and removed workspace for task %s" task-id))))
-
-  ;; Review/integration/discard are human decisions:
-  ;; - integration happens automatically via `fanshi/ai-delegate--post-response-integrate'
-  ;;   (which squashes the agent's @ into @ of the main workspace, marks the
-  ;;   entry INTEGRATED and cleans the workspace up), but
-  ;;   `fanshi/ai-delegate--integrate-task' stays interactive for the case
-  ;;   where the auto-integration failed and the workspace still exists
-  ;; - review and discard stay as interactive commands
-  ;;   (`fanshi/ai-delegate--review-task-diff', `fanshi/ai-delegate--discard-task')
-  ;; - AbortTask abandons NOTHING: it only describes @ as "ABORTED: ..." and
-  ;;   leaves the workspace in place, so a KILLed task can still be reviewed
-  ;;   before `fanshi/ai-delegate--discard-task' throws it away
-  )
-#+end_src
-** fanshi/ai-delegate--tool-delegate
-#+begin_src emacs-lisp :tangle yes
-(after! gptel
   (defun fanshi/ai-delegate--tool-delegate (cb task agent &optional task-id priority time-limit deadline schedule)
     "Write TASK into the AI tasks backlog and delegate it to AGENT.
 CB is the async result callback (see `gptel--handle-tool-use').
@@ -6082,6 +5989,94 @@ SCHEDULE: \"YYYY-MM-DD[ HH:MM]\" when the task should start."
             :description "When the task should start, YYYY-MM-DD or YYYY-MM-DD HH:MM"))
    :category "agents"
    :async t))
+#+end_src
+** Review/integration/discard are human decisions:
+*** fanshi/ai-delegate--discard-task
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/ai-delegate--discard-task (task-id)
+    "Discard all changes from TASK-ID's agent workspace.
+Abandons the working-copy commit, forgets the workspace and removes the
+directory.  Each step is best-effort on its own: the point of discard is to
+get the workspace gone, so an already-abandoned @ (AbortTask leaves it
+alone now) or a stale workspace must not stop the cleanup."
+    (interactive "sTask ID: ")
+    (let ((worktree-dir (fanshi/ai-delegate--task-property task-id "WORKTREE_DIR")))
+      (unless (and worktree-dir (file-directory-p worktree-dir))
+        (error "No workspace found for task %s" task-id))
+      (let ((main-dir (fanshi/ai-delegate--main-workspace-dir task-id worktree-dir))
+            (workspace-name (file-name-nondirectory (directory-file-name worktree-dir))))
+        ;; Abandon @ in the agent's workspace; `fanshi/call-jj' keeps jj's
+        ;; output out of the current buffer and reports why it failed.
+        (condition-case err
+            (let ((default-directory (file-name-as-directory worktree-dir)))
+              (fanshi/call-jj "abandon" "@"))
+          (error
+           (message "Discarding task %s: `jj abandon' failed (%s), cleaning up anyway"
+                    task-id (error-message-string err))))
+        ;; Forget the workspace before trashing the directory it lives in.
+        (condition-case err
+            (let ((default-directory main-dir))
+              (fanshi/call-jj "workspace" "forget" workspace-name))
+          (error
+           (message "Discarded task %s, but `jj workspace forget' failed: %s"
+                    task-id (error-message-string err))))
+        (condition-case err
+            (system-move-file-to-trash worktree-dir)
+          (error
+           (message "Discarded task %s, but trashing %s failed: %s"
+                    task-id worktree-dir (error-message-string err))))
+        (fanshi/ai-delegate--retarget-agent-buffer task-id main-dir)
+        (message "Discarded changes from task %s" task-id)
+        (format "Discarded changes and removed workspace for task %s" task-id)))))
+#+end_src
+*** fanshi/ai-delegate--review-task-diff
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/ai-delegate--review-task-diff (task-id)
+    "Review the changes made by an agent for TASK-ID.
+Opens a buffer showing the diff of the agent's working-copy commit."
+    (interactive "sTask ID: ")
+    (save-excursion
+      (org-id-goto task-id)
+      (let ((worktree-dir (org-entry-get (point) "WORKTREE_DIR")))
+        (unless (and worktree-dir (file-directory-p worktree-dir))
+          (error "No workspace found for task %s" task-id))
+        (let ((diff-buf (get-buffer-create (format "*jj diff: %s*" task-id))))
+          (with-current-buffer diff-buf
+            ;; Erase first: the buffer is reused, so a second review must not
+            ;; append to the previous diff.
+            (let ((inhibit-read-only t)
+                  (default-directory (file-name-as-directory worktree-dir)))
+              (erase-buffer)
+              (insert (fanshi/call-jj "diff"))
+              (diff-mode)))
+          (switch-to-buffer-other-window diff-buf)
+          (message "Showing jj diff for task %s" task-id)
+          (format "Diff shown in buffer for task %s" task-id)))))
+#+end_src
+*** fanshi/ai-delegate--review-task-log
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/ai-delegate--review-task-log (task-id)
+    "Review the commit log for TASK-ID's workspace.
+Shows the commit graph including the agent's changes."
+    (interactive "sTask ID: ")
+    (save-excursion
+      (org-id-goto task-id)
+      (let ((worktree-dir (org-entry-get (point) "WORKTREE_DIR")))
+        (unless (and worktree-dir (file-directory-p worktree-dir))
+          (error "No workspace found for task %s" task-id))
+        (let ((log-buf (get-buffer-create (format "*jj log: %s*" task-id))))
+          (with-current-buffer log-buf
+            (let ((inhibit-read-only t)
+                  (default-directory (file-name-as-directory worktree-dir)))
+              (erase-buffer)
+              (insert (fanshi/call-jj
+                       "log" "-T" "commit_id.short() ++ \" \" ++ description.firstline() ++ \"\\n\""))
+              (special-mode)))
+          (switch-to-buffer-other-window log-buf)
+          (message "Showing jj log for task %s" task-id)
+          (format "Log shown in buffer for task %s" task-id))))))
 #+end_src
 ** fanshi/ai-delegate--tool-finish-task
 #+begin_src emacs-lisp :tangle yes :lexical t
