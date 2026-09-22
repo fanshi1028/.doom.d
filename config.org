@@ -443,14 +443,14 @@ and stores it in `fanshi/ai-task--captured-id'."
           ;; Append the heading to the `* TODO ' keyword that the template
           ;; provides, so the entry reads `* TODO <heading>'.
           (goto-char (line-end-position))
-          (insert (string-trim heading)))))
-    (dolist (prop properties)
-      (org-entry-put (point) (car prop) (cdr prop)))
-    (setq fanshi/ai-task--captured-id (org-id-get-create (point)))
-    (when (and body (string-trim body))
-      (save-excursion
-        (org-end-of-subtree t)
-        (insert (if (bolp) (concat body "\n") (concat "\n" body "\n"))))))
+          (insert (string-trim heading))))
+      (dolist (prop properties)
+        (org-entry-put (point) (car prop) (cdr prop)))
+      (setq fanshi/ai-task--captured-id (org-id-get-create (point)))
+      (when (and body (string-trim body))
+        (save-excursion
+          (org-end-of-subtree t)
+          (insert (if (bolp) (concat body "\n") (concat "\n" body "\n")))))))
 
   (setf (alist-get fanshi/ai-task-capture-key org-gtd-capture-templates nil nil #'string=)
         (list "AI task" 'entry
