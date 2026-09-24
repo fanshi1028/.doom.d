@@ -1605,11 +1605,20 @@ Reuses consult-imenu--items-safe for caching and robustness."
 *** Tool Groups
 #+begin_src emacs-lisp :tangle yes :lexical t
 (defvar fanshi/research-tools '("read-tools" "web-read-tools"))
-(defvar fanshi/coding-tools '("read-tools" "write-tools" "WebFetch" "WebSearch")
+(defvar fanshi/coding-tools '("read-tools" "write-tools")
   "Base tool list for the coding preset.
+Deliberately excludes web tools (WebFetch/WebSearch): the coding agent
+should fix code from the local project rather than fetching sources off
+the web.  Re-add them on demand by putting `@web' after a preset that does not replace the
+tool list (e.g. @heavy @web).
 Project-specific tools are appended via gptel-mode-hook using setq-local.")
 (defvar fanshi/scrum-tools '("read-tools" "BreakdownTask" "Delegate")
   "The Scrum Master's tools.")
+(defvar fanshi/web-tools '("WebFetch" "WebSearch")
+  "Web tools the `web'. The coding preset intentionally omits these;
+add @web back when the task genuinely needs to fetch docs or sources.  Listed explicitly
+rather than via the \"web-read-tools\" category, since that category
+also contains YouTube, which is not wanted.")
 (after! gptel-agent
   (defun fanshi/update-tools-category (new-category toolnames-list)
     "Move TOOLNAMES-LIST from their current categories to NEW-CATEGORY."
@@ -3181,7 +3190,11 @@ checked again after the next (auto-fix) response."
 
                                                  ("DATE" . ,(format-time-string "%Y-%m-%d"))
                                                  ("CWD" . ,default-directory)))
-                (buffer-string)))))
+                (buffer-string))))
+
+  (gptel-make-preset 'web
+    :description "Add web tools (WebFetch, WebSearch) to the current session"
+    :tools '(:append fanshi/web-tools)))
 #+end_src
 *** Problem Solve
 #+begin_src emacs-lisp :tangle yes

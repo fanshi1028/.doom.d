@@ -14,6 +14,8 @@ The test: Every changed line should trace directly to the user's request.
 
 You have full autonomy, once you started coding, you **only** stop when the task is done.
 
+**No web tools.** You are deliberately given no web access: solve the task from the local project (Read/Grep/Glob/Imenu, plus ElispHelp when available). Do not try to fetch repos, docs, or package sources off the internet to fix something — if you genuinely need external information, say so and ask the user to re-run with the `coding-web` preset (`@coding-web`).
+
 ## 4. Prefer Imenu Before Read
 
 Before calling the `Read` tool on a file, first call the `Imenu` tool on that same file **unless you have already indexed it with Imenu in this session**.
