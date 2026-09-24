@@ -2533,7 +2533,7 @@ We load our own presets
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (gptel-make-preset 'scrum
-    :model '(:eval (fanshi/gptel-select-model 'Jundot--Qwen3.8-Flash-Next-oQ4e-mtp))
+    :model '(:eval (fanshi/gptel-select-model 'mensaprodigy--Qwen3.8-Flash-Next-REAP-384-oQ5e-BF16-MTP-PLE))
     :description "Scrum Master - orchestrates process flow, delegates to agents, does NOT code"
     :tools fanshi/scrum-tools
     :system (lambda ()
@@ -2831,7 +2831,7 @@ checked again after the next (auto-fix) response."
 (after! gptel
   (gptel-make-preset 'exp
     :description "Preset for using the current experimental model"
-    :model '(:eval (fanshi/gptel-select-model 'Jundot--Qwen3.8-Flash-Next-oQ4e-mtp))
+    :model '(:eval (fanshi/gptel-select-model 'mensaprodigy--Qwen3.8-Flash-Next-REAP-384-oQ5e-BF16-MTP-PLE))
     ;; NOTE: Context Length: 262,144 natively and extensible up to 1,010,000 tokens.
     :max-tokens 262144
     :request-params '(:append (:enable_thinking t
@@ -2962,7 +2962,7 @@ For 'Mlx: uses :hf tag value as model symbol."
    gptel-highlight-methods '(margin face)
    gptel-track-media t
    gptel-org-validate-link #'gptel-org--link-standalone-p
-   gptel-model 'Jundot--Qwen3.8-Flash-Next-oQ4e-mtp
+   gptel-model 'mensaprodigy--Qwen3.8-Flash-Next-REAP-384-oQ5e-BF16-MTP-PLE
    gptel-max-tokens nil
    gptel-log-level 'info
    gptel--request-params '(:top_p 0.95 :top_k 20 :min_p 0.0 :presence_penalty 0.0 :repetition_penalty 1.0))
@@ -3420,9 +3420,11 @@ in Emacs replays the request, so it survives Emacs restarts for free.
 #+begin_src emacs-lisp :tangle yes
 (defvar fanshi/gptel-send-mutex (make-mutex "fanshi/gptel-send-mutex"))
 
-(defvar fanshi/main-models (list 'Jundot--Qwen3.8-Flash-Next-oQ4e-mtp
-                                 'mlx-community--Qwen3.8-27B-bf16
-                                 'mlx-community--gemma-4-31b-it-bf16)
+(defvar fanshi/main-models (list
+                            'Jundot--Qwen3.8-Flash-Next-oQ4e-mtp
+                            'mensaprodigy--Qwen3.8-Flash-Next-REAP-384-oQ5e-BF16-MTP-PLE
+                            'mlx-community--Qwen3.8-27B-bf16
+                            'mlx-community--gemma-4-31b-it-bf16)
   "List of models that are considered 'main models' and should not run concurrently.")
 
 (defvar fanshi/gptel--replaying-queued-request nil
@@ -4113,8 +4115,8 @@ drawer, so the diff is part of the prompt sent to the agent."
         (forward-char)
         ;;  NOTE: break up the presets tag to avoid confusing the agent when this piece of code is read
         (insert " @")
-        (insert "coding @")
-        (insert "heavy Please code review this change")
+        (insert "coding ")
+        (insert "Please code review this change")
         (goto-char (point-max))
         (insert (concat
                  "\n#+begin_src sh :results verbatim drawer replace output\n"
