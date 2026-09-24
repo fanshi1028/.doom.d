@@ -2149,6 +2149,21 @@ Two loop types, two detectors (complements the tool-call deduplication above):
   verbatim (e.g. the same C code block 30 times). Detected incrementally by a
   rolling shingle counter in `gptel-post-stream-hook'; on trip, abort the
   request immediately (the partial output is unsalvageable) and notify.
+  Tool-call blocks are removed before shingling (their visible headers are
+  often truncated to the same text even when the full arguments differ);
+  repeated tool calls are detected separately from a canonical key of the full
+  tool-call plist, counted over the whole agentic chain. The scan position is
+  the end of the last block counted — deliberately not the response start the
+  text detector derives from the =response= text property, since a tool block
+  interrupts that run and keying the streak off it lost the streak exactly when
+  gptel inserted a tool call between two sub-responses. Only byte-identical
+  consecutive calls count, so a model looping on the same tool with *mutating*
+  arguments (reading successive line ranges, say) is deliberately not caught
+  here, nor by the text detector. Detection needs the call in the buffer: the
+  only settings that hide it are =gptel-include-tool-results = nil=, and
+  =gptel-include-tool-results = auto= (the default) together with a tool whose
+  own =:include= slot is nil. (=call= replaces the /result/ with a placeholder
+  and keeps the serialized call, so it stays detectable.)
 - *Type B — inter-turn repetition*: consecutive assistant responses are
   near-duplicates (same analysis rephrased, "Let me check ldata.c..." over and
   over). Detected in the post-response hook via bigram Jaccard similarity;
@@ -2193,6 +2208,15 @@ Two loop types, two detectors (complements the tool-call deduplication above):
     :type 'integer
     :group 'gptel)
 
+  (defcustom fanshi/gptel-loop-tool-repeat-threshold 3
+    "Consecutive occurrences of the same full tool call before aborting.
+
+Tool-call headers in the buffer are truncated, so this uses the full
+tool-call plist read from the tool block instead of the visible text.
+Calls are counted across the whole agentic chain, not per sub-response."
+    :type 'integer
+    :group 'gptel)
+
   (defvar-local fanshi/gptel-loop--state nil
     "Buffer-local state for mid-stream loop detection.
 A list (NORM-PREV PREV-WORDS SHINGLE-POS RING RING-POS RING-COUNT), where
@@ -2204,6 +2228,32 @@ SLOT and RING-COUNT the number of slots filled.")
   (defvar-local fanshi/gptel-loop--pending-abort nil
     "Non-nil if a mid-stream loop was detected and the deferred abort has not yet run.
 Cleared by the deferred abort itself, or by `gptel-send' (new turn).")
+
+  (defvar-local fanshi/gptel-loop--tool-scan-pos nil
+    "Buffer position up to which tool-call blocks have been scanned.
+Monotone within an agentic turn, but deliberately NOT keyed to the response
+region the shingle detector uses: that region's start is found by searching
+back for the `response' text property, and a tool block interrupts that run,
+so the two positions do not line up around a tool call (see
+`fanshi/gptel-loop--tool-gap-p').")
+
+  (defvar-local fanshi/gptel-loop--tool-last-key nil
+    "Canonical key of the last full tool call scanned.")
+
+  (defvar-local fanshi/gptel-loop--tool-consecutive 0
+    "Number of consecutive identical full tool calls seen.")
+
+  (defconst fanshi/gptel-loop--footer-window 64
+    "Search window, in chars, for a tool block's footer past its property run.
+Used by `fanshi/gptel-loop--tool-block-end'.  `gptel--display-tool-results'
+writes the footer as a newline, `#+end_tool' and a newline, or a newline,
+three backticks and a newline -- about a dozen chars -- so this is generous
+headroom for a footer carrying trailing text.
+
+It is deliberately short rather than the rest of the response: the footer
+search runs once per block per streamed chunk, and a window reaching END
+rescans the whole remaining response on every chunk (quadratic in the length
+of a long agentic chain).")
 
   (defun fanshi/gptel-loop--normalize (text)
     "Collapse whitespace and downcase TEXT for shingling."
@@ -2227,7 +2277,10 @@ when the response region restarts (new response) or shrinks."
            (ring-count (nth 5 state))
            (words nil) (i 0) (reason nil))
       (cond
-       ;; New response (region restarted, or text changed underneath us).
+       ;; New sub-response: region restarted, or text changed underneath us.
+       ;; Restarting here is expected whenever gptel inserts a tool block
+       ;; between sub-responses; the tool-call detector keeps its own state
+       ;; across those (see `fanshi/gptel-loop--tool-scan-pos').
        ((or (null state)
             (< (length norm) (length norm-prev))
             (not (string-prefix-p norm-prev norm)))
@@ -2277,6 +2330,332 @@ when the response region restarts (new response) or shrinks."
         (setq fanshi/gptel-loop--state (list norm words shingle-pos ring ring-pos ring-count))
         reason)))
 
+  (defun fanshi/gptel-loop--tool-state-reset (&optional scan-pos)
+    "Reset tool-call loop state.
+SCAN-POS is the buffer position from which tool blocks should be scanned."
+    (setq fanshi/gptel-loop--tool-scan-pos scan-pos
+          fanshi/gptel-loop--tool-last-key nil
+          fanshi/gptel-loop--tool-consecutive 0))
+
+  (defun fanshi/gptel-loop--tool-call-key (beg)
+    "Return a canonical key for the full tool call at BEG, or nil if unreadable.
+BEG should point at the beginning of the tool-call plist, or just before
+it (for example at the newline separating the header from the call).
+Arguments can be megabytes long (file contents) and keys are kept between
+streaming chunks and compared with `equal', so the full arguments are
+reduced to a hash; a short prefix is kept for the message shown on abort.
+Tradeoff: two calls count as identical when the name, `sxhash' of the
+arguments and the first 100 columns agree, so a (negligible) hash
+collision between long arguments with a common prefix would merge two
+different calls into one streak.  (The prefix is
+`truncate-string-to-width', i.e. display columns plus an ellipsis, not
+characters.)  `sxhash' is not stable across sessions,
+which is fine -- keys never outlive the request.  `prin1-to-string' is
+stable for the JSON-derived plists gptel builds, but a tool whose arguments
+embed a buffer or process object prints differently on every call, so its
+repeats would be missed."
+    (save-excursion
+      (condition-case nil
+          (progn
+            (goto-char beg)
+            (let ((call (read (current-buffer))))
+              (when (and (consp call) (plist-member call :name))
+                (let ((args (prin1-to-string (plist-get call :args))))
+                  (format "%s %x %s"
+                          (or (plist-get call :name) "")
+                          (sxhash args)
+                          (truncate-string-to-width args 100 nil nil t))))))
+        (error nil))))
+
+  (defun fanshi/gptel-loop--tool-block-bounds-1 (block-start call-start end)
+    "Return (BLOCK-START CALL-START BLOCK-END) for a tool block.
+BLOCK-START is the beginning of the block's header line, CALL-START points
+at the serialized call plist (or at the newline immediately before it, which
+is where the block's `tool' run starts), and END bounds the search for the
+footer.  See `fanshi/gptel-loop--tool-block-bounds'."
+    (let ((run-end (or (next-single-property-change call-start 'gptel nil end) end)))
+      (list block-start call-start
+            (fanshi/gptel-loop--tool-block-end run-end end))))
+
+  (defun fanshi/gptel-loop--tool-block-bounds (pos end)
+    "Return (BLOCK-START CALL-START BLOCK-END) for the tool block at POS, or nil.
+POS should be a position where the `gptel' property changes at the start of a
+tool block -- what `next-single-property-change' returns while walking a
+response.  END bounds the search for the block's footer.
+
+The shapes gptel produces differ in which part of the block carries a
+property, hence the shape tests.  `gptel--display-tool-results' hands the
+whole Org block to the callback with RAW, so `gptel--insert-response' only
+does a plain `insert': the separator, the header and the footer get *no*
+property at all (only the body is propertized with the `\(tool . ID)' cons,
+and `gptel' is rear-nonsticky in chat buffers, so nothing is inherited from
+the preceding response).  Markdown and hidden calls propertize the markup
+themselves:
+
+- POS on the body run (`\(tool . ID)'): reached when POS is already at or
+  inside the block -- the scan position of a previous block, back-to-back
+  calls, a walk that started on the header of a block whose markup is
+  propertized.
+- POS on an `ignore' run: a Markdown header (` ``` tool <truncated call>',
+  whose body run starts on the following line) or a failed call hidden by
+  `fanshi/gptel--hide-failed-tool-calls' (body *and* footer, so POS is on
+  the line after `#+begin_tool').  Distinguished by the header text, since
+  reasoning blocks use `ignore' too.
+- POS before the body, on text that is unpropertized or still `response'
+  (the separator and the header of an Org block): recognized through the
+  ,*tool run* that follows rather than through the text at POS, since POS may
+  be the separator newline at the end of the preceding prose line, whose
+  `beginning-of-line' is prose and not the header.  The header text is then
+  checked at the line the tool run begins on, which is what keeps prose that
+  merely mentions a block from being mistaken for one.
+
+BLOCK-START is the beginning of the header line, CALL-START points at the
+serialized plist and BLOCK-END is just after the footer, see
+`fanshi/gptel-loop--tool-block-end'."
+    (let ((prop (get-char-property pos 'gptel)))
+      (cond
+       ((eq 'tool (car-safe prop))
+        (fanshi/gptel-loop--tool-block-bounds-1
+         (save-excursion (goto-char pos) (line-beginning-position)) pos end))
+       ((eq prop 'ignore)
+        (save-excursion
+          (goto-char pos)
+          (beginning-of-line)
+          (let ((line (point)))
+            (cond
+             ;; Markdown: the header has no newline of its own -- the one that
+             ;; ends the line belongs to the body run.
+             ((looking-at-p "[ \t]*```[ \t]*tool")
+              (forward-line)
+              (fanshi/gptel-loop--tool-block-bounds-1 line (point) end))
+             ((looking-at-p "[ \t]*#\\+begin_tool")
+              (fanshi/gptel-loop--tool-block-bounds-1 line pos end))
+             (t nil)))))
+       ((or (null prop) (eq prop 'response))
+        ;; The walk stopped *before* the body: gptel inserts the separator and
+        ;; the header of an Org block unpropertized, so POS is the header line,
+        ;; the separator in front of it, or the tail of the `response' run that
+        ;; ends where the header starts.  Locate the header from the *tool run*
+        ;; that follows -- the newline opening that run is the one that ends the
+        ;; header line -- because `beginning-of-line' at POS is prose when POS
+        ;; is the separator newline at the end of a prose line.  Then require
+        ;; nothing but whitespace between POS and the header: that is what keeps
+        ;; the prose before an unrelated block (user text, in
+        ;; `fanshi/gptel-loop--tool-gap-p') from being swallowed into it.
+        (save-excursion
+          (let ((next (next-single-property-change pos 'gptel nil end)))
+            (when (and next (eq 'tool (car-safe (get-char-property next 'gptel))))
+              (let ((line (progn (goto-char next) (line-beginning-position))))
+                (if (and (<= pos line)
+                         (looking-at-p "[ \t]*#\\+begin_tool")
+                         (string-blank-p
+                          (buffer-substring-no-properties pos line)))
+                    (fanshi/gptel-loop--tool-block-bounds-1 line next end)
+                  nil))))))
+       (t nil))))
+
+  (defun fanshi/gptel-loop--tool-block-end (run-end end)
+    "Return the end of the tool block whose property run ends at RUN-END.
+RUN-END is one past the last char of the run begun at the block's body (see
+`fanshi/gptel-loop--tool-block-bounds').  The footer -- the Org `#+end_tool'
+line or a standalone Markdown closing fence -- is normally *not* part of the
+run (`gptel--display-tool-results' inserts it unpropertized, and Markdown
+gives it `ignore'), so it follows RUN-END immediately and is found here; it
+is already inside the run when something re-propertized it along with the
+body (`fanshi/gptel--hide-failed-tool-calls' does), in which case RUN-END is
+returned unchanged.
+
+The search starts just before RUN-END so a footer that follows the run is
+matched from its leading newline.  A footer-shaped string inside the
+arguments lies behind the search start and cannot match.  A later block's
+footer is rejected by the `match-beginning' test: this block's footer begins
+its line either at the last char of the run or at RUN-END itself (the result
+ends with a newline and the footer brings its own), so anything matching
+further right belongs to something else -- that test is what keeps a footer
+from the *next* block, or a fence in the response that resumes after this
+one, from being reported here.  Both hinge on the footer keyword starting a
+line, which is how gptel writes it; a footer glued to the preceding text
+without a newline would be missed and leak into the shingled text.
+
+The window is `fanshi/gptel-loop--footer-window', not END: a footer is one
+line long, and searching to END rescans the whole remaining response on every
+streamed chunk."
+    (save-excursion
+      (goto-char (max (1- run-end) (point-min)))
+      (if (and (re-search-forward "\n\\(?:#\\+end_tool[^\n]*\n?\\|```[ \t]*\\(?:\n\\|\\'\\)\\)"
+                                  (min end (+ run-end fanshi/gptel-loop--footer-window)) t)
+               ;; Must be *this* block's footer: its leading newline lies at
+               ;; the end of the run, not further into the buffer.
+               (<= (match-beginning 0) run-end))
+          (point)
+        run-end)))
+
+  (defun fanshi/gptel-loop--tool-gap-p (from to)
+    "Whether the buffer region FROM TO holds only tool blocks and separators.
+FROM is the position up to which tool blocks were scanned, TO the response
+start the shingle detector derived from the `response' text property.  A gap
+of nothing but blocks, their footers and the separators/prefix gptel puts
+around them means \"same turn, tool call in between\" -- those blocks still
+have to be counted.  Anything else in the gap (user text, the previous turn's
+response, prose) means the turn really did change.
+
+Usually the gap is empty and the walk never runs: gptel concats
+`gptel-response-separator' to the *front* of the next response chunk, so the
+`response' run reaches back to the end of the block that precedes it, which
+is exactly FROM.  The walk matters when FROM points into an earlier turn (the
+region then holds prose or user text and the answer is nil) and, defensively,
+for blocks whose markup is unpropertized or `ignore' rather than `tool'."
+    (let ((pos from)
+          (junk (list (bound-and-true gptel-response-separator)
+                      (and (fboundp 'gptel-response-prefix-string)
+                           (ignore-errors (funcall #'gptel-response-prefix-string))))))
+      (while (and pos (< pos to))
+        (let ((block (fanshi/gptel-loop--tool-block-bounds pos to))
+              (next (or (next-single-property-change pos 'gptel nil to) to)))
+          (cond
+           (block
+            ;; Skip the whole block *including* its footer: the footer carries
+            ;; `ignore'/nil rather than `tool', so stopping at the property
+            ;; change would leave `#+end_tool'/the fence as the next `rest',
+            ;; and a non-blank gap would then wrongly look like a new turn.
+            ;; `1+ pos' keeps the walk moving when the block starts at or
+            ;; behind POS (its header line may begin before POS).
+            (setq pos (max (nth 2 block) (1+ pos))))
+           ;; A header or footer remnant (Markdown fences, a call hidden by
+           ;; `fanshi/gptel--hide-failed-tool-calls'): structural markup, not
+           ;; response text.
+           ((eq (get-char-property pos 'gptel) 'ignore)
+            (setq pos next))
+           (t
+            (let ((rest (buffer-substring-no-properties pos next)))
+              ;; Markup that never carried the `tool' property: the header of a
+              ;; call hidden by `fanshi/gptel--hide-failed-tool-calls' (the walk
+              ;; stops here because the body is `ignore', not `tool') and a
+              ;; footer that fell outside the run.  Structural, not response
+              ;; text, so it must not make the gap look like a new turn.
+              (setq rest (replace-regexp-in-string
+                          "[ \t]*#\\+\\(?:begin\\|end\\)_tool[^\n]*[ \t]*" "" rest))
+              (dolist (j junk)
+                (when (stringp j) (setq rest (string-replace j "" rest))))
+              (setq pos (if (string-blank-p rest) next nil))))))
+        (and pos t))))
+
+  (defun fanshi/gptel-loop--response-parts (scan-start end text-start &optional read-keys)
+    "Scan tool blocks between SCAN-START and END, return (TEXT KEYS SCAN-POS).
+TEXT is the text between TEXT-START and END with tool blocks removed.  KEYS
+are the canonical tool-call keys of the tool blocks beginning at or after
+SCAN-START, and only when READ-KEYS is non-nil -- keying a block means
+`read'ing and printing its (possibly megabyte-long) arguments, so callers
+that want TEXT alone pass nil.  A key is `nil' for a block whose call could
+not be read.  SCAN-POS is the end of the last tool block scanned, SCAN-START
+if there was none.
+
+The scan walks from (min SCAN-START TEXT-START): behind TEXT-START to pick up
+tool blocks inserted since the previous call, ahead of it to strip blocks
+already counted from TEXT.  gptel inserts a whole tool block in a single
+`insert' and only then runs `gptel-post-stream-hook', so a block is either
+fully present or absent here; the `max' clamps below are belt-and-braces in
+case that ever changes.
+
+The walk steps from property change to property change, so an unpropertized
+separator and header cost one extra hop before the body run identifies the
+block; the separator is then part of the segment pushed before BLOCK-START,
+which is what the shingler wants (whitespace, and it normalizes it away)."
+    (let ((pos (min scan-start text-start))
+          (last-copy text-start)
+          (segments nil)
+          (keys nil)
+          (scan-pos scan-start))
+      (while (< pos end)
+        (let ((next (next-single-property-change pos 'gptel nil end)))
+          (if (or (null next) (>= next end))
+              (progn
+                (when (< last-copy end)
+                  (push (buffer-substring-no-properties last-copy end) segments))
+                (setq pos end))
+            (let ((block (fanshi/gptel-loop--tool-block-bounds next end)))
+              (if (null block)
+                  (setq pos next)
+                ;; Only blocks not scanned on an earlier chunk are keyed;
+                ;; `scan-pos' is the end of the last one scanned.
+                (cl-destructuring-bind (b-start call-start b-end) block
+                  (let ((new-block (>= b-start scan-pos))
+                        (block-start (max last-copy b-start))
+                        (block-end (max last-copy b-end)))
+                    (when (> block-start last-copy)
+                      (push (buffer-substring-no-properties last-copy block-start) segments))
+                    (when (and new-block read-keys)
+                      (push (fanshi/gptel-loop--tool-call-key call-start) keys))
+                    (setq scan-pos (max scan-pos block-end)
+                          last-copy block-end
+                          pos (max last-copy (1+ next))))))))))
+      (when (< last-copy end)
+        (push (buffer-substring-no-properties last-copy end) segments))
+      (list (apply #'concat (nreverse segments)) (nreverse keys) scan-pos)))
+
+  (defun fanshi/gptel-loop--response-text (start end)
+    "Return the response text from START to END with tool blocks removed."
+    (nth 0 (fanshi/gptel-loop--response-parts start end start)))
+
+  (defun fanshi/gptel-loop--detect-tool-repetition (keys)
+    "Return a reason if KEYS show consecutive repeated full tool calls.
+KEYS are the keys returned by `fanshi/gptel-loop--response-parts'.  The
+visible tool-call header is truncated, so a repeat is counted only when the
+full key is identical to the immediately previous one.  A nil key is a
+block whose call could not be read: it breaks the streak instead of being
+skipped, so two identical calls separated by an unreadable one are not
+merged into a repeat.
+
+The flip side of requiring byte-identical calls: looping with *different*
+arguments is invisible here, and to the text detector too since tool blocks
+are stripped before shingling."
+    (let ((threshold fanshi/gptel-loop-tool-repeat-threshold)
+          (reason nil))
+      (dolist (key keys)
+        (cond
+         ((and key (equal key fanshi/gptel-loop--tool-last-key))
+          (cl-incf fanshi/gptel-loop--tool-consecutive))
+         (key
+          (setq fanshi/gptel-loop--tool-last-key key
+                fanshi/gptel-loop--tool-consecutive 1))
+         (t (setq fanshi/gptel-loop--tool-last-key nil
+                  fanshi/gptel-loop--tool-consecutive 0)))
+        (when (and key (>= fanshi/gptel-loop--tool-consecutive threshold))
+          (setq reason (format "tool call repeated %d times: %s"
+                               fanshi/gptel-loop--tool-consecutive key))))
+      reason))
+
+  (defun fanshi/gptel-loop--detect-stream (start end)
+    "Update the mid-stream detectors from the response region START END.
+Return a human-readable reason to abort, or nil.  START is the beginning of
+the current `response' text-property run, END the position to scan up to
+(`point-max' while streaming).
+
+Tool-call scanning is deliberately not keyed to START: START comes from the
+`response' run, which a tool block interrupts, so while a block is being
+inserted START still points at the previous sub-response and only jumps past
+the block on the next chunk -- keying the streak off it reset the streak at
+every tool call.  Scan on from the previous scan position instead, and treat
+the gap between it and START as a genuinely new turn only when it is not tool
+blocks plus separators (`fanshi/gptel-loop--tool-gap-p')."
+    (let* ((scan-start fanshi/gptel-loop--tool-scan-pos)
+           parts text keys reason)
+      ;; `> end' only guards a stale position left by a buffer edit:
+      ;; scan-start == END is normal (the block just scanned was the last thing
+      ;; inserted) and must not reset the streak built so far.
+      (when (or (null scan-start)
+                (> scan-start end)
+                (and (< scan-start start)
+                     (not (fanshi/gptel-loop--tool-gap-p scan-start start))))
+        (fanshi/gptel-loop--tool-state-reset start)
+        (setq scan-start start))
+      (setq parts (fanshi/gptel-loop--response-parts scan-start end start t)
+            text (nth 0 parts)
+            keys (nth 1 parts))
+      (setq fanshi/gptel-loop--tool-scan-pos (nth 2 parts))
+      (setq reason (fanshi/gptel-loop--detect-response text))
+      (or reason (fanshi/gptel-loop--detect-tool-repetition keys))))
+
   (defun fanshi/gptel-loop--stream-check ()
     "`gptel-post-stream-hook' handler: abort the request if the response is degenerating.
 This hook runs *inside* gptel's process filter (see
@@ -2297,14 +2676,19 @@ duplicate aborts and notifications before the first one fires."
     (when (and fanshi/gptel-loop-guard-enabled gptel-mode
                (not fanshi/gptel-loop--pending-abort))
       (condition-case _err
-          (let ((start (save-excursion
-                         (text-property-search-backward 'gptel 'response t)
-                         (point))))
+          ;; The search runs in a `save-excursion' because we are inside the
+          ;; process filter.  On failure it restores point, so the returned
+          ;; match -- not `point' -- is what says whether there is a response
+          ;; region here at all.
+          (let* ((match (save-excursion
+                          (text-property-search-backward 'gptel 'response t)))
+                 (start (and match (prop-match-beginning match))))
             (when start
-              (let ((text (buffer-substring-no-properties start (point-max))))
-                (when-let ((reason (fanshi/gptel-loop--detect-response text)))
+              (let ((reason (fanshi/gptel-loop--detect-stream start (point-max))))
+                (when reason
                   (setq-local fanshi/gptel-loop--state nil
                               fanshi/gptel-loop--pending-abort t)
+                  (fanshi/gptel-loop--tool-state-reset)
                   (message "gptel-loop-guard: mid-stream loop detected (%s), aborting." reason)
                   (let ((buf (current-buffer)))
                     (run-with-idle-timer
@@ -2315,7 +2699,7 @@ duplicate aborts and notifications before the first one fires."
                            (ignore-errors (gptel-abort buf))
                            (setq-local fanshi/gptel-loop--pending-abort nil)
                            (fanshi/notify)))))))))
-        (error nil)))))
+            (error nil)))))
   (add-hook 'gptel-post-stream-hook #'fanshi/gptel-loop--stream-check)
 
   ;; ---------- Type B: inter-turn similarity ----------
@@ -2383,8 +2767,8 @@ duplicate aborts and notifications before the first one fires."
   (defun fanshi/gptel-loop--post-response-check (beg end)
     "`gptel-post-response-functions' handler: detect near-duplicate consecutive responses."
     (when (and fanshi/gptel-loop-guard-enabled (not fanshi/gptel--aborted))
-      (let ((response (buffer-substring-no-properties beg end))
-            (words (fanshi/gptel-loop--normalize-words response)))
+      (let* ((response (fanshi/gptel-loop--response-text beg end))
+             (words (fanshi/gptel-loop--normalize-words response)))
         (when (>= (length words) 40)
           (let ((sim (when fanshi/gptel-loop--last-response
                        (fanshi/gptel-loop--jaccard fanshi/gptel-loop--last-response words))))
@@ -2409,7 +2793,8 @@ duplicate aborts and notifications before the first one fires."
       (setq-local fanshi/gptel-loop--last-response nil
                   fanshi/gptel-loop--nudge-count 0
                   fanshi/gptel-loop--state nil
-                  fanshi/gptel-loop--pending-abort nil)))
+                  fanshi/gptel-loop--pending-abort nil)
+      (fanshi/gptel-loop--tool-state-reset)))
 
   (advice-add 'gptel-send :after #'fanshi/gptel-send--reset-loop-state-a))
 #+end_src
