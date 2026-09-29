@@ -5100,12 +5100,22 @@ or a file name, never a buffer."
         ;; Deleting must not mask the error a failing body already raised.
         (ignore-errors (delete-file stderr-file)))))
 
+  (defun fanshi/jj-default-workspace-root ()
+    "Return the default workspace's root path, or nil if not resolvable.
+Nil-safe wrapper over `jj workspace root --name default' (which errors
+when no workspace named `default' exists), for callers that need the main
+repo root from inside a sub-workspace."
+    (let ((root (ignore-errors
+                  (string-trim
+                   (shell-command-to-string
+                    "jj workspace root --name default")))))
+      (and (not (string-blank-p root)) root)))
+
   (defun fanshi/gptel-agent (task-description)
     (interactive "sTask Description: ")
     (let ((root (projectile-project-root))
           (default-directory (projectile-project-root))
-          (jj-default-root (ignore-errors
-                             (string-trim (shell-command-to-string "jj workspace root --name default"))))
+          (jj-default-root (fanshi/jj-default-workspace-root))
           (jj-current-root (ignore-errors
                              (string-trim (shell-command-to-string "jj workspace root")))))
       (if (or (string-blank-p task-description)
