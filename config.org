@@ -3649,17 +3649,15 @@ is spawned in the same project, prompted with only:
 - the failing ~cmd~ (tangling the doom ~config.org~ and loading the tangled
   ~config.el~), the file the error was found in, and the source file to fix,
   with the error itself wrapped in an ~#+begin_example~ block
-- the current jj diff (only when the project is a jj repo), produced by
-  executing a ~#+begin_src~ block in the fixer buffer — the same trick as
-  `fanshi/gptel-code-review-jj-diff' — so its output lands in a results
-  drawer and the agent sees the diff as part of the prompt
+- the current jj diff (only when the project is a jj repo), inserted
+  directly into the fixer buffer's prompt via `fanshi/call-jj'
 - a file stays in ~fanshi/gptel--edited-files~ until its check passes, so a
   failing file is re-checked after the next response; once everything
   passes, ~fanshi/gptel--code-check-fix-count~ is reset too
 - the fixer inherits the spawning buffer's retry count, so a chain of
   failing fixers (each fixer re-checks its own edits) is still bounded by
   `fanshi/gptel-code-check-auto-fix-max-retries'
-- the fixing prompt looks like this (the diff block only appears in jj
+- the fixing prompt looks like this (the diff only appears in jj
   repos):
 #+begin_src text :tangle no
 @coding Command(org-babel-tangle-file "/Users/francischan/.doom.d/config.org") failed.
@@ -3672,9 +3670,8 @@ config.el: Unbalanced parentheses at line 2312, column 8.
 Please fix the error in the source file(/Users/francischan/.doom.d/config.org) then report the fix.
 
 For context, the current jj diff is:
-\#+begin_src sh :results verbatim drawer replace output
-jj diff --color=never
-\#+end_src
+
+<diff output>
 #+end_src
 
 #+begin_src emacs-lisp :tangle yes
@@ -3734,9 +3731,8 @@ syntax error that needs none of the solution's context), spawn a new
 (so the fixer gets the coding system prompt/tools, and its own
 post-response check re-runs on its edits), the failure details, the error
 wrapped in an example block (quoted verbatim to the model), and — when the
-project is a jj repo — a src block running `jj diff' so the agent sees the
-current changes as part of the prompt (see
-`fanshi/gptel-code-review-jj-diff').  In a jj repo the fixer runs in a
+project is a jj repo — the output of `fanshi/call-jj "diff"' so the agent
+sees the current changes as part of the prompt.  In a jj repo the fixer runs in a
 dedicated sub-workspace (see `fanshi/gptel-agent'), so its change is
 auto-committed per response by `fanshi/gptel--jj-auto-commit'.
 Increments `fanshi/gptel--code-check-fix-count' to track retry depth, and
@@ -3771,12 +3767,8 @@ fixer re-checks its own edits) stays bounded by
           (insert (format "%s\n" prompt))
           (when (ignore-errors (shell-command-to-string "jj root"))
             (insert (concat
-                     "\nFor context, the current jj diff is:\n"
-                     "#+begin_src sh :results verbatim drawer replace output\n"
-                     "jj diff --color=never\n"
-                     "#+end_src"))
-            (org-babel-execute-src-block))
-          (goto-char (point-max))
+                     "\nFor context, the current jj diff is:\n\n"
+                     (fanshi/call-jj "diff"))))
           (gptel-send)))))
 
   (defun fanshi/gptel--check-tangled-file (file)
@@ -5203,10 +5195,8 @@ that follows must stay outside the deleted range."
 #+end_src
 ** fanshi/gptel-code-review-jj-diff
 Start a new gptel-agent session that code reviews the current jj changes.
-The prompt is an org block whose src block runs ~jj diff --color=never~;
-the block is triggered by the function itself and its output is included in
-a results drawer (per ~:results verbatim drawer replace output~) so the
-agent sees the diff as part of the prompt.
+The diff itself is inserted into the prompt directly, as the output of
+`fanshi/call-jj "diff"'.
 
 Called with a prefix arg, the instruction that follows the `coding' preset
 marker is read from the minibuffer (pre-filled with the default) instead of
@@ -5220,17 +5210,13 @@ intact.  An empty or blank instruction falls back to the default.
 Runs in the *current* workspace (no sub-workspace is created — a fresh
 sub-workspace has an empty working copy, so its `jj diff' would be empty
 and there would be nothing to review).
-The prompt is an org block whose first line is the `coding' preset marker
-followed by the instruction, then a src block running `jj diff' (the
-marker is written split here, at-sign and name in two insertions, exactly
-as `fanshi/gptel--insert-preset' inserts it, so this Org file is never
-itself picked up as a preset marker):
+The prompt is the `coding' preset marker followed by the instruction, then
+the output of `jj diff' (the marker is written split here, at-sign and name
+in two insertions, exactly as `fanshi/gptel--insert-preset' inserts it, so
+this Org file is never itself picked up as a preset marker):
   ,* <at>coding Please code review this change
-  \#+begin_src sh :results verbatim drawer replace output
-  jj diff --color=never
-  \#+end_src
-The src block is executed here and its output is placed in a results
-drawer, so the diff is part of the prompt sent to the agent.
+
+  <diff output>
 
 With a prefix arg, PROMPT is read from the minibuffer (pre-filled with the
 default) and used as the instruction instead of the default \"Please code
@@ -5253,12 +5239,7 @@ review this change\"; an empty or blank PROMPT falls back to the default."
         (fanshi/gptel--insert-preset "coding")
         (insert prompt)
         (goto-char (point-max))
-        (insert (concat
-                 "\n#+begin_src sh :results verbatim drawer replace output\n"
-                 "jj diff --color=never\n"
-                 "#+end_src"))
-        (org-babel-execute-src-block)
-        (goto-char (point-max))
+        (insert (concat "\n\n" (fanshi/call-jj "diff")))
         (gptel-send)))))
 #+end_src
 ** jj auto commit
