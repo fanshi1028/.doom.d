@@ -5186,6 +5186,21 @@ repo root from inside a sub-workspace."
               (fanshi/call-jj "desc" (format "--message=%s" task-description)))
             buf))))))
 #+end_src
+** fanshi/gptel--insert-preset
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defun fanshi/gptel--insert-preset (preset-name)
+    "Insert the \@PRESET-NAME marker into the current buffer.
+
+Split across two insertions on purpose: a literal \"@foo\" in this file
+would be picked up as a preset marker when the Org source itself is
+exported or fed to an agent, so the tag is never written out whole.
+Point must end up *after* the marker's space: `fanshi/process-preset-til-end'
+deletes the marker and applies the preset from there, and the prompt text
+that follows must stay outside the deleted range."
+    (insert " @")
+    (insert (concat preset-name " "))))
+#+end_src
 ** fanshi/gptel-code-review-jj-diff
 Start a new gptel-agent session that code reviews the current jj changes.
 The prompt is an org block whose src block runs ~jj diff --color=never~;
@@ -5214,9 +5229,7 @@ drawer, so the diff is part of the prompt sent to the agent."
       (with-current-buffer buf
         (goto-char (point-min))
         (forward-char)
-        ;;  NOTE: break up the presets tag to avoid confusing the agent when this piece of code is read
-        (insert " @")
-        (insert "coding ")
+        (fanshi/gptel--insert-preset "coding")
         (insert "Please code review this change")
         (goto-char (point-max))
         (insert (concat
