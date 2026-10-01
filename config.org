@@ -5207,30 +5207,51 @@ The prompt is an org block whose src block runs ~jj diff --color=never~;
 the block is triggered by the function itself and its output is included in
 a results drawer (per ~:results verbatim drawer replace output~) so the
 agent sees the diff as part of the prompt.
+
+Called with a prefix arg, the instruction that follows the `coding' preset
+marker is read from the minibuffer (pre-filled with the default) instead of
+defaulting to "Please code review this change" — useful to steer the review
+(focus on a concern, tone, depth, ...) while keeping the `jj diff' context
+intact.  An empty or blank instruction falls back to the default.
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
-  (defun fanshi/gptel-code-review-jj-diff ()
+  (defun fanshi/gptel-code-review-jj-diff (&optional prompt)
     "Start a new gptel-agent session to code review the current jj changes.
 Runs in the *current* workspace (no sub-workspace is created — a fresh
-sub-workspace has an empty working copy, so its `jj diff' would be
-empty and there would be nothing to review).
-The prompt is an org block:
-  ,* \@coding \@heavy Please code review this change
+sub-workspace has an empty working copy, so its `jj diff' would be empty
+and there would be nothing to review).
+The prompt is an org block whose first line is the `coding' preset marker
+followed by the instruction, then a src block running `jj diff' (the
+marker is written split here, at-sign and name in two insertions, exactly
+as `fanshi/gptel--insert-preset' inserts it, so this Org file is never
+itself picked up as a preset marker):
+  ,* <at>coding Please code review this change
   \#+begin_src sh :results verbatim drawer replace output
   jj diff --color=never
   \#+end_src
 The src block is executed here and its output is placed in a results
-drawer, so the diff is part of the prompt sent to the agent."
-    (interactive)
+drawer, so the diff is part of the prompt sent to the agent.
+
+With a prefix arg, PROMPT is read from the minibuffer (pre-filled with the
+default) and used as the instruction instead of the default \"Please code
+review this change\"; an empty or blank PROMPT falls back to the default."
+    (interactive
+     (list (if current-prefix-arg
+               (read-string "Code review instruction: "
+                            "Please code review this change")
+             nil)))
     ;; Empty task description: take the plain gptel-agent path so the
     ;; buffer stays bound to the current workspace (see
     ;; `fanshi/gptel-agent'), where `jj diff' shows the actual changes.
-    (let ((buf (fanshi/gptel-agent "")))
+    (let* ((prompt (if (and prompt (not (string-blank-p prompt)))
+                       (string-trim prompt)
+                     "Please code review this change"))
+           (buf (fanshi/gptel-agent "")))
       (with-current-buffer buf
         (goto-char (point-min))
         (forward-char)
         (fanshi/gptel--insert-preset "coding")
-        (insert "Please code review this change")
+        (insert prompt)
         (goto-char (point-max))
         (insert (concat
                  "\n#+begin_src sh :results verbatim drawer replace output\n"
