@@ -2203,14 +2203,21 @@ above):
   consecutive calls count, so a model looping on the same tool with *mutating*
   arguments (reading successive line ranges, say) is deliberately not caught
   here, nor by the text detector. Detection needs the call in the buffer: the
-  only settings that hide it are =gptel-include-tool-results = nil=, and
-  =gptel-include-tool-results = auto= (the default) together with a tool whose
-  own =:include= slot is nil. (=call= replaces the /result/ with a placeholder
+  only settings that hide it are ~gptel-include-tool-results = nil~, and
+  ~gptel-include-tool-results = auto~ (the default) together with a tool whose
+  own ~:include~ slot is nil. (~call~ replaces the /result/ with a placeholder
   and keeps the serialized call, so it stays detectable.)
 - *Type B — inter-turn repetition*: consecutive assistant responses are
   near-duplicates (same analysis rephrased, "Let me check ldata.c..." over and
   over). Detected in the post-response hook via bigram Jaccard similarity;
   one auto-nudge, then hard stop.
+
+A broken detector does not crash the request: it surfaces as a logged
+"gptel-loop-guard: stream check failed: ..." message and the state is rolled
+back. The ~Wrong length argument: 0~ variant of that message came from the
+shingle detector's recorded frontier lying past the end of the word list it was
+resumed with, so ~seq-subseq~ signalled inside the scan; the frontier is now
+clamped (see ~fanshi/gptel-loop--detect-response~).
 
 Both handlers catch errors from the detector only (it consumes buffer text,
 so a wrong-typed value surfaces as "Wrong type argument: stringp, nil" and
@@ -2284,7 +2291,11 @@ the shingler compares the previous normalized text as a prefix of the current on
 so a buffer edit inside the in-flight response makes the region look like a new
 sub-response and the detector restarts from scratch.  That is the safe direction
 (no false trip), but it does mean an edit mid-stream costs the accumulated
-evidence.
+evidence.  The recorded shingle frontier is clamped to the word list on the
+continuation branch, so a stale frontier past the end of a shorter continuation
+re-keys the shingles in between rather than signalling "Wrong length argument"
+out of ~seq-subseq~ (which the Type A catch would otherwise log as a failed
+stream check and roll the state back for).
 
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
@@ -2348,7 +2359,11 @@ NORM-PREV doubles as the detector's continuity check, so nil and the empty strin
 mean different things: nil is \"no state\" and forces a fresh response, while a
 list whose NORM-PREV is the empty string is a live state that the next call
 continues from.  Drop the whole variable (set it to nil), never just the prefix,
-when the detector is skipped for a chunk.")
+when the detector is skipped for a chunk.
+
+NEXT-I is clamped to the length of the word list when a state is resumed, so a
+stale frontier cannot push ~seq-subseq~ past the end of the list (see
+~fanshi/gptel-loop--detect-response~).")
 
   (defvar-local fanshi/gptel-loop--pending-abort nil
     "Non-nil if a mid-stream loop was detected and the deferred abort has not yet run.
@@ -2458,9 +2473,22 @@ is not benign."
        ;; `norm-prev' (a sub-response that normalized to whitespace), so do not
        ;; assume `nconc's first argument is non-nil -- with nil it copies the
        ;; tail, which keeps the recorded list independent of the new chunk.
+       ;; NOTE: `next-i' is clamped to the word list below, so a stale frontier
+       ;; re-keys instead of signalling out of `seq-subseq'.
        (t (setq words (nconc prev-words
                              (split-string (substring norm (length norm-prev)) " " 'suppress-empty))
-                i next-i)))
+                ;; Clamp the frontier to the word list. It normally lies within
+                ;; the list (it is the end of the last recorded shingle, which
+                ;; needs `sw' words, i.e. `next-i <= n - sw'), but a stale or
+                ;; corrupted state can carry a frontier past the end of this
+                ;; continuation: the prefix check above only guarantees the
+                ;; recorded prefix is a prefix of NORM, it says nothing about the
+                ;; other slots, so a stale `next-i' makes `seq-subseq' below
+                ;; signal "Wrong length argument".  Clamping re-keys the shingles
+                ;; between the clamped point and the frontier instead of losing
+                ;; the whole streak, and keeps the recorded `next-i' consistent
+                ;; with the word list it is paired with.
+                i (min next-i (length words)))))
       (let ((n (length words)))
         ;; Record each shingle start position once, on the first call where the
         ;; shingle is COMPLETE (all `sw' words arrived). Positions within `sw'
@@ -2540,8 +2568,8 @@ repeats would be missed.
 The `condition-case' catches `wrong-type-argument' (what `plist-member' or
 `plist-get' signal when the form at BEG reads as a non-cons -- a stray number or
 symbol where a call plist was expected) and `invalid-read-syntax' (what `read'
-signals on malformed markup), both of which just mean "this block cannot be
-    keyed" and are handled by returning nil.  It deliberately does NOT catch
+signals on malformed markup), both of which just mean \"this block cannot be
+    keyed\" and are handled by returning nil.  It deliberately does NOT catch
 `end-of-file', which `read' signals on a *truncated* plist: that one is a real
 inconsistency and is meant to reach `fanshi/gptel-loop--stream-check', whose
 handler drops the shingle state along with the tool state."
@@ -2923,6 +2951,12 @@ Invariants this relies on:
   own post-response hooks have already run, so leaving the guard's flag armed
   would make the *next* turn look aborted.
 
+- A signal from the detector is caught and logged, and the shingle state dropped
+  (the tool-call state rolled back) -- see the =condition-case= below. It is not
+  re-raised, so a broken detector shows up as a \" gptel-loop-guard: stream check
+    failed: ... \" message instead of an \" error in process filter \" that takes the
+  request down.
+
 - Must return nil: `gptel-curl--stream-filter' ends with
   `(run-hooks 'gptel-post-stream-hook)' and hands that value back to the process
   machinery, so non-nil would look like a handoff to another streaming backend.
@@ -2942,20 +2976,22 @@ Invariants this relies on:
       ;; branch of `fanshi/gptel-loop--detect-stream' (its
       ;; `fanshi/gptel-loop--tool-gap-p' walk), `fanshi/gptel-loop--tool-call-key'
       ;; (whose `condition-case' catches only `wrong-type-argument', so
-      ;; `end-of-file' from a truncated call plist escapes), and the continuation
-      ;; branch of `fanshi/gptel-loop--detect-response' (`substring' past the end
-      ;; of the normalized text -- "Wrong length argument"). Undoing such a reset
+      ;; `end-of-file' from a truncated call plist escapes), and (rarely) the
+      ;; continuation branch of `fanshi/gptel-loop--detect-response' (`seq-subseq'
+      ;; past the end of the word list when a stale frontier outlives the clamp —
+      ;; `substring' past the end of the normalized text is already handled by the
+      ;; prefix check). Undoing such a reset
       ;; is harmless: the trip path resets the tool state again and a failure
       ;; means no trip, so the next chunk rescans.
-      ;; The shingle state is *discarded*, not restored: the saved list is only a
-      ;; shallow copy of live objects, so it can point at a half-updated table.
-      ;; A nil state is safe to resume from (treated as a new response).
+      ;; The shingle state is *discarded*, not restored (no backup is even kept):
+      ;; a state that just failed to scan would very likely fail again on the next
+      ;; chunk, and a nil state is safe to resume from (treated as a new
+      ;; response).
       ;; The same drop happens when there is no `response' region at point -- see
       ;; the `no-region-p' branch below and `fanshi/gptel-loop--detect-stream'.
       (let ((scan-bak fanshi/gptel-loop--tool-scan-pos)
             (key-bak fanshi/gptel-loop--tool-last-key)
-            (count-bak fanshi/gptel-loop--tool-consecutive)
-            (shingle-bak fanshi/gptel-loop--state))
+            (count-bak fanshi/gptel-loop--tool-consecutive))
         (condition-case err
             (let* (;; Whether the shingle state was dropped because there was no
                    ;; response region (see the comment above).  The trip path
@@ -2991,13 +3027,11 @@ Invariants this relies on:
                              ;; No `response' run at point: nothing to shingle, so
                              ;; the state goes with it (a stale state makes the next
                              ;; chunk take the continuation branch against a prefix
-                             ;; nothing re-validated). `SHINGLE-BAK' is cleared too
-                             ;; so the rollback cannot restore it; plain `setq', not
+                             ;; nothing re-validated). Plain `setq', not
                              ;; `kill-local-variable', which would inherit the
                              ;; global default.
                              (progn
-                               (setq shingle-bak nil
-                                     no-region-p t
+                               (setq no-region-p t
                                      fanshi/gptel-loop--state nil)
                                nil))))
               (when reason
@@ -3150,22 +3184,25 @@ Invariants this relies on:
                                  (setq-local fanshi/gptel--aborted nil
                                              fanshi/gptel-loop--aborted nil))))))))))))
           (error
-           ;; Best-effort rollback (see the comment above): the shingle state goes
-           ;; back to the pre-call value (`shingle-bak' is nil when it was already
-           ;; dropped, so the drop sticks); the tool-call state goes back too,
-           ;; though the detector may have reset it correctly and the trip path
-           ;; clears it anyway. The backup is a shallow copy, so a resumed hash
-           ;; table can be half-updated -- tolerable, since a landed `puthash'
-           ;; belongs to a shingle of the current prefix: at worst it *costs* a
-           ;; trip, it cannot invent a repetition.
-           (setq fanshi/gptel-loop--state shingle-bak
+           ;; Best-effort rollback (see the comment above): the tool-call state
+           ;; goes back to the pre-call values (`scan-bak' etc. are values, not
+           ;; aliases), though the detector may have reset it correctly and the
+           ;; trip path clears it anyway.  The *shingle* state is dropped rather
+           ;; than restored: a state that just failed to scan would very likely
+           ;; fail again on the next chunk, and a message per streamed chunk is
+           ;; spam the user cannot read.  Dropping it is the "shape the next chunk
+           ;; can resume from": nil is treated as a new response, so the next
+           ;; chunk rescans the whole region from scratch.  Plain `setq', not
+           ;; `kill-local-variable': the global default may hold another buffer's
+           ;; state, which would then be inherited here.
+           (setq fanshi/gptel-loop--state nil
                  fanshi/gptel-loop--tool-scan-pos scan-bak
                  fanshi/gptel-loop--tool-last-key key-bak
                  fanshi/gptel-loop--tool-consecutive count-bak)
            (message "gptel-loop-guard: stream check failed: %s"
-                    (error-message-string err))))
-        ;; NOTE: returning nil matters -- see the docstring.
-        nil)))
+                    (error-message-string err)))
+          ;; NOTE: returning nil matters -- see the docstring.
+          nil))))
   (add-hook 'gptel-post-stream-hook #'fanshi/gptel-loop--stream-check)
 
   ;; ---------- Type B: inter-turn similarity ----------
@@ -3188,7 +3225,7 @@ does not refill it, so a budget above 1 is exhaustible)."
 
   (defvar-local fanshi/gptel-loop--nudge-count 0
     "Number of loop nudges sent in the current conversation.
-*Not* reset by `fanshi/gptel-send--reset-loop-state-a': it must survive the
+,*Not* reset by `fanshi/gptel-send--reset-loop-state-a': it must survive the
 nudge's own send, or the guard would nudge forever. A per-buffer budget, not
 per-loop: once `fanshi/gptel-loop-nudge-max' is spent, later loops go straight to
 give-up until a *clean* turn refills it. A nudged turn does not refill it, so the
@@ -3248,7 +3285,7 @@ have bigrams but share none return 0.0: \"no overlap\" is a real measurement."
   (defvar-local fanshi/gptel-loop--from-nudge nil
     "Non-nil if the current `gptel-send' was issued by the loop guard nudge.
 Read (and cleared) by `fanshi/gptel-loop--post-response-check', which skips the
-*comparison* for a nudge turn (its own text is in the response region) while still
+,*comparison* for a nudge turn (its own text is in the response region) while still
 recording the fingerprint. The nudge's send is *not* exempt from the state reset in
 `fanshi/gptel-send--reset-loop-state-a', which clears
 `fanshi/gptel-loop--last-response', so that is normally nil by the time a nudge
@@ -3285,7 +3322,7 @@ caller's docstring)."
     "`gptel-post-response-functions' handler: detect near-duplicate consecutive responses.
 Like `fanshi/gptel-loop--stream-check', the detector call is caught: this hook
 runs from gptel's sentinel, and an error here takes the request down. The catch is
-*narrow* -- the nudge and notify run outside it, so a failed `gptel-send'
+,*narrow* -- the nudge and notify run outside it, so a failed `gptel-send'
 surfaces. A clean exit from the caught block means \"no decision\": the detector
 block ends with a `throw', so falling out of it normally is how \"guard off /
 aborted turn / short response\" reaches the action code.
@@ -3315,17 +3352,17 @@ caught (the next turn re-records a fingerprint), but two consecutive post-give-u
 near-duplicates are not reported until a distinct turn intervenes. Deliberate:
 silence after give-up beats a notification on every turn of an endless loop.
 
-The decision is handed out of the caught block by `throw', not by mutable locals,
-so a partial or failed comparison cannot leave a stale decision behind: a signal
-from `fanshi/gptel-loop--response-text' or `fanshi/gptel-loop--jaccard' lands in
-the `condition-case' and leaves the destructured list nil (no action, budget
-untouched). Anything signalled from the `pcase' arms is outside the catch and
-surfaces as a normal error.
+The decision is handed out of the caught block by `throw' as (TRIP SIM), not by
+mutable locals, so a partial or failed comparison cannot leave a stale decision
+behind: a signal from `fanshi/gptel-loop--response-text' or
+`fanshi/gptel-loop--jaccard' lands in the `condition-case' and leaves the
+destructured list nil (no action, budget untouched). Anything signalled from the
+`pcase' arms is outside the catch and surfaces as a normal error.
 
-The thrown list carries a *clean* flag rather than a "checked" one: only a turn
-compared below the threshold refills the budget, so the budget is refilled by a
-*distinct* turn, not the nudge turn. With the default budget of 1 the observable
-policy is unchanged; it matters when `fanshi/gptel-loop-nudge-max' is raised.
+Only a turn compared *below* the threshold refills the nudge budget (SIM non-nil
+but under the threshold) -- a trip, and a nudge turn whose comparison is skipped
+(SIM nil), leave it spent. With the default budget of 1 the policy is one nudge per
+loop, where a loop ends at the give-up notification or at the next distinct turn.
 
 `fanshi/gptel-auto-continue-max-retries' counts auto-continues rather than fresh
 turns, so the two budgets stay independent."
@@ -3335,17 +3372,17 @@ turns, so the two budgets stay independent."
         ;; turning the guard off mid-nudge drops the marker instead of leaking it
         ;; into the next turn's comparison.
         (kill-local-variable 'fanshi/gptel-loop--from-nudge))
-      ;; TRIP, SIM and CLEAN are the decision taken by the detector block
-      ;; below: they are computed while the turn's fingerprint is still in place.
+      ;; TRIP and SIM are the decision taken by the detector block below: they
+      ;; are computed while the turn's fingerprint is still in place.
       ;; The `catch' returns the thrown list or falls through to NIL without
       ;; deciding (guard off, aborted turn, short response, or error -- in the
-      ;; last case nothing to act on), binding all three to nil.
+      ;; last case nothing to act on), binding both to nil.
       ;;
-      ;; TRIP and CLEAN are complements, so the `pcase' arms are mutually
-      ;; exclusive: a trip never reaches the refill. CLEAN means "compared and
-      ;; below threshold" (incl. nothing comparable), but NOT a nudge turn, whose
-      ;; comparison is skipped so it does not refill the budget it spends.
-      (pcase-let* ((`(,trip ,sim ,clean)
+      ;; A nil TRIP is not a single case: a below-threshold comparison leaves SIM
+      ;; non-nil (a *clean* turn, which refills the nudge budget below), whereas a
+      ;; nudge turn, a short response, or a failed check leaves SIM nil (budget
+      ;; untouched).
+      (pcase-let* ((`(,trip ,sim)
                     (catch 'fanshi/loop-check-done
                       (condition-case err
                           (when (and fanshi/gptel-loop-guard-enabled
@@ -3385,27 +3422,19 @@ turns, so the two budgets stay independent."
                                   ;; message) to the code below with the state still
                                   ;; in place: both branches call out, and those run
                                   ;; advice that resets turn-level state.
-                                  ;;
-                                  ;; CLEAN is the complement of TRIP ("compared and
-                                  ;; below threshold", incl. nothing comparable). It
-                                  ;; must be false on a trip, else the nudging branch
-                                  ;; would refill the budget it just spent and no
-                                  ;; budget above 1 could be exhausted.
                                   (let ((trip (and sim
                                                    (>= sim
                                                        fanshi/gptel-loop-similarity-threshold))))
                                     (throw 'fanshi/loop-check-done
-                                           (list trip sim (not trip)))))))
+                                           (list trip sim))))))
                             (error
                              (message "gptel-loop-guard: post-response check failed: %s"
                                       (error-message-string err))))))
-                    ;; Act on the decision above. TRIP is `sim' clipped by the
-                    ;; threshold, so `trip' alone suffices and SIM is for the
-                    ;; message; CLEAN is its complement. Both trip branches call out
+                    ;; Act on the decision above. Both trip branches call out
                     ;; (`gptel-send' / `fanshi/notify'), which run advice resetting
-                    ;; turn-level state, so the decision had to be taken earlier.
-                    ;; The budget refill lives here for the same reason: the count
-                    ;; must be read *before* the nudge's send runs the advice chain.
+                    ;; turn-level state, so the decision had to be taken earlier;
+                    ;; the budget refill lives here for the same reason -- the count
+                    ;; is read *before* the nudge's send runs the advice chain.
                     (trip
                      (cond
                       ((< fanshi/gptel-loop--nudge-count fanshi/gptel-loop-nudge-max)
@@ -3419,17 +3448,15 @@ turns, so the two budgets stay independent."
                        ;; Drop the fingerprint so this loop is not re-reported.
                        (setq-local fanshi/gptel-loop--last-response nil)
                        (fanshi/notify))))
-                    ;; A clean turn refills the nudge budget (per-buffer, outlives
-                    ;; the send advice), so a session that nudged long ago and has
-                    ;; since progressed can nudge again. CLEAN is `(not trip)', so
-                    ;; this arm is unreachable on a trip -- a trip must leave the
-                    ;; budget spent. A nudge turn is not clean either (its
-                    ;; comparison is skipped), so it does not top up its own
-                    ;; budget; only a *distinct* turn refills it, which keeps a
-                    ;; `fanshi/gptel-loop-nudge-max' above 1 exhaustible. A short
-                    ;; response or failed check leaves the list nil -- no evidence
-                    ;; of a loop is not evidence of progress.
-                    (clean
+                    ;; A *clean* turn (SIM non-nil, i.e. compared and below the
+                    ;; threshold) refills the per-buffer nudge budget, so a session
+                    ;; that nudged long ago and has since progressed can nudge
+                    ;; again. A trip never reaches here (caught by the arm above); a
+                    ;; nudge turn, a short response, and a failed check all leave SIM
+                    ;; nil and so leave the budget spent -- no evidence of a loop is
+                    ;; not evidence of progress. Refilling only on a distinct turn
+                    ;; keeps `fanshi/gptel-loop-nudge-max' above 1 exhaustible.
+                    ((and (guard trip (null trip)) sim)
                      (setq-local fanshi/gptel-loop--nudge-count 0)))))))
 
   (add-hook 'gptel-post-response-functions #'fanshi/gptel-loop--post-response-check)
