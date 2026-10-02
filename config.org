@@ -3792,10 +3792,13 @@ fixer re-checks its own edits) stays bounded by
           (insert "@coding ")
           (goto-char (point-max))
           (insert (format "%s\n" prompt))
-          (when (ignore-errors (shell-command-to-string "jj root"))
+          ;; `fanshi/call-jj' signals on a non-jj directory, so the gate and
+          ;; the diff share one call and a failure falls through to the
+          ;; no-context branch instead of leaking stderr into this buffer.
+          (when-let ((jj-diff (ignore-errors (fanshi/call-jj "diff"))))
             (insert (concat
                      "\nFor context, the current jj diff is:\n\n"
-                     (fanshi/call-jj "diff"))))
+                     jj-diff)))
           (gptel-send)))))
 
   (defun fanshi/gptel--check-tangled-file (file)
@@ -4086,14 +4089,13 @@ For 'Mlx: uses :hf tag value as model symbol."
                     (_)))))
   (advice-add 'gptel--reject-tool-calls :after #'fanshi/gptel--reject-tool-calls-a))
 #+end_src
-** Save gptel-agent chat to .gptel-agent under original project root with name from task description
+** Save gptel-agent chat to .gptel-agent under main project root with name from task description
 The root lookup is the fragile part here, twice over.
 
 =shell-command-to-string= writes the command's stderr into the *current*
-buffer when there is no separate stderr buffer. So when the agent's
-=jj workspace root --name default= fails (no workspace named =default=, or
-=jj= not found), the error text — e.g.
-=Error: Workspace has no recorded path: default= — is appended to the chat
+buffer when there is no separate stderr buffer. So when =jj workspace root=
+fails (=jj= not found, or not a jj repo), the error text — e.g.
+=Error: 'jj workspace root' requires a repository= — is appended to the chat
 buffer, and the function returns the empty string instead of signalling, so
 =ignore-errors= catches nothing. =expand-file-name ".gptel-agent/" ""= then
 resolves against =default-directory= and the chat got saved as
@@ -4107,30 +4109,35 @@ session's file name, since the =*gptel-agent:= prefix then survives neither
 Both are fixed by requiring the resolved root to be a non-blank absolute path
 before anything is created, so the failing branch creates no directory at all.
 
+The root is resolved through =fanshi/jj-workspace-root= (a =fanshi/call-jj=
+wrapper that signals on failure), and the jj agent buffers record the main
+workspace root in a buffer-local =fanshi/gptel-jj-origin-root= at creation
+time. That matters because a =jj workspace root= lookup from inside a
+sub-workspace returns the sub-workspace's own root, not the main one.
+
 *** fanshi/gptel-agent--auto-assign-filename
 #+begin_src elisp :tangle yes
 (after! gptel
   (defun fanshi/gptel-agent--auto-assign-filename ()
     "Auto-assign a filename under .gptel-agent/ for gptel-agent buffers.
 
-For jj workspace sessions, resolves the original project root via
-`jj workspace root --name default' and saves there so the chat survives
-workspace cleanup.  For regular sessions, saves to `default-directory'."
+For jj workspace sessions, resolves the main project root via
+`fanshi/gptel-jj-origin-root' (recorded when the sub-workspace buffer was
+created) and saves there so the chat survives workspace cleanup.  For regular
+sessions, saves to `default-directory'."
     (unless buffer-file-name
       (when (string-prefix-p "*gptel-agent:" (buffer-name))
-        (if-let* ((cmd  "jj workspace root --name default")
-                  ;; A failing jj command does NOT signal: it writes its error
-                  ;; to *this* buffer (that is how `shell-command-to-string'
-                  ;; reports stderr when the output buffer is the current one)
-                  ;; and returns the empty string, so `ignore-errors' catches
-                  ;; nothing and "" used to slip through as a valid
-                  ;; `base-dir', which `expand-file-name' then resolved
-                  ;; against `default-directory' — the chat (and a stray
-                  ;; `.gptel-agent/' directory) landed in the agent's cwd.
-                  ;; Requiring a non-blank absolute path keeps the directory
-                  ;; from being created there at all.
-                  (base-dir (let ((r (ignore-errors
-                                       (string-trim (shell-command-to-string cmd)))))
+        ;; Resolve the main project root. jj derives the workspace from
+        ;; `default-directory', so the recorded `fanshi/gptel-jj-origin-root' is
+        ;; preferred; the `jj workspace root' fallback is only best-effort (from
+        ;; inside a sub-workspace it returns the sub-workspace root, not the main
+        ;; one). The lookup goes through `fanshi/jj-workspace-root' (wrapping
+        ;; `fanshi/call-jj'), so a failure signals and is caught by
+        ;; `ignore-errors' rather than leaking stderr into this buffer and
+        ;; returning "". Requiring a non-blank absolute path keeps the directory
+        ;; from being created against `default-directory' when unresolvable.
+        (if-let* ((base-dir (let ((r (or fanshi/gptel-jj-origin-root
+                                         (fanshi/jj-workspace-root))))
                               (and (not (string-blank-p r))
                                    (file-name-absolute-p r)
                                    r))))
@@ -4140,18 +4147,15 @@ workspace cleanup.  For regular sessions, saves to `default-directory'."
                                  (->> (buffer-name)
                                       (s-chop-suffix "*")
                                       (s-chop-prefix "*gptel-agent:")
-                                      ;; Strip characters that are awkward in
-                                      ;; filenames (commas etc.).
+                                      ;; Strip awkward filename characters (commas
+                                      ;; etc.).
                                       (replace-regexp-in-string "[,;'\"`|]" ""))
                                  "-" timestamp ".org"))
-                      ;; A buffer whose name came from an earlier session's
-                      ;; file (the rename below makes the file name the buffer
-                      ;; name, and the =*gptel-agent:= prefix is gone by then)
-                      ;; must not yield a name carrying the old timestamp
-                      ;; *and* the new one, so replace a trailing
-                      ;; -YYYYMMDD-HHMMSS rather than appending to it.
-                      ;; Requires the prefix chop to have been a no-op, which
-                      ;; is exactly the already-named case.
+                      ;; A buffer renamed to an earlier session's file name (the
+                      ;; rename below drops the =*gptel-agent:= prefix) must not
+                      ;; end up with both the old and new timestamp, so replace a
+                      ;; trailing -YYYYMMDD-HHMMSS instead of appending. Only
+                      ;; happens when the prefix chop was a no-op.
                       (filename (if (string-match-p (rx (seq "-" (= 8 digit) "-" (= 6 digit) ".org" eol))
                                                     filename)
                                     (replace-regexp-in-string
@@ -4165,10 +4169,9 @@ workspace cleanup.  For regular sessions, saves to `default-directory'."
                         (expand-file-name filename dir))
                   (rename-buffer (file-name-nondirectory buffer-file-name) t))
               (message "failed to assign file name to the gptel-buffer"))
-          ;; No directory is created on this path -- previously the failing
-          ;; branch still left a stray `.gptel-agent/' behind in whatever the
-          ;; agent's cwd happened to be.
-          (message "%s failed" cmd))))))
+          ;; No directory is created here — the old failing branch left a stray
+          ;; `.gptel-agent/' behind in the agent's cwd.
+          (message "failed to resolve the main project root"))))))
 #+end_src
 *** set it all up
 #+begin_src elisp :tangle yes
@@ -5171,38 +5174,60 @@ or a file name, never a buffer."
         ;; Deleting must not mask the error a failing body already raised.
         (ignore-errors (delete-file stderr-file)))))
 
-  (defun fanshi/jj-default-workspace-root ()
-    "Return the default workspace's root path, or nil if not resolvable.
-Nil-safe wrapper over `jj workspace root --name default' (which errors
-when no workspace named `default' exists), for callers that need the main
-repo root from inside a sub-workspace."
+  (defun fanshi/jj-workspace-root (&optional dir)
+    "Return the current workspace's root path, or nil if not resolvable.
+Nil-safe wrapper over `jj workspace root'.  DIR, when non-nil, is the
+`default-directory' to resolve from; otherwise the current one is used.
+
+jj derives the workspace from `default-directory', so this returns the root of
+whatever workspace DIR lives in — the project root from the main workspace, the
+sub-workspace's own root from a sub-workspace. Callers that need the *main* root
+after switching into a sub-workspace must capture it before the switch (see
+`fanshi/gptel-agent').
+
+Uses `fanshi/call-jj' rather than `shell-command-to-string': a failing jj
+command under `shell-command-to-string' does not signal (it writes its error to
+the current buffer and returns the empty string), whereas `fanshi/call-jj'
+signals on non-zero exit, so `ignore-errors' catches the failure and the error
+text can never leak into the current buffer."
     (let ((root (ignore-errors
-                  (string-trim
-                   (shell-command-to-string
-                    "jj workspace root --name default")))))
-      (and (not (string-blank-p root)) root)))
+                  (let ((default-directory (or dir default-directory)))
+                    (string-trim
+                     (fanshi/call-jj "workspace" "root"))))))
+      (and (not (string-blank-p root)) (file-name-as-directory root))))
 
   (defun fanshi/gptel-agent (task-description)
     (interactive "sTask Description: ")
-    (let ((root (projectile-project-root))
-          (default-directory (projectile-project-root))
-          (jj-default-root (fanshi/jj-default-workspace-root))
-          (jj-current-root (ignore-errors
-                             (string-trim (shell-command-to-string "jj workspace root")))))
+    (let* ((root (projectile-project-root))
+           (default-directory root)
+           ;; Both the "is this a jj repo?" probe and the main workspace root to
+           ;; record for the sub-workspace buffer. Captured up front: after we
+           ;; switch into the sub-workspace, `jj workspace root' there returns
+           ;; only the sub-workspace root.
+           (jj-root (fanshi/jj-workspace-root default-directory)))
+      ;; Only report when a sub-workspace was actually asked for — the empty-task
+      ;; path deliberately takes the plain path everywhere.
+      (when (and (not jj-root) (not (string-blank-p task-description)))
+        ;; `fanshi/jj-workspace-root' swallows the failure so other callers can
+        ;; fall back. Here it's a hard gate, so say why we skipped the
+        ;; sub-workspace (jj missing vs. not a repo are otherwise identical).
+        (message "jj workspace root unresolvable in %s (jj not on PATH, or not a jj repo); starting a plain gptel-agent"
+                 root))
       (if (or (string-blank-p task-description)
-              (not (and jj-default-root jj-current-root
-                        (string= jj-default-root jj-current-root))))
-          ;; Not a jj repo, or already inside a sub-workspace — use plain gptel-agent
+              (not jj-root)
+              ;; Already in a sub-workspace (its root differs from the projectile
+              ;; root we started from) — don't nest another.
+              (not (file-equal-p jj-root (file-name-as-directory root))))
+          ;; Not a jj repo, or already in a sub-workspace — plain gptel-agent.
           (let ((buf (gptel-agent default-directory 'gptel-agent)))
             (when (not (string-blank-p task-description))
               (with-current-buffer buf
                 (goto-char (point-max))
                 (insert (format "%s\n" task-description))))
             buf)
-        ;; We're in the default workspace of a jj repo — create a new workspace
+        ;; In the main workspace of a jj repo — create a new workspace.
         ;; Strip characters that are awkward in directory names (commas break
-        ;; shell quoting and look wrong in paths); collapse runs of "-" that
-        ;; result from stripping.
+        ;; shell quoting); collapse the "-" runs they leave behind.
         (let* ((name (->> task-description
                           (s-replace "/" "-")
                           (s-replace " " "-")
@@ -5211,9 +5236,8 @@ repo root from inside a sub-workspace."
                           (downcase)
                           (replace-regexp-in-string "[,;'\"`|]" "")
                           (replace-regexp-in-string "-+" "-")
-                          ;; Drop leading "-" too: a name like
-                          ;; "fix-, foo" would become "-fix-foo" after
-                          ;; stripping the comma, which clap reads as a flag.
+                          ;; Drop a leading "-": "fix-, foo" becomes "-fix-foo"
+                          ;; after comma stripping, which clap reads as a flag.
                           (string-remove-prefix "-")
                           (string-remove-suffix "-")))
                (dir (file-name-as-directory (expand-file-name name fanshi/breeding-ground-dir))))
@@ -5223,10 +5247,15 @@ repo root from inside a sub-workspace."
               (goto-char (point-max))
               (insert (format "%s\n" task-description))
               ;; Opt this buffer into jj auto-commit (see
-              ;; `fanshi/gptel--jj-auto-commit'): the buffer is bound to the
-              ;; dedicated sub-workspace DIR, never the user's default one.
+              ;; `fanshi/gptel--jj-auto-commit'): it is bound to the dedicated
+              ;; sub-workspace DIR, never the user's main one.
               (setq-local fanshi/gptel-jj-workspace dir)
-              (when (string= doom-user-dir (file-name-as-directory jj-default-root))
+              ;; Record the main workspace root for the auto-save filename
+              ;; resolver (`fanshi/gptel-agent--auto-assign-filename'), which
+              ;; can't recover it from here: `jj workspace root' from inside a
+              ;; sub-workspace returns the sub-workspace's own root.
+              (setq-local fanshi/gptel-jj-origin-root jj-root)
+              (when (string= doom-user-dir jj-root)
                 ;; Allow agent for the doomemacs config project to read modules & repos
                 (setq-local fanshi/gptel-context-files
                             `(,doom-modules-dir
@@ -5252,7 +5281,7 @@ repo root from inside a sub-workspace."
                             (message "Auto-cleaned workspace: %s" dir)
                             (projectile-switch-project-by-name root))
                           nil t))
-              ;; `--message=' not `-m': a description starting with a hyphen
+              ;; `--message=' not `-m': a leading hyphen in the description
               ;; would be read as a flag by clap.
               (fanshi/call-jj "desc" (format "--message=%s" task-description)))
             buf))))))
@@ -5332,7 +5361,7 @@ behind one reviewable commit:
 - if the diff is empty, do nothing
 Safety:
 - only buffers with a non-nil buffer-local `fanshi/gptel-jj-workspace' are
-  affected; plain gptel-agent buffers (default workspace, no workspace) are
+  affected; plain gptel-agent buffers (main workspace, no workspace) are
   never auto-committed
 - before anything runs, `jj workspace root' in the buffer's
   `default-directory' must equal the recorded workspace dir, so a stale or
@@ -5347,6 +5376,13 @@ Safety:
   break the hook (the changes just stay in the working copy)
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
+  (defvar-local fanshi/gptel-jj-origin-root nil
+    "Main workspace root the sub-workspace gptel agent buffer originated from.
+Set by `fanshi/gptel-agent' when it creates a buffer in a dedicated
+sub-workspace, so `fanshi/gptel-agent--auto-assign-filename' can resolve the
+project root without a lookup from here (which would return the sub-workspace's
+own root).")
+
   (defvar-local fanshi/gptel-jj-workspace nil
     "If non-nil, the jj sub-workspace dir this gptel buffer is bound to.
 Set by `fanshi/gptel-agent' for buffers created in a dedicated
@@ -5374,14 +5410,14 @@ workspace it was created in (moved, deleted, or never a workspace at
 all), so the jj commands below can never run in the wrong workspace."
     (let ((root (ignore-errors
                   (let ((default-directory dir))
-                    (string-trim (shell-command-to-string "jj workspace root --color never"))))))
+                    (string-trim (fanshi/call-jj "workspace" "root"))))))
       (and root (string= (file-name-as-directory root) dir))))
 
   (defun fanshi/gptel--jj-working-copy-description ()
     "Return the description of the working-copy commit, or nil if none."
     (let ((desc (ignore-errors
                   (let ((default-directory fanshi/gptel-jj-workspace))
-                    (string-trim (shell-command-to-string "jj log -r @ -T description --no-graph --color never"))))))
+                    (string-trim (fanshi/call-jj "log" "-r" "@" "-T" "description" "--no-graph"))))))
       (and (not (string-blank-p desc)) desc)))
 
   (defun fanshi/gptel--jj-generate-commit-message (diff callback)
@@ -5431,7 +5467,7 @@ Called from a timer (not from the process-filter context), so
     (when (fanshi/gptel--jj-workspace-check ws)
       (let ((diff (ignore-errors
                     (let ((default-directory ws))
-                      (shell-command-to-string "jj diff --color never")))))
+                      (fanshi/call-jj "diff")))))
         (when (and diff (not (string-blank-p diff)))
           (if-let ((desc (fanshi/gptel--jj-working-copy-description)))
               (progn
