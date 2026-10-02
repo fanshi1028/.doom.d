@@ -4087,6 +4087,26 @@ For 'Mlx: uses :hf tag value as model symbol."
   (advice-add 'gptel--reject-tool-calls :after #'fanshi/gptel--reject-tool-calls-a))
 #+end_src
 ** Save gptel-agent chat to .gptel-agent under original project root with name from task description
+The root lookup is the fragile part here, twice over.
+
+=shell-command-to-string= writes the command's stderr into the *current*
+buffer when there is no separate stderr buffer. So when the agent's
+=jj workspace root --name default= fails (no workspace named =default=, or
+=jj= not found), the error text — e.g.
+=Error: Workspace has no recorded path: default= — is appended to the chat
+buffer, and the function returns the empty string instead of signalling, so
+=ignore-errors= catches nothing. =expand-file-name ".gptel-agent/" ""= then
+resolves against =default-directory= and the chat got saved as
+=.gptel-agent/<buffer-name>-<timestamp>.org= in the agent's cwd — a stray
+directory in the workspace, or worse in the breeding-ground directory that
+the kill-buffer hook later trashes (taking the chat with it). The name itself
+was mangled further when the buffer had already been renamed to a previous
+session's file name, since the =*gptel-agent:= prefix then survives neither
+=s-chop-prefix= nor the =*= chop.
+
+Both are fixed by requiring the resolved root to be a non-blank absolute path
+before anything is created, so the failing branch creates no directory at all.
+
 *** fanshi/gptel-agent--auto-assign-filename
 #+begin_src elisp :tangle yes
 (after! gptel
@@ -4099,7 +4119,21 @@ workspace cleanup.  For regular sessions, saves to `default-directory'."
     (unless buffer-file-name
       (when (string-prefix-p "*gptel-agent:" (buffer-name))
         (if-let* ((cmd  "jj workspace root --name default")
-                  (base-dir  (ignore-errors (string-trim (shell-command-to-string cmd)))))
+                  ;; A failing jj command does NOT signal: it writes its error
+                  ;; to *this* buffer (that is how `shell-command-to-string'
+                  ;; reports stderr when the output buffer is the current one)
+                  ;; and returns the empty string, so `ignore-errors' catches
+                  ;; nothing and "" used to slip through as a valid
+                  ;; `base-dir', which `expand-file-name' then resolved
+                  ;; against `default-directory' — the chat (and a stray
+                  ;; `.gptel-agent/' directory) landed in the agent's cwd.
+                  ;; Requiring a non-blank absolute path keeps the directory
+                  ;; from being created there at all.
+                  (base-dir (let ((r (ignore-errors
+                                       (string-trim (shell-command-to-string cmd)))))
+                              (and (not (string-blank-p r))
+                                   (file-name-absolute-p r)
+                                   r))))
             (if-let* ((dir (expand-file-name ".gptel-agent/" base-dir))
                       (timestamp (format-time-string "%Y%m%d-%H%M%S"))
                       (filename (concat
@@ -4109,13 +4143,31 @@ workspace cleanup.  For regular sessions, saves to `default-directory'."
                                       ;; Strip characters that are awkward in
                                       ;; filenames (commas etc.).
                                       (replace-regexp-in-string "[,;'\"`|]" ""))
-                                 "-" timestamp ".org")))
+                                 "-" timestamp ".org"))
+                      ;; A buffer whose name came from an earlier session's
+                      ;; file (the rename below makes the file name the buffer
+                      ;; name, and the =*gptel-agent:= prefix is gone by then)
+                      ;; must not yield a name carrying the old timestamp
+                      ;; *and* the new one, so replace a trailing
+                      ;; -YYYYMMDD-HHMMSS rather than appending to it.
+                      ;; Requires the prefix chop to have been a no-op, which
+                      ;; is exactly the already-named case.
+                      (filename (if (string-match-p (rx (seq "-" (= 8 digit) "-" (= 6 digit) ".org" eol))
+                                                    filename)
+                                    (replace-regexp-in-string
+                                     (rx (seq "-" (= 8 digit) "-" (= 6 digit) ".org" eol))
+                                     (concat "-" timestamp ".org")
+                                     filename)
+                                    filename)))
                 (progn
                   (make-directory dir t)
                   (setq buffer-file-name
                         (expand-file-name filename dir))
                   (rename-buffer (file-name-nondirectory buffer-file-name) t))
               (message "failed to assign file name to the gptel-buffer"))
+          ;; No directory is created on this path -- previously the failing
+          ;; branch still left a stray `.gptel-agent/' behind in whatever the
+          ;; agent's cwd happened to be.
           (message "%s failed" cmd))))))
 #+end_src
 *** set it all up
