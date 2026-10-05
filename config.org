@@ -5948,6 +5948,239 @@ later call with data moves the end of the generating window forward."
   (advice-add 'gptel--fsm-transition :before #'fanshi/gptel--fsm-transition-stats-a)
   (advice-add 'gptel-curl--stream-filter :before #'fanshi/gptel--stream-filter-chunk-a))
 #+end_src
+
+** Do not stream the response into a buffer that is not visible
+*** The problem
+Each streamed chunk is inserted by ~gptel-curl--stream-insert-response~ from
+the curl process filter, i.e. on the main thread, and each insertion asks
+for a redisplay of the window showing the buffer.  A long response in a
+visible window is therefore a long run of small, expensive redisplay
+passes.
+
+The other side of it is the many background agent sessions: dozens of
+buffers nobody is looking at, each streaming, each poking the main thread
+with a chunk insertion.  The request itself is already asynchronous, so
+the fix is not ~gptel-stream~ — that only switches gptel to its *synchronous*
+non-streaming path, which blocks Emacs for the whole generation.  What
+should be dropped is the per-chunk insertion into an invisible buffer.
+*** The approach
+Queue the plain text chunks on the request's FSM info and insert them in one
+go.  Tool calls, tool results and reasoning are each a single insertion, so
+they always go straight through and the agent's activity stays visible.  The
+queue is per request, so parallel requests in one buffer (see
+~fanshi/gptel-multisend~) keep their text apart.
+
+Visibility is decided when the response starts and holds for its duration --
+partially inserted text cannot be pulled back out of the buffer.  The first
+chunk also always goes through gptel: it inserts the response separator and
+prefix and creates the tracking marker the drain needs.  The drain writes at
+that marker, in the buffer it points at, and applies gptel's incremental
+markdown-to-org converter (~gptel--stream-convert-markdown->org~) to the
+accumulated text once instead of to every chunk.
+
+Flushing happens at each tool-call and tool-result display, so the text keeps
+the order the model produced it around the tool blocks, and when the request
+reaches a terminal state (done, error or abort, so a stopped response still
+shows what it got).
+
+The drain also ends the deferral, because a plain string reaches the streaming
+callback from three places: the stream filter with a text chunk,
+~gptel--display-reasoning-stream~ with the reasoning body, and
+~gptel--handle-tool-use~ with serialized structured output.  gptel inserts the
+latter two at the tracking marker itself, so a deferral still armed across one
+of them would queue text gptel had already written and duplicate it on the next
+drain.  Comparing point with the tracking marker tells them apart -- gptel's
+own chunk insertion leaves point on the marker, the other two do not.
+
+*** Caveats
+- The text of a deferred response is not readable until the round trip ends,
+  and ~gptel-post-stream-hook~ only fires for its first chunk.  The loop
+  guard's Type A detector therefore sees much less of a background response,
+  which weakens mid-stream degeneration detection there (Type B, the
+  post-response check, is unaffected).
+- ~fanshi/gptel-loop--stream-check~ expects point at the end of the in-flight
+  ~response~ run when it runs.  On the hook runs where the deferral is armed
+  or ends, point is wherever the caller left it, so the detector takes its
+  existing "no region" branch and drops its state.  Benign: the drain puts the
+  text in right after, and the detector rescans from scratch next time.
+- A reasoning block or structured output ends the deferral for the rest of the
+  round trip, so only the text before it is deferred.
+- On an abort the response text is still in the queue when
+  ~gptel--handle-abort~ computes the bounds and runs
+  ~gptel-post-response-functions~: ~gptel-abort~ calls the callback with
+  ~'abort~ *before* the transition, and the streaming callback ignores that
+  symbol, so the drain can only run at the transition itself — after the
+  handlers.  The post-response hooks (Type B, the markdown converter's
+  cleanup) see the response without the deferred tail.
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defcustom fanshi/gptel-defer-stream-when-invisible 'background
+    "When to hold back a streamed response instead of inserting it chunk by chunk.
+
+~nil~        never defer, i.e. gptel's own behavior.
+~background~ (default) defer only while the gptel buffer is not shown in a visible
+             window.
+~always~     defer regardless of visibility.
+
+The decision is made when the response starts and holds for its duration: text
+is not moved back out of the buffer mid-generation.  Only plain text chunks are
+deferred, tool calls, tool results and reasoning are always inserted
+immediately.
+
+Chunks are queued on the request's FSM info, so parallel requests in one buffer
+do not mix their text.  The queue is flushed when the request reaches a terminal
+state, whenever a tool call or tool result is displayed, and whenever a chunk
+arrives that is not deferred -- a reasoning body or structured output ends the
+deferral for the rest of the round trip."
+    :type '(choice (const :tag "Never" nil)
+            (const :tag "Only when the buffer is not visible" background)
+            (const :tag "Always" always))
+    :group 'gptel)
+
+  (defun fanshi/gptel--stream-deferred-p (info)
+    "Whether the response of the request described by INFO should be deferred."
+    (pcase fanshi/gptel-defer-stream-when-invisible
+      ('nil nil)
+      ('always t)
+      ('background
+       (let ((buf (plist-get info :buffer)))
+         ;; A dead buffer has no window, and gptel's own insertion would signal
+         ;; on it just the same.
+         (and (buffer-live-p buf) (null (get-buffer-window buf 'visible)))))
+      (_ nil)))
+
+  ;; The queue is `:fanshi-deferred-text', with `:fanshi-deferred-tail' its last
+  ;; cons cell so appending stays O(1) on a long response, and
+  ;; `:fanshi-deferred' the flag saying it is armed.
+  (defun fanshi/gptel--stream-defer-a (orig-fn response info &optional raw)
+    "Queue streamed RESPONSE instead of inserting it into the gptel buffer.
+Around advice for ~gptel-curl--stream-insert-response~; calls ORIG-FN unless the
+chunk was queued.
+
+The first chunk always goes through gptel: it inserts the response separator and
+prefix and creates the tracking marker the drain needs.  A response whose first
+chunk is blank is marked at the second chunk instead.
+
+The tracking-marker test is needed on *every* chunk: a plain string reaches this
+callback from ~gptel--display-reasoning-stream~ and ~gptel--handle-tool-use~ as
+well, both of which insert at the tracking marker, so a flag still armed across
+one of them would queue text gptel had already inserted and duplicate it on the
+next drain.  gptel's own chunk insertion leaves point exactly on the marker, the
+other two leave it wherever their caller had it."
+    (cond
+     ;; A tool result arrives as a plain string with RAW non-nil, a tool call or
+     ;; reasoning event as a cons.  All of them are displayed at the tracking
+     ;; marker, so whatever is queued must land first.  RAW is passed through
+     ;; untouched -- gptel must not transform or re-propertize a tool block.
+     ((or (not (stringp response)) raw)
+      (prog1 (funcall orig-fn response info raw)
+        (fanshi/gptel--stream-deferred-flush info)))
+     ((and (fanshi/gptel--stream-deferred-p info)
+           ;; Defer only while point still sits at the response's end, i.e. the
+           ;; previous chunk went through gptel and nothing foreign came since.
+           (or (and (plist-get info :fanshi-deferred)
+                    (eq (point-marker) (plist-get info :tracking-marker)))
+               (prog1 (and (plist-get info :tracking-marker)
+                           (not (equal "" response)))
+                 (plist-put info :fanshi-deferred t))))
+      (when (> (length response) 0)
+        (let ((cell (list response)))
+          (if-let* ((tail (plist-get info :fanshi-deferred-tail)))
+              (setcdr tail cell)
+            (plist-put info :fanshi-deferred-text cell))
+          (plist-put info :fanshi-deferred-tail cell)))
+      t)
+     (t
+      ;; Not deferred: gptel took the marker back, or the buffer became visible.
+      ;; Stop deferring -- the queue must never fill behind gptel's own
+      ;; insertions -- and drain what an earlier chunk left in it.  The flush
+      ;; comes *after* ORIG-FN: the marker is insertion-type t, so gptel's text
+      ;; has to be behind it before the queue lands.
+      (prog1 (funcall orig-fn response info raw)
+        (fanshi/gptel--stream-deferred-flush info)))))
+
+  (defun fanshi/gptel--stream-deferred-flush (info)
+    "Insert the chunks deferred for the request described by INFO.
+The drain happens at the request's tracking marker, in the buffer that marker
+points at; it is a no-op when nothing is queued.
+
+Deferral ends here: ~:fanshi-deferred~ is cleared as the queue is consumed, so a
+later plain-string call of the callback (a reasoning body, structured output)
+goes through gptel instead of being appended behind it.  The markdown-to-org
+converter is dropped for the same reason: left in INFO it would be fed a later
+round's text while still holding this round's state, and its cleanup hook on
+~gptel-post-response-functions~ still runs and kills that buffer."
+    (when-let* ((chunks (prog1 (plist-get info :fanshi-deferred-text)
+                          ;; Consume the queue before the drain: the drain can
+                          ;; signal (buffer killed mid-flush, a failing
+                          ;; transformer), and text must not go in twice if a
+                          ;; later flush runs.
+                          (plist-put info :fanshi-deferred-text nil)
+                          (plist-put info :fanshi-deferred-tail nil)
+                          (plist-put info :fanshi-deferred nil)))
+                (text (mapconcat #'identity chunks ""))
+                ((not (equal "" text))) ;nothing queued, nothing to insert
+                (tracking (plist-get info :tracking-marker))
+                ((buffer-live-p (marker-buffer tracking))))
+      ;; The tracking marker is insertion-type t and gptel's insertions advance
+      ;; it, so it is both the drain point and the authority on which buffer the
+      ;; response belongs to -- `:position' may have been moved elsewhere by
+      ;; `gptel--handle-pre-insert' for a read-only buffer.
+      (with-demoted-errors "gptel deferred stream: %S"
+        (let ((transformer (prog1 (plist-get info :transformer)
+                             (plist-put info :transformer nil))))
+          ;; The markdown-to-org converter is built against the response start
+          ;; marker, so apply it before entering the buffer, as gptel does per
+          ;; chunk.
+          (when transformer
+            (setq text (funcall transformer text)))
+          (add-text-properties
+           0 (length text) '(gptel response front-sticky (gptel)) text)
+          (with-current-buffer (marker-buffer tracking)
+            (save-excursion
+              (goto-char tracking)
+              (insert text)))))))
+
+  (defun fanshi/gptel--display-tool-flush-a (_ info)
+    "Flush the deferred response before a tool call or result is displayed.
+Before advice for ~gptel--display-tool-calls~ and ~gptel--display-tool-results~:
+both insert at the tracking marker, so the response text has to precede them.
+For the call display this also matters to the confirmation prompt, whose overlay
+is delimited by the response's text properties and the tracking marker."
+    (fanshi/gptel--stream-deferred-flush info))
+
+  (defun fanshi/gptel--stream-deferred-fsm-a (orig-fn fsm &optional new-state)
+    "Flush the deferred response of FSM when it reaches a terminal state.
+Around advice for ~gptel--fsm-transition~.
+
+~DONE~ and ~ERRS~ are reached from the process sentinel only after the queue was
+drained, so this is a no-op on the normal path.  ~ABRT~ is the one that needs
+it: ~gptel-abort~ runs the callback with ~'abort~ *before* the transition and
+the streaming callback ignores that symbol, so the queue is still full here --
+which is why ~new-state~ is read instead of the FSM's current state.
+
+The drain lands after the terminal state's handlers, and ~gptel--handle-abort~
+computes the response bounds and runs ~gptel-post-response-functions~ before
+them, so on an abort those hooks see the response without the deferred tail.
+The drain runs before ORIG-FN on purpose: the text has to be in the buffer by
+the time the handlers run."
+    (when (memq new-state '(DONE ERRS ABRT))
+      (fanshi/gptel--stream-deferred-flush (gptel-fsm-info fsm)))
+    (funcall orig-fn fsm new-state))
+
+  (advice-add 'gptel-curl--stream-insert-response
+              :around #'fanshi/gptel--stream-defer-a)
+  (advice-add 'gptel--display-tool-calls
+              :before #'fanshi/gptel--display-tool-flush-a)
+  (advice-add 'gptel--display-tool-results
+              :before #'fanshi/gptel--display-tool-flush-a)
+  ;; Around rather than before: `gptel--fsm-transition' ends by running the
+  ;; state's handlers, so a `:before' advice's value would be what the process
+  ;; machinery sees; some callers read it as the next state.
+  (advice-add 'gptel--fsm-transition
+              :around #'fanshi/gptel--stream-deferred-fsm-a))
+#+end_src
+
 *** fanshi/gptel-request-stats
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
