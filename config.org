@@ -963,13 +963,12 @@ would be ignored (see `fanshi/call-jj').
                 ;; failed run's leftovers away from the caller).
                 (let ((d (or dir default-directory)))
                   (with-temp-buffer
-                    (erase-buffer)
                     (when (zerop (process-file "jj" nil
                                                `(t (:default-directory ,d)) nil
                                                "--color=never"
                                                "workspace" "root"))
                       (string-trim (buffer-string))))))))
-    (and (not (string-blank-p root)) (file-name-as-directory root))))
+    (and (stringp root) (not (string-blank-p root)) (file-name-as-directory root))))
 #+end_src
 * Gptel
 ** Work around path issue
