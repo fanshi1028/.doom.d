@@ -3057,6 +3057,7 @@ We load our own presets
     :model '(:eval (fanshi/gptel-select-model 'mensaprodigy--Qwen3.8-Flash-Next-REAP-384-oQ5e-BF16-MTP-PLE))
     :description "Scrum Master - orchestrates process flow, delegates to agents, does NOT code"
     :tools fanshi/scrum-tools
+    ;; No AGENTS.org section: the orchestrator does no project work.
     :system (lambda ()
               (with-temp-buffer
                 (insert-file-contents (expand-file-name "./gptel/scrum.md" doom-user-dir))
@@ -3084,7 +3085,58 @@ We load our own presets
                                                `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/research-tools))
                                                  ("DATE" . ,(format-time-string "%Y-%m-%d"))
                                                  ("CWD" . ,default-directory)))
+                (fanshi/gptel-agents-insert-project-instructions 'research)
                 (buffer-string)))))
+#+end_src
+*** Project instructions from AGENTS.org
+Per-project instruction snippets for agents, a project's ~AGENTS.org~ has one
+top-level heading per preset name:
+
+#+begin_src org :tangle no
+,* coding
+NEVER edit ~config.el~ to mirror edits made to ~config.org~ —
+the user tangles ~config.org~ manually after reviewing changes.
+#+end_src
+
+*Caveat:* applying the preset stores the *resolved* message in
+~gptel--system-message~, so saving a preset from the transient (~C-s~) or editing
+the live system message (~s~) bakes the current project's instructions into a
+plain string and loses the lookup. Adding a directive is fine — gptel merges it
+with the freshly built message.
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defvar fanshi/gptel-agents-file-name "AGENTS.org"
+    "Per-project agent instructions file, under the project root.
+Top-level headings are preset names; the text under one is that preset's
+instructions.")
+
+  (defun fanshi/gptel-agents-insert-project-instructions (preset)
+    "Append PRESET's project instructions to the current buffer's contents.
+PRESET names the ~AGENTS.org~ heading.  The section is appended under a
+~# Project Instructions~ heading; no matching section leaves the buffer untouched.
+The project is the current buffer's (`projectile-project-root', else
+`fanshi/jj-workspace-root')."
+    (when-let* ((root (or (ignore-errors (projectile-project-root))
+                          (fanshi/jj-workspace-root)))
+                (file (expand-file-name fanshi/gptel-agents-file-name root))
+                ((file-exists-p file))
+                (result (with-temp-buffer
+                          (delay-mode-hooks (org-mode))
+                          (insert-file-contents file)
+                          (goto-char (point-min))
+                          (let ((heading (concat "^\\* +" (regexp-quote (symbol-name preset))
+                                                 "[ \t]*$"))
+                                (search-invisible nil))
+                            (when (re-search-forward heading nil t)
+                              (org-back-to-heading)
+                              (forward-line 1)
+                              (let ((start (point)))
+                                (org-end-of-subtree)
+                                (string-trim
+                                 (buffer-substring-no-properties start (point))))))))
+                ((not (string-empty-p result))))
+      (goto-char (point-max))
+      (insert "\n\n# Project Instructions\n\n" result))))
 #+end_src
 *** Instruct
 #+begin_src emacs-lisp :tangle no
@@ -3297,11 +3349,15 @@ are re-checked after the next response."
     :system (lambda ()
               (with-temp-buffer
                 (insert-file-contents (expand-file-name "./gptel/coding.md" doom-user-dir))
-                (gptel-agent--expand-templates (point-min)
-                                               `(("TOOLS" . ,(fanshi/gptel-agent--tool-system (fanshi/append-coding-project-tools fanshi/coding-tools default-directory) ))
-
-                                                 ("DATE" . ,(format-time-string "%Y-%m-%d"))
-                                                 ("CWD" . ,default-directory)))
+                (gptel-agent--expand-templates
+                 (point-min)
+                 `(("TOOLS" . ,(fanshi/gptel-agent--tool-system
+                                (fanshi/append-coding-project-tools
+                                 fanshi/coding-tools
+                                 default-directory)))
+                   ("DATE" . ,(format-time-string "%Y-%m-%d"))
+                   ("CWD" . ,default-directory)))
+                (fanshi/gptel-agents-insert-project-instructions 'coding)
                 (buffer-string))))
 
   (gptel-make-preset 'web
@@ -3322,6 +3378,7 @@ are re-checked after the next response."
                                                `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/research-tools))
                                                  ("DATE" . ,(format-time-string "%Y-%m-%d"))
                                                  ("CWD" . ,default-directory)))
+                (fanshi/gptel-agents-insert-project-instructions 'problem-solve)
                 (buffer-string)))))
 #+end_src
 *** Heavy
