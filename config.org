@@ -836,80 +836,58 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 (global-writeroom-mode)
 #+end_src
 * jj helpers
-** fanshi/call-jj-in
+** fanshi/call-jj
 #+begin_src emacs-lisp :tangle yes :lexical t
-(defun fanshi/call-jj-in (dir &rest args)
+(defun fanshi/call-jj (dir &rest args)
   "Run `jj ARGS' in DIR and return stdout as a string.
-The invocation directory is pinned to DIR by `let'-binding `default-directory',
-which `call-process' uses as the child's working directory; this makes `@' and
-`@-' resolve in DIR even from an indirect buffer.  NIL DIR means
-`default-directory'.  On failure, signal an error carrying DIR, jj's stderr and
-the exit status.
+The invocation directory is pinned to DIR by `let'-binding
+`default-directory', which `call-process' uses as the child's working
+directory; this makes `@' and `@-' resolve in DIR even when the calling buffer
+is indirect.  NIL DIR means `default-directory'.  On failure, signal an error
+carrying DIR, jj's stderr and the exit status.
 
 stdout goes to a temp buffer so it can be handed back to the caller; stderr goes
 to a temp file because the stderr slot of `call-process' accepts nil, t or a
 file name, never a buffer."
   (let ((stdout (generate-new-buffer " *jj stdout*"))
-        (stderr-file (make-temp-file "jj-stderr")))
+        (stderr-file (make-temp-file "jj-stderr"))
+        (default-directory (or dir default-directory)))
     (unwind-protect
-        (if-let ((default-directory (or dir default-directory)))
-            ;; `call-process' runs the child in `default-directory', so the
-            ;; dynamic `let'-binding above pins it to DIR; this works even from
-            ;; an indirect buffer.  Not Tramp-aware: a remote DIR is reduced to
-            ;; its local path.
-            (let ((status
-                   (apply #'call-process "jj" nil
-                          `(,stdout ,stderr-file)
-                          nil "--color=never" args)))
-              (when (/= status 0)
-                (error "jj %s failed in %s (exit %d): %s"
-                       (mapconcat #'identity args " ")
-                       dir
-                       status
-                       (let ((stderr (with-temp-buffer
-                                       (insert-file-contents stderr-file)
-                                       (string-trim (buffer-string)))))
-                         (if (string-empty-p stderr) "unknown error" stderr))))
-              (with-current-buffer stdout (buffer-string)))
-          (error "impossible: Unexpected directory %s for fanshi/call-jj-in" default-directory))
+        (let ((status
+               (apply #'call-process "jj" nil
+                      `(,stdout ,stderr-file)
+                      nil "--color=never" args)))
+          (when (/= status 0)
+            (error "jj %s failed in %s (exit %d): %s"
+                   (mapconcat #'identity args " ")
+                   dir
+                   status
+                   (let ((stderr (with-temp-buffer
+                                   (insert-file-contents stderr-file)
+                                   (string-trim (buffer-string)))))
+                     (if (string-empty-p stderr) "unknown error" stderr))))
+          (with-current-buffer stdout (buffer-string)))
       (when (buffer-live-p stdout)
         (kill-buffer stdout))
       ;; Deleting must not mask the error a failing body already raised.
       (ignore-errors (delete-file stderr-file)))))
 #+end_src
-** fanshi/call-jj
-#+begin_src emacs-lisp :tangle yes :lexical t
-(defun fanshi/call-jj (&rest args)
-  "Run `jj ARGS' in `default-directory' and return stdout as a string.
-Thin wrapper over `fanshi/call-jj-in' with a NIL directory, so jj runs in the
-current buffer's `default-directory'."
-  (apply #'fanshi/call-jj-in nil args))
-#+end_src
 ** fanshi/jj-workspace-root
 #+begin_src emacs-lisp :tangle yes :lexical t
 (defun fanshi/jj-workspace-root (&optional dir)
   "Return the current workspace's root path, or nil if not resolvable.
-Nil-safe wrapper over `jj workspace root'.  DIR is the directory to resolve
-from (NIL means `default-directory').  jj derives the workspace from DIR, so
-this is the root of whatever workspace DIR lives in; callers needing the *main*
-root after switching into a sub-workspace must capture it before the switch.
+Nil-safe wrapper over `jj workspace root' (via `fanshi/call-jj', which pins
+DIR as the child's working directory, so the lookup is independent of the
+calling buffer).  DIR is the directory to resolve from; NIL means
+`default-directory'.  jj derives the workspace from DIR, so this is the root of
+whatever workspace DIR lives in; callers needing the *main* root after switching
+into a sub-workspace must capture it before the switch.
 
-Use `process-file' (not `shell-command-to-string') so a failing jj returns a
-non-zero status instead of writing its error into the current buffer, and pin
-DIR with the `:default-directory' process property so the lookup works from
-indirect buffers.  `ignore-errors' guards against jj missing from `exec-path'."
-  (let ((root (ignore-errors
-                ;; `:default-directory' pins the child's working directory so
-                ;; the lookup is independent of the calling buffer.  Output
-                ;; goes to the current buffer, hence the temp buffer.
-                (let ((d (or dir default-directory)))
-                  (with-temp-buffer
-                    (when (zerop (process-file "jj" nil
-                                               `(t (:default-directory ,d)) nil
-                                               "--color=never"
-                                               "workspace" "root"))
-                      (string-trim (buffer-string))))))))
-    (and (stringp root) (not (string-blank-p root)) (file-name-as-directory root))))
+Unlike `fanshi/call-jj', which signals on failure, this swallows the error
+(`ignore-errors', which also covers jj missing from `exec-path') and returns
+nil, so callers can fall back."
+  (let ((root (ignore-errors (fanshi/call-jj dir "workspace" "root"))))
+    (and (stringp root) (not (string-blank-p root)) (file-name-as-directory (string-trim root)))))
 #+end_src
 * Gptel
 ** Work around path issue
@@ -3623,7 +3601,7 @@ is spawned in the same project, prompted with only:
   ~config.el~), the file the error was found in, and the source file to fix,
   with the error itself wrapped in an ~#+begin_example~ block
 - the current jj diff (only when the project is a jj repo), inserted
-  directly into the fixer buffer's prompt via `fanshi/call-jj-in'
+  directly into the fixer buffer's prompt via `fanshi/call-jj'
 - a file stays in ~fanshi/gptel--edited-files~ until its check passes, so a
   failing file is re-checked after the next response; once everything
   passes, ~fanshi/gptel--code-check-fix-count~ is reset too
@@ -3704,7 +3682,7 @@ syntax error that needs none of the solution's context), spawn a new
 (so the fixer gets the coding system prompt/tools, and its own
 post-response check re-runs on its edits), the failure details, the error
 wrapped in an example block (quoted verbatim to the model), and — when the
-project is a jj repo — the output of `fanshi/call-jj-in DIR "diff"' so the agent
+project is a jj repo — the output of `fanshi/call-jj DIR "diff"' so the agent
 sees the current changes as part of the prompt.  In a jj repo the fixer runs in a
 dedicated sub-workspace (see `fanshi/gptel-agent'), so its change is
 auto-committed per response by `fanshi/gptel--jj-auto-commit'.
@@ -3738,16 +3716,17 @@ fixer re-checks its own edits) stays bounded by
           (insert "@coding ")
           (goto-char (point-max))
           (insert (format "%s\n" prompt))
-          ;; The directory is passed explicitly to `fanshi/call-jj-in' rather
-          ;; than left to the current `default-directory': the buffer
-          ;; gptel-agent returns is indirect, so the directory is read from BUF
-          ;; explicitly (the sub-workspace `fanshi/gptel-agent' created for
-          ;; this fixer, or the plain path's projectile root).  A non-jj
-          ;; directory makes it signal, so the gate and the diff share one call,
-          ;; and a failure falls through to the no-context branch instead of
-          ;; leaking stderr into this buffer.
+          ;; The directory is passed explicitly to `fanshi/call-jj' rather than
+          ;; left to a `let'-bound `default-directory': `fanshi/call-jj' pins
+          ;; the child to whatever it is passed, so the directory is read from
+          ;; BUF (the sub-workspace `fanshi/gptel-agent' created for this
+          ;; fixer, or the plain path's projectile root) instead of relying on
+          ;; the invoking buffer's cwd.  A non-jj directory makes it signal, so
+          ;; the gate and the diff share one call, and a failure falls through
+          ;; to the no-context branch instead of leaking stderr into this
+          ;; buffer.
           (when-let ((jj-diff (ignore-errors
-                                (fanshi/call-jj-in
+                                (fanshi/call-jj
                                  (or (buffer-local-value 'default-directory buf)
                                      default-directory)
                                  "diff"))))
@@ -4065,8 +4044,9 @@ Both are fixed by requiring the resolved root to be a non-blank absolute path
 before anything is created, so the failing branch creates no directory at all.
 
 The root is resolved through =fanshi/jj-workspace-root= (a nil-safe wrapper
-that returns nil instead of leaking jj's stderr into the buffer), and the jj
-agent buffers record the main workspace root in a buffer-local
+around =fanshi/call-jj=: it returns nil instead of signalling, and its stderr
+goes to a temp file rather than the chat buffer), and the jj agent buffers record
+the main workspace root in a buffer-local
 =fanshi/gptel-jj-origin-root= at creation time. That matters because a
 =jj workspace root= lookup from inside a sub-workspace returns the
 sub-workspace's own root, not the main one.
@@ -4088,10 +4068,12 @@ sessions, saves to `default-directory'."
         ;; preferred; the `jj workspace root' fallback is only best-effort (from
         ;; inside a sub-workspace it returns the sub-workspace root, not the main
         ;; one). The lookup goes through `fanshi/jj-workspace-root', which
-        ;; returns nil on failure (rather than leaking jj's stderr into this
-        ;; buffer and returning ""), so `ignore-errors' only has to cover the
-        ;; rest. Requiring a non-blank absolute path keeps the directory
-        ;; from being created against `default-directory' when unresolvable.
+        ;; returns nil on failure (it wraps `fanshi/call-jj', whose stderr
+        ;; goes to a temp file and is reported in the error it signals, so
+        ;; nothing leaks into this buffer), so `ignore-errors' only has to
+        ;; cover the rest. Requiring a non-blank absolute path keeps the
+        ;; directory from being created against `default-directory' when
+        ;; unresolvable.
         (if-let* ((base-dir (let ((r (or fanshi/gptel-jj-origin-root
                                          (fanshi/jj-workspace-root))))
                               (and (not (string-blank-p r))
@@ -5145,7 +5127,7 @@ skip the handler and just make sure the process buffer does not leak.
                           (string-remove-prefix "-")
                           (string-remove-suffix "-")))
                (dir (file-name-as-directory (expand-file-name name fanshi/breeding-ground-dir))))
-          (fanshi/call-jj "workspace" "add" "--name" name dir)
+          (fanshi/call-jj jj-root "workspace" "add" "--name" name dir)
           (let ((buf (gptel-agent dir 'gptel-agent)))
             (with-current-buffer buf
               (goto-char (point-max))
@@ -5179,16 +5161,15 @@ skip the handler and just make sure the process buffer does not leak.
                                        (s-prefix-p dir fname)))
                                 (kill-buffer buf)))
                             ;; The directory is passed explicitly to
-                            ;; `fanshi/call-jj-in' rather than left to the
-                            ;; current `default-directory': this hook runs in
-                            ;; the (indirect) gptel buffer.  ROOT is the main
-                            ;; workspace, captured before the sub-workspace was
-                            ;; entered — `jj workspace root' from inside a
-                            ;; sub-workspace only returns that sub-workspace's
-                            ;; own root, which is exactly the one being
-                            ;; forgotten here.
-                            (fanshi/call-jj-in root "workspace" "forget"
-                                               (format "%s" name))
+                            ;; `fanshi/call-jj' rather than left to the current
+                            ;; `default-directory': this hook runs in the gptel
+                            ;; buffer, not in ROOT.  ROOT is the main workspace,
+                            ;; captured before the sub-workspace was entered —
+                            ;; `jj workspace root' from inside a sub-workspace
+                            ;; only returns that sub-workspace's own root, which
+                            ;; is exactly the one being forgotten here.
+                            (fanshi/call-jj root "workspace" "forget"
+                                             (format "%s" name))
                             (setq default-directory root)
                             (ignore-errors (system-move-file-to-trash dir))
                             (message "Auto-cleaned workspace: %s" dir)
@@ -5196,7 +5177,7 @@ skip the handler and just make sure the process buffer does not leak.
                           nil t))
               ;; `--message=' not `-m': a leading hyphen in the description
               ;; would be read as a flag by clap.
-              (fanshi/call-jj "desc" (format "--message=%s" task-description)))
+              (fanshi/call-jj dir "desc" (format "--message=%s" task-description)))
             buf))))))
 #+end_src
 ** fanshi/gptel--insert-preset
@@ -5219,7 +5200,7 @@ Start a new gptel-agent session that code reviews the current jj changes.
 
 The review target is the working-copy commit `@' of the current workspace (jj
 resolves `@' relative to the invocation directory, so every jj call here passes
-the workspace root explicitly to `fanshi/call-jj-in').  Invoking the command
+the workspace root explicitly to `fanshi/call-jj').  Invoking the command
 from inside a sub-workspace therefore reviews *that* workspace's `@', not the
 main workspace's.
 When `@' holds no file diff, the parent change is reviewed instead (`jj diff
@@ -5250,9 +5231,9 @@ and there would be nothing to review), and with the jj auto-commit hook
 disarmed so the reviewed `@' stays put.
 
 The review target is the working-copy commit `@' of the current workspace.
-`fanshi/call-jj-in' pins the invocation directory by `let'-binding
-`default-directory', which `call-process' uses even from an indirect buffer, so
-the explicit DIR argument is what pins every jj call here; the agent buffer's
+`fanshi/call-jj' pins the invocation directory by `let'-binding
+`default-directory', which `call-process' uses as the child's working directory,
+so the explicit DIR argument is what pins every jj call here; the agent buffer's
 `default-directory' is additionally re-set to the workspace root so its own jj
 commands and edits line up: the buffer would otherwise sit at the projectile
 root, which is a different `@' when this command is invoked from a subdirectory.
@@ -5308,22 +5289,36 @@ review this change\"; an empty or blank PROMPT falls back to the default."
            ;; commands and file edits match the reviewed change.
            ;;
            ;; Resolved from the invoking buffer's workspace, passed explicitly
-           ;; because `let' has already made JJ-DIR the symbol's own binding —
-           ;; and via `fanshi/jj-workspace-root' rather than passing
-           ;; `default-directory' to `fanshi/call-jj-in' because the root is
-           ;; resolved from the invoking buffer's own workspace (which can be
-           ;; indirect — gptel's own buffers are), not from a directory known up
-           ;; front.
+           ;; because `let' has already made JJ-DIR the symbol's own binding,
+           ;; and because the review must target the *invoking* buffer's
+           ;; workspace rather than the directory this command happens to be
+           ;; invoked from.
            (jj-dir (fanshi/jj-workspace-root default-directory))
            ;; The diff of `@' and the "is `@' empty" probe both pass JJ-DIR, so
            ;; the empty-check judges exactly the change that gets reviewed.
-           (diff (fanshi/call-jj-in jj-dir "diff"))
+           (diff (fanshi/call-jj jj-dir "diff"))
            ;; "Empty @" is judged by `--name-only', not by blankness of the
            ;; plain diff: on a conflicted working copy `jj diff' prints a
            ;; conflict summary while `--name-only' stays blank — such a `@' is
            ;; reviewed as-is, and the agent has to read the files to see the
            ;; conflicted content.
-           (empty-at (string-blank-p (string-trim (fanshi/call-jj-in jj-dir "diff" "--name-only"))))
+           (empty-at (string-blank-p (string-trim (fanshi/call-jj jj-dir "diff" "--name-only"))))
+           ;; The parent's change id and first description line.  Guarded: an
+           ;; empty `@' is no guarantee `@-' resolves — that is exactly what an
+           ;; abandoned commit's successor looks like — so the review just goes
+           ;; ahead with an empty diff and nothing named in the prompt.  The id
+           ;; is wrapped in brackets so a "@..."-looking id cannot be (mis)read
+           ;; as a preset marker, and the whole note is inserted before the
+           ;; instruction (see below: the marker scan stops at the first line
+           ;; break, and a description's first line can still contain a tab or a
+           ;; stray control character).
+           (review-desc
+            (when empty-at
+              (ignore-errors
+                (let ((d (string-trim
+                          (fanshi/call-jj jj-dir "log" "-r" "@-" "--no-graph" "-T"
+                                          "change_id.short() ++ \" [\" ++ description.firstline() ++ \"]\""))))
+                  (and (not (string-blank-p d)) d)))))
            ;; Empty task description: take the plain gptel-agent path so no
            ;; sub-workspace is created (see `fanshi/gptel-agent').  That path
            ;; binds the buffer to the projectile root, which is *not* the review
@@ -5345,87 +5340,36 @@ review this change\"; an empty or blank PROMPT falls back to the default."
       (with-current-buffer buf
         (setq-local default-directory jj-dir)
         (kill-local-variable 'fanshi/gptel-jj-workspace))
-      ;; REVIEW-DESC is the parent's id plus first description line, named in
-      ;; the prompt when the empty-`@' fallback below reviews the parent change.
-      ;; Nil whenever nothing is reviewed: a non-empty `@', or a parent with
-      ;; nothing to review or nothing to name for it.
-      ;;
-      ;; Both `@-' lookups of that fallback — the diff and this description — are
-      ;; resolved *before* `jj new @' moves the working copy, so the diff in the
-      ;; prompt and the change named in it are always the same commit.
-      (let ((review-desc nil))
-        (when empty-at
-          ;; Review the parent change instead, and make a fresh empty commit the
-          ;; working copy, so the agent starts clean while the reviewed change
-          ;; stays its parent, ready for `jj squash' to fold the agent's
-          ;; follow-up fixes into it.  Guarded: a failure here must not abort the
-          ;; review with the agent buffer already created, so it degrades to an
-          ;; empty diff plus a message.
-          (condition-case err
-              (let ((parent-desc
-                     ;; The parent's change id and first description line, named
-                     ;; in the prompt.  Resolved *before* `jj new @' below: that
-                     ;; moves `@', which would make the `@-' here and below
-                     ;; resolve to the empty change instead of the reviewed one.
-                     ;; Not guarded on its own: the parent diff below resolves
-                     ;; the same `@-', so a revset that fails to resolve (an
-                     ;; abandoned commit's successor — an empty `@' is no
-                     ;; guarantee `@-' resolves) fails there and is caught by the
-                     ;; `condition-case' below, the only guard that matters here.
-                     ;; The id is wrapped in brackets so a "@..."-looking id
-                     ;; cannot be (mis)read as a preset marker, and the note is
-                     ;; inserted before the instruction (see below: the marker
-                     ;; scan stops at the first line break, and a description's
-                     ;; first line can still contain a tab or a stray control
-                     ;; character).
-                     (let ((d (string-trim
-                               (fanshi/call-jj-in jj-dir "log" "-r" "@-" "--no-graph" "-T"
-                                                  "change_id.short() ++ \" [\" ++ description.firstline() ++ \"]\""))))
-                       (and (not (string-blank-p d)) d)))
-                    ;; The parent diff, likewise resolved *before* `jj new @'
-                    ;; below.
-                    (parent-diff (fanshi/call-jj-in jj-dir "diff" "--from" "@-" "--to" "@")))
-                ;; Fresh empty commit becomes the working copy, so the agent
-                ;; starts clean while the reviewed change stays its parent.
-                (fanshi/call-jj-in jj-dir "new" "@")
-                ;; The parent is reviewed only once it has a description *and*
-                ;; content of its own — the reviewed change is empty, so an empty
-                ;; parent means there is no change to review at all.  That
-                ;; judgement needs the parent diff, hence it is made here and not
-                ;; in the lookup above; with nothing to review there is nothing to
-                ;; name either, so the empty parent diff is dropped.  The fresh
-                ;; `@' above is created either way, so the session still starts
-                ;; clean.
-                ;;
-                ;; Content is judged by the full diff, not by `--name-only' as
-                ;; the `@' probe above is: a conflicted parent does have
-                ;; something worth reviewing (the agent reads the files for the
-                ;; conflicted content), so it stays a review target instead of
-                ;; being treated as empty.
-                (if (and parent-desc
-                         (not (string-blank-p (string-trim parent-diff))))
-                    (progn
-                      (setq review-desc parent-desc)
-                      (setq diff parent-diff))
-                  (setq diff "")))
-            (error
-             (message "jj parent diff failed: %s" (error-message-string err))
-             (setq diff ""))))
-        (with-current-buffer buf
-          (goto-char (point-min))
-          (forward-char)
-          (fanshi/gptel--insert-preset "coding")
-          (when review-desc
-            ;; Before the instruction, and flattened to one line: the preset
-            ;; marker scan (`fanshi/process-preset-til-end') stops at the first
-            ;; line break, and a break before the instruction would also leave
-            ;; the prompt prefix dangling.
-            (insert (format "(reviewing the change %s) "
-                            (replace-regexp-in-string "[\r\n]+" " " review-desc))))
-          (insert prompt)
-          (goto-char (point-max))
-          (insert (concat "\n\n" diff))
-          (gptel-send)))))
+      (when empty-at
+        ;; Review the parent change instead, and make a fresh empty commit the
+        ;; working copy, so the agent starts clean while the reviewed change
+        ;; stays its parent, ready for `jj squash' to fold the agent's
+        ;; follow-up fixes into it.  The parent diff must be computed *before*
+        ;; `jj new @' moves `@'.  Guarded: a failure here must not abort the
+        ;; review with the agent buffer already created, so it degrades to an
+        ;; empty diff plus a message.
+        (condition-case err
+            (progn
+              (setq diff (fanshi/call-jj jj-dir "diff" "--from" "@-" "--to" "@"))
+              (fanshi/call-jj jj-dir "new" "@"))
+          (error
+           (message "jj parent diff failed: %s" (error-message-string err))
+           (setq diff ""))))
+      (with-current-buffer buf
+        (goto-char (point-min))
+        (forward-char)
+        (fanshi/gptel--insert-preset "coding")
+        (when review-desc
+          ;; Before the instruction, and flattened to one line: the preset
+          ;; marker scan (`fanshi/process-preset-til-end') stops at the first
+          ;; line break, and a break before the instruction would also leave the
+          ;; prompt prefix dangling.
+          (insert (format "(reviewing the change %s) "
+                          (replace-regexp-in-string "[\r\n]+" " " review-desc))))
+        (insert prompt)
+        (goto-char (point-max))
+        (insert (concat "\n\n" diff))
+        (gptel-send)))))
 #+end_src
 ** jj auto commit
 After each gptel response in a buffer bound to a dedicated jj sub-workspace
@@ -5484,19 +5428,19 @@ Run `jj workspace root' in DIR and require it to equal DIR.  This guards
 against a stale buffer whose default-directory no longer resolves to the
 workspace it was created in (moved, deleted, or never a workspace at
 all), so the jj commands below can never run in the wrong workspace.
-Delegates to `fanshi/jj-workspace-root' (see the `* jj helpers' section),
-which pins DIR with its `:default-directory' process property and so resolves
-the root from DIR even from an indirect buffer."
+Delegates to `fanshi/jj-workspace-root' (see the `* jj helpers' section), which
+passes DIR to `fanshi/call-jj' and so resolves the root from DIR wherever this
+runs."
     (let ((root (fanshi/jj-workspace-root dir)))
       (and root (string= root (file-name-as-directory dir)))))
 
   (defun fanshi/gptel--jj-working-copy-description ()
     "Return the description of the working-copy commit, or nil if none.
-Runs in `fanshi/gptel-jj-workspace' via `fanshi/call-jj-in', so it resolves
-the working copy there even from an indirect buffer."
+Runs in `fanshi/gptel-jj-workspace' via `fanshi/call-jj', so it resolves
+the working copy there whatever the current directory is."
     (let ((desc (ignore-errors
-                  (fanshi/call-jj-in fanshi/gptel-jj-workspace
-                                     "log" "-r" "@" "-T" "description" "--no-graph"))))
+                  (fanshi/call-jj fanshi/gptel-jj-workspace
+                                   "log" "-r" "@" "-T" "description" "--no-graph"))))
       (and desc (not (string-blank-p desc)) (string-trim desc))))
 
   (defun fanshi/gptel--jj-generate-commit-message (diff callback)
@@ -5544,16 +5488,15 @@ hook, which would corrupt the new request's process filter."
 Called from a timer (not from the process-filter context), so
 `gptel-request' can be used safely."
     (when (fanshi/gptel--jj-workspace-check ws)
-      ;; All jj calls below pass WS to `fanshi/call-jj-in': this runs from a
-      ;; timer in the (indirect) gptel buffer, so the workspace must be passed
-      ;; explicitly (the workspace check above goes through
-      ;; `fanshi/jj-workspace-root', which pins DIR via its
-      ;; `:default-directory' process property).
-      (let ((diff (ignore-errors (fanshi/call-jj-in ws "diff"))))
+      ;; All jj calls below pass WS to `fanshi/call-jj': this runs from a
+      ;; timer in the gptel buffer, whose `default-directory' need not be the
+      ;; workspace, so WS is pinned for each call (the workspace check above
+      ;; passes DIR to `fanshi/jj-workspace-root' for the same reason).
+      (let ((diff (ignore-errors (fanshi/call-jj ws "diff"))))
         (when (and diff (not (string-blank-p diff)))
           (if-let ((desc (fanshi/gptel--jj-working-copy-description)))
               (progn
-                (fanshi/call-jj-in ws "new")
+                (fanshi/call-jj ws "new")
                 (message "jj auto-commit: committed working copy (kept description: %s)" (string-trim desc)))
             (fanshi/gptel--jj-generate-commit-message
              (substring diff 0 (min fanshi/gptel-jj-auto-commit-diff-limit
@@ -5565,7 +5508,7 @@ Called from a timer (not from the process-filter context), so
                                   (or msg "gptel: auto-commit"))))
                      ;; `--message=' not `-m': a generated message could
                      ;; start with a hyphen, which clap would read as a flag.
-                     (fanshi/call-jj-in ws "ci" (format "--message=%s" ci-msg))
+                     (fanshi/call-jj ws "ci" (format "--message=%s" ci-msg))
                      (message "jj auto-commit: committed working copy (%s)" ci-msg))
                  (error
                   (message "jj auto-commit failed: %s"
@@ -6834,12 +6777,11 @@ otherwise open its editor to combine two non-empty descriptions, and an
 editor raised from a post-response hook hangs Emacs.  AGENT-DESC is the
 agent's description (its FinishTask summary); when both sides are empty a
 generated one-liner is used.  MAIN-DIR is where the destination @ lives.
-Called from the agent buffer, which is indirect, so MAIN-DIR is passed
-explicitly to `fanshi/call-jj-in' rather than left to the current
-`default-directory'."
+Called from the agent buffer, so MAIN-DIR is passed explicitly to
+`fanshi/call-jj' rather than left to the current `default-directory'."
     (let ((dest (string-trim
-                 (fanshi/call-jj-in main-dir "log" "-r" "@" "--no-graph"
-                                    "-T" "description")))
+                 (fanshi/call-jj main-dir "log" "-r" "@" "--no-graph"
+                                 "-T" "description")))
           (agent (string-trim (or agent-desc ""))))
       (cond
        ((and (string-empty-p dest) (string-empty-p agent))
@@ -6889,20 +6831,21 @@ reported: the main workspace then contains conflict markers."
              ;; the FIRST tab only: a description may contain tabs, and those
              ;; belong to the message, not to the separator.
              (agent-line (string-trim
-                          (fanshi/call-jj-in worktree-dir
-                                             "log" "-r" "@" "--no-graph" "-T"
-                                             "commit_id() ++ \"\\t\" ++ description ++ \"\\n\""))))
+                          (fanshi/call-jj worktree-dir
+                                          "log" "-r" "@" "--no-graph" "-T"
+                                          "commit_id() ++ \"\\t\" ++ description ++ \"\\n\""))))
         (sep (string-match "\t" agent-line))
         (commit-id (if sep (substring agent-line 0 sep) ""))
         (agent-desc (if sep (substring agent-line (1+ sep)) "")))
       (unless (> (length commit-id) 0)
         (error "No working-copy commit found in workspace %s" worktree-dir))
-      ;; All jj calls below pass MAIN-DIR to `fanshi/call-jj-in': this function
-      ;; is reachable from a post-response hook in the (indirect) agent buffer.
-      (fanshi/call-jj-in main-dir "squash" "--from" commit-id "--into" "@"
-                         (format "--message=%s"
-                                 (fanshi/ai-delegate--integration-message
-                                  main-dir agent-desc task-id)))
+      ;; All jj calls below pass MAIN-DIR to `fanshi/call-jj': this function is
+      ;; reachable from a post-response hook in the agent buffer, whose cwd is
+      ;; the agent's workspace, not MAIN-DIR.
+      (fanshi/call-jj main-dir "squash" "--from" commit-id "--into" "@"
+                      (format "--message=%s"
+                              (fanshi/ai-delegate--integration-message
+                               main-dir agent-desc task-id)))
       ;; Marked before the cleanup below: a half-finished integration must
       ;; never be "helpfully" re-run into a second squash.
       (fanshi/ai-delegate--task-property task-id "INTEGRATED"
@@ -6912,16 +6855,16 @@ reported: the main workspace then contains conflict markers."
       (let ((conflicted
              (string= "true"
                       (string-trim
-                       (fanshi/call-jj-in main-dir "log" "-r" "@" "--no-graph" "-T"
-                                          "conflict()")))))
+                       (fanshi/call-jj main-dir "log" "-r" "@" "--no-graph" "-T"
+                                       "conflict()")))))
         ;; Cleanup failures must not mask a successful integration, so each
         ;; step is best-effort on its own: `workspace forget' only drops
         ;; jj's bookkeeping, trashing removes the files, and neither may
         ;; skip the other.
         (condition-case err
-            (fanshi/call-jj-in main-dir "workspace" "forget"
-                               (file-name-nondirectory
-                                (directory-file-name worktree-dir)))
+            (fanshi/call-jj main-dir "workspace" "forget"
+                            (file-name-nondirectory
+                             (directory-file-name worktree-dir)))
           (error
            (message "Integrated task %s, but `jj workspace forget' failed: %s"
                     task-id (error-message-string err))))
@@ -7041,12 +6984,11 @@ working on TASK in an isolated jj workspace."
             ;; directory, so every command passes it explicitly: the
             ;; repo-level one runs in PROJECT-ROOT (also the main workspace
             ;; here), the rest inside the new workspace.  The directory is
-            ;; passed explicitly to `fanshi/call-jj-in' (a NIL directory would
+            ;; passed explicitly to `fanshi/call-jj' (a NIL directory would
             ;; fall back to the invoking buffer's `default-directory', which is
-            ;; wrong here because that buffer can be indirect — gptel's own
-            ;; buffers are).  A non-zero exit becomes an error carrying jj's own
-            ;; message, so the model sees the reason instead of a bare exit
-            ;; code.
+            ;; not necessarily the repo or the new workspace).  A non-zero exit
+            ;; becomes an error carrying jj's own message, so the model sees the
+            ;; reason instead of a bare exit code.
             (unless (file-directory-p target-dir)
               (make-directory (file-name-directory target-dir) t)
               ;; `workspace add' checks the new workspace out on top of the
@@ -7061,15 +7003,15 @@ working on TASK in an isolated jj workspace."
               ;; the description was lost.  `--message=' over `-m' because
               ;; clap would read a leading hyphen in the task text as a
               ;; flag; `-m' also requires a jj new enough to support it.)
-              (fanshi/call-jj-in project-root "workspace" "add"
-                                 (format "--message=%s" task) target-dir)
+              (fanshi/call-jj project-root "workspace" "add"
+                              (format "--message=%s" task) target-dir)
               ;; Identity is per-workspace (`--workspace'): all agent
               ;; workspaces share one repo, so `--repo' would let the last
               ;; delegation overwrite every earlier agent's name.
-              (fanshi/call-jj-in target-dir "config" "set" "--workspace" "user.name"
-                                 (format "Agent (%s)" agent))
-              (fanshi/call-jj-in target-dir "config" "set" "--workspace" "user.email"
-                                 (format "%s-agent@local" agent)))
+              (fanshi/call-jj target-dir "config" "set" "--workspace" "user.name"
+                              (format "Agent (%s)" agent))
+              (fanshi/call-jj target-dir "config" "set" "--workspace" "user.email"
+                              (format "%s-agent@local" agent)))
             ;; Hard preset gate: validate BEFORE creating the jj workspace so a
             ;; bad agent name cannot leave an orphan workspace behind.  The
             ;; lookup goes through `gptel-get-preset' directly because
@@ -7186,17 +7128,17 @@ alone now) or a stale workspace must not stop the cleanup."
         (error "No workspace found for task %s" task-id))
       (let ((main-dir (fanshi/ai-delegate--main-workspace-dir task-id worktree-dir))
             (workspace-name (file-name-nondirectory (directory-file-name worktree-dir))))
-        ;; Abandon @ in the agent's workspace; `fanshi/call-jj-in' keeps jj's
-        ;; output out of the current buffer, reports why it failed, and runs in
-        ;; WORKTREE-DIR even when the invoking buffer is indirect.
+        ;; Abandon @ in the agent's workspace; `fanshi/call-jj' keeps jj's
+        ;; output out of the current buffer, reports why it failed, and pins the
+        ;; workspace it acts on.
         (condition-case err
-            (fanshi/call-jj-in worktree-dir "abandon" "@")
+            (fanshi/call-jj worktree-dir "abandon" "@")
           (error
            (message "Discarding task %s: `jj abandon' failed (%s), cleaning up anyway"
                     task-id (error-message-string err))))
         ;; Forget the workspace before trashing the directory it lives in.
         (condition-case err
-            (fanshi/call-jj-in main-dir "workspace" "forget" workspace-name)
+            (fanshi/call-jj main-dir "workspace" "forget" workspace-name)
           (error
            (message "Discarded task %s, but `jj workspace forget' failed: %s"
                     task-id (error-message-string err))))
@@ -7222,10 +7164,10 @@ Opens a buffer showing the diff of the agent's working-copy commit."
           (error "No workspace found for task %s" task-id))
         (let ((diff-buf (get-buffer-create (format "*jj diff: %s*" task-id))))
           ;; The diff is captured from WORKTREE-DIR by passing it to
-          ;; `fanshi/call-jj-in' rather than relying on the current
-          ;; `default-directory': the review can be invoked from an indirect
-          ;; buffer (a gptel one, via the tool call).
-          (let ((diff (fanshi/call-jj-in worktree-dir "diff")))
+          ;; `fanshi/call-jj': the review can be invoked from anywhere (a gptel
+          ;; tool call, an Org headline in the tasks file), so the workspace is
+          ;; named rather than taken from the current directory.
+          (let ((diff (fanshi/call-jj worktree-dir "diff")))
             (with-current-buffer diff-buf
               ;; Erase first: the buffer is reused, so a second review must not
               ;; append to the previous diff.
@@ -7250,13 +7192,13 @@ Shows the commit graph including the agent's changes."
         (unless (and worktree-dir (file-directory-p worktree-dir))
           (error "No workspace found for task %s" task-id))
         (let ((log-buf (get-buffer-create (format "*jj log: %s*" task-id))))
-          ;; Captured from WORKTREE-DIR by passing it to `fanshi/call-jj-in'
-          ;; rather than relying on the current `default-directory': the review
-          ;; can be invoked from an indirect buffer (a gptel one, via the tool
-          ;; call).
-          (let ((log (fanshi/call-jj-in worktree-dir
-                                        "log" "-T"
-                                        "commit_id.short() ++ \" \" ++ description.firstline() ++ \"\\n\"")))
+          ;; Captured from WORKTREE-DIR by passing it to `fanshi/call-jj': the
+          ;; review can be invoked from anywhere (a gptel tool call, an Org
+          ;; headline in the tasks file), so the workspace is named rather than
+          ;; taken from the current directory.
+          (let ((log (fanshi/call-jj worktree-dir
+                                     "log" "-T"
+                                     "commit_id.short() ++ \" \" ++ description.firstline() ++ \"\\n\"")))
             (with-current-buffer log-buf
               (let ((inhibit-read-only t))
                 (erase-buffer)
@@ -7278,7 +7220,7 @@ SUMMARY is a brief description of what was accomplished."
       ;; message.  A failure is only a warning: the task is still DONE and
       ;; integration falls back to a generated description.
       (condition-case err
-          (fanshi/call-jj "describe" (format "--message=%s" summary))
+          (fanshi/call-jj nil "describe" (format "--message=%s" summary))
         (error
          (message "Warning: jj describe failed: %s" (error-message-string err))))
       (fanshi/ai-delegate--update-task-by-id fanshi/ai-delegate--current-task-id "DONE" summary)
@@ -7307,7 +7249,7 @@ description and the workspace stays on disk.  Throwing it away is the
 human's call, via `fanshi/ai-delegate--discard-task'."
     (when fanshi/ai-delegate--current-task-id
       (condition-case err
-          (fanshi/call-jj "describe"
+          (fanshi/call-jj nil "describe"
                           (format "--message=ABORTED: %s"
                                   (replace-regexp-in-string "[\r\n]+" " "
                                                             (string-trim summary))))
