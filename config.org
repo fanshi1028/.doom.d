@@ -839,23 +839,13 @@ Because so-long-mode triggered on the source elisp file, the "coding: utf-8" loc
 ** fanshi/call-jj
 #+begin_src emacs-lisp :tangle yes :lexical t
 (defun fanshi/call-jj (&rest args)
-  "Run `jj ARGS' in `default-directory' and return its stdout as a string.
-Signals an error carrying jj's stderr plus the exit status on failure, so a
-failed command can never be mistaken for an empty-but-successful one.
-Passes `--color=never' explicitly: jj's default is auto, which is clean when
-piped, but a user config of color = \"always\" would otherwise leak escape
-sequences into review buffers and error messages (so no caller needs to
-ansi-colorize anything).
-stdout goes to a temp buffer so it can be handed back to the caller; stderr
-goes to a temp file because the stderr slot of `call-process' accepts nil, t
-or a file name, never a buffer.
-`default-directory' is read as the *current buffer's* value, so a merely
-`let'-bound one only works when the calling buffer is direct — from an indirect
-buffer (as gptel prompt buffers are) it is silently ignored and the command
-runs in the base buffer's directory.  Callers that must pin the directory (jj
-resolves `@' and `@-' against it) use `fanshi/call-jj-in', which avoids this
-caveat."
+  "Run `jj ARGS' in `default-directory' and return stdout as a string.
+On failure, signal an error carrying jj's stderr and exit status.
+Pass `--color=never' so a user color setting can't leak escape sequences.
+`default-directory' is read from the current buffer, so a `let'-bound one is
+ignored in indirect buffers; use `fanshi/call-jj-in' to pin the directory."
   (let ((stdout (generate-new-buffer " *jj stdout*"))
+        ;; stderr needs a file: `call-process' won't accept a buffer there.
         (stderr-file (make-temp-file "jj-stderr")))
     (unwind-protect
         (let ((status (apply #'call-process "jj" nil `(,stdout ,stderr-file) nil
@@ -877,33 +867,20 @@ caveat."
 ** fanshi/call-jj-in
 #+begin_src emacs-lisp :tangle yes :lexical t
 (defun fanshi/call-jj-in (dir &rest args)
-  "Run `jj ARGS' in DIR and return its stdout as a string.
-Same contract as `fanshi/call-jj' (stderr carried in the error, exit status,
-`--color=never'), but the invocation directory is pinned to DIR instead of
-`default-directory'.  jj resolves `@', `@-' and the repo root relative to the
-*invocation* directory, so code that runs jj from a buffer whose
-`default-directory' is not the workspace it means must go through this,
-otherwise a bare `@' silently resolves somewhere else.
-Unlike `fanshi/call-jj', DIR is honoured even when this is called from an
-indirect buffer: `call-process' runs the child in the *current buffer's*
-directory, not in a dynamically bound `default-directory' (see its docstring),
-so a `let'-binding would be ignored there (gptel prompt buffers are indirect)
-— hence DIR is passed as the `:default-directory' process property of the
-stderr destination, which sets the child's working directory directly.
-NIL DIR falls back to `default-directory'.
-A non-zero exit raises an error carrying DIR, so a caller cannot mistake a run
-that resolved somewhere else for an empty-but-successful one."
+  "Run `jj ARGS' in DIR and return stdout as a string.
+Same contract as `fanshi/call-jj', but the invocation directory is pinned to
+DIR, so `@' and `@-' resolve there even from an indirect buffer.  DIR is
+honoured via the `:default-directory' process property, since `call-process'
+ignores a dynamically bound `default-directory'.  NIL DIR means
+`default-directory'.  On failure, signal an error carrying DIR and the exit
+status."
   (let ((stdout (generate-new-buffer " *jj stdout*"))
         (stderr-file (make-temp-file "jj-stderr")))
     (unwind-protect
         (let ((dir (or dir default-directory))
-               ;; `call-process' runs the child in the *current buffer's*
-               ;; directory and ignores a dynamic binding (see its docstring);
-               ;; `:default-directory' as a process property of the stderr
-               ;; destination pins the child's working directory instead, so
-               ;; this also works from an indirect buffer.  It is not
-               ;; Tramp-aware: the child runs where Emacs lives, so a remote
-               ;; DIR is reduced to its local path there.
+               ;; Pin the child's working directory via `:default-directory'
+               ;; so this works from indirect buffers.  Not Tramp-aware: a
+               ;; remote DIR is reduced to its local path.
                (status
                 (apply #'call-process "jj" nil
                        `(,stdout
@@ -932,35 +909,19 @@ that resolved somewhere else for an empty-but-successful one."
 #+begin_src emacs-lisp :tangle yes :lexical t
 (defun fanshi/jj-workspace-root (&optional dir)
   "Return the current workspace's root path, or nil if not resolvable.
-Nil-safe wrapper over `jj workspace root'.  DIR, when non-nil, is the
-`default-directory' to resolve from; otherwise the current one is used.
+Nil-safe wrapper over `jj workspace root'.  DIR is the directory to resolve
+from (NIL means `default-directory').  jj derives the workspace from DIR, so
+this is the root of whatever workspace DIR lives in; callers needing the *main*
+root after switching into a sub-workspace must capture it before the switch.
 
-jj derives the workspace from `default-directory', so this returns the root of
-whatever workspace DIR lives in — the project root from the main workspace, the
-sub-workspace's own root from a sub-workspace. Callers that need the *main* root
-after switching into a sub-workspace must capture it before the switch (see
-`fanshi/gptel-agent').
-With a NIL DIR the current buffer's own `default-directory' is used, so a NIL
-DIR only means \"the buffer I am called from\" when that buffer is direct — from
-an indirect buffer (as gptel's are) pass the directory explicitly.
-
-Uses `process-file' rather than `shell-command-to-string': a failing jj command
-under `shell-command-to-string' does not signal (it writes its error to the
-current buffer and returns the empty string), whereas `process-file' returns a
-non-zero exit status, so a failure yields nil here and the error text can never
-leak into the current buffer.
-`process-file' switches to the *current buffer's* directory, so DIR is pinned
-with its `:default-directory' process property instead; that makes the lookup
-exact even from an indirect buffer, where a `let'-bound `default-directory'
-would be ignored (see `fanshi/call-jj').
-`ignore-errors' still guards against jj being missing from `exec-path', which
-`process-file' signals for."
+Use `process-file' (not `shell-command-to-string') so a failing jj returns a
+non-zero status instead of writing its error into the current buffer, and pin
+DIR with the `:default-directory' process property so the lookup works from
+indirect buffers.  `ignore-errors' guards against jj missing from `exec-path'."
   (let ((root (ignore-errors
-                ;; `:default-directory' as a process property pins the child's
-                ;; working directory, so the lookup does not depend on the
-                ;; calling buffer.  Output goes to the current buffer, hence
-                ;; the erase and the temp buffer (the temp buffer also keeps a
-                ;; failed run's leftovers away from the caller).
+                ;; `:default-directory' pins the child's working directory so
+                ;; the lookup is independent of the calling buffer.  Output
+                ;; goes to the current buffer, hence the temp buffer.
                 (let ((d (or dir default-directory)))
                   (with-temp-buffer
                     (when (zerop (process-file "jj" nil
@@ -5157,8 +5118,6 @@ skip the handler and just make sure the process buffer does not leak.
   (advice-add 'gptel-curl--sentinel :before-until #'fanshi/gptel-curl--stale-request-p))
 #+end_src
 ** fanshi/gptel-agent
-Uses `fanshi/call-jj' and `fanshi/jj-workspace-root' from the
-`* jj helpers' section above.
 #+begin_src emacs-lisp :tangle yes :lexical t
 (map! :map doom-leader-open-map "l l" #'fanshi/gptel-agent)
 (after! gptel
