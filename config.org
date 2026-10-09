@@ -1521,25 +1521,42 @@ only the sections useful for an AI agent:
   - Implementations: for generic methods
   - Source Code: the actual elisp source
 
-Symbol-Name is a string naming an Elisp function, variable, macro, or face."
+Symbol-Name is a string naming an Elisp function, variable, macro, or face.
+
+Errors are returned as a canonical `<tool_call_error>' result rather than
+signalled: gptel runs synchronous tools inside a `condition-case' that
+flattens a signal to \"<signal-name> <data>\", which loses the message
+(`intern-soft' gives nil for a name that was never read, so the symbol name
+the model asked for is gone), and which
+`fanshi/gptel--tool-call-is-error-p' catches only heuristically.
+
+`fanshi/gptel--tool-call-error-result' is defined in the Tool Call Failures
+removal section below, and called here from the error branches. That works
+because this is the only =(after! gptel ...)= block before it: Doom splices
+the bodies of consecutive =(after! gptel ...)= calls into one
+=with-eval-after-load=, so the later definition is evaluated before this tool
+is registered. KEEP THAT INVARIANT -- inserting another =(after! gptel ...)=
+block in between splits the =with-eval-after-load= forms and the helper is
+then still undefined when this tool runs."
     (require 'helpful)
     (if-let ((symbol (intern-soft symbol-name)))
         (progn
-          (when (and force-variable (not (boundp symbol)) (fboundp symbol))
-            (error "Error: force-variable is t but %s is bounded only with function" symbol))
-          ;; Determine callable-p: prefer force-variable if set, else heuristic.
-          (-let* ((callable-p (if force-variable
-                                  nil
-                                (fboundp symbol)))
-                  ;; Pre-compute values needed for building sections.
-                  (primitive-p (helpful--primitive-p symbol callable-p))
-                  ((def-buf def-pos _opened)
-                   (if (or (not primitive-p) find-function-C-source-directory)
-                       (helpful--definition symbol callable-p)
-                     '(nil nil nil)))
-                  (source (when def-buf
-                            (helpful--source symbol callable-p def-buf def-pos)))
-                  (source-path (when def-buf (buffer-file-name def-buf))))
+          (if (and force-variable (not (boundp symbol)) (fboundp symbol))
+              (fanshi/gptel--tool-call-error-result
+               "force-variable is t but %s has no variable binding (function only)" symbol)
+            ;; Determine callable-p: prefer force-variable if set, else heuristic.
+            (-let* ((callable-p (if force-variable
+                                    nil
+                                  (fboundp symbol)))
+                    ;; Pre-compute values needed for building sections.
+                    (primitive-p (helpful--primitive-p symbol callable-p))
+                    ((def-buf def-pos _opened)
+                     (if (or (not primitive-p) find-function-C-source-directory)
+                         (helpful--definition symbol callable-p)
+                       '(nil nil nil)))
+                    (source (when def-buf
+                              (helpful--source symbol callable-p def-buf def-pos)))
+                    (source-path (when def-buf (buffer-file-name def-buf))))
             ;; Build output in a temp buffer to avoid polluting the helpful buffer.
             (with-temp-buffer
               ;; --- Summary ---
@@ -1629,7 +1646,7 @@ Symbol-Name is a string naming an Elisp function, variable, macro, or face."
                                    (helpful--pretty-print source))))))
                 (insert "\n"))
               (buffer-substring-no-properties (point-min) (point-max)))))
-      (error "Error: Unknown symbol %s" symbol-name)))
+      (fanshi/gptel--tool-call-error-result "Unknown symbol %s" symbol-name))))
 
   (gptel-make-tool
    :name "ElispHelp"
@@ -2027,6 +2044,11 @@ cdr is only bookkeeping: it records that a `Read' was blocked here and the
 - why :: remove those noises from the context. When gptel-agent retries a tool call
   (wrong args or non-existing tool), the failed attempts pollute the context with
   error messages. We clean them up automatically after a successful retry.
+- related :: the same detection drives the *Loop Guard* (see the section of that
+  name below): a missed error shape there is not just leftover noise, it is an
+  endless loop — the guard lets the model repeat a call whose failure it cannot
+  see, and its text detector cannot help either because it strips tool blocks
+  before shingling.
 - approach :: Use =gptel-post-tool-call-functions= to mark failed blocks with
   the text property ='ignore= in the original gptel buffer. gptel's =gptel--parse-buffer=
   naturally skips regions with ='ignore, so the LLM never sees them during the
@@ -2037,42 +2059,133 @@ cdr is only bookkeeping: it records that a `Read' was blocked here and the
   to find the streak of same-tool failures immediately preceding it. Those failures
   are hidden by marking them with =gptel 'ignore=.
 - additional cases considered:
-  - Tool blocked by user confirmation timeout :: Already shows "Error: ", covered.
+  - Tool blocked by user confirmation timeout :: gptel wraps the rejection in
+    =<tool_call_error>= already, covered.
   - Failed calls to DIFFERENT tools :: NOT removed (conservative — different tools may
     carry useful debugging context for the LLM)
   - Failed calls NOT followed by success :: NOT removed (LLM needs to see the error)
+- error result shape :: a tool that *signals* used to be missed here, and that
+  is the loop case: gptel runs a synchronous tool inside =condition-case=
+  whose error clause is =(error (mapconcat #'gptel--to-string errdata " "))+, so
+  the result is the flattened signal name and data
+  (=void-variable non-existing-variable=) with *no* marker, which the old
+  text search read as success — so the failed block stayed in the context, and
+  the Loop Guard's tool detector likewise never saw a reason to stop the model
+  from repeating the call. Hence the convention now: a tool's own error text
+  starts with "Error:" (the advice above) or, better, is built with
+  =fanshi/gptel--tool-call-error-result=, and tools must not let a bare signal
+  escape. =fanshi/gptel--tool-call-is-error-p= also recognizes the flattened
+  shape of the *built-in* signal names (a fixed list — a custom =define-error=
+  name is not in it, so a tool signalling a custom error is still read as
+  success), which is why signalling stays a last resort.
+- known signal names :: the flattened-signal clause enumerates a fixed list
+  rather than matching "any hyphenated first word", because a false positive
+  here is not benign: it hides a *successful* block from the LLM, and can feed
+  a false trip into the loop guard. Add to the list in
+  =fanshi/gptel--tool-call-is-error-p= if a tool starts signalling a name that
+  is not there.
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
+  ;; Canonical shape of a tool-call error result: a leading marker, the message,
+  ;; and a trailing marker. Recognized by `fanshi/gptel--tool-call-is-error-p',
+  ;; so anything producing a tool result should format errors this way.
+  ;;
+  ;; Defined here rather than next to the Elisp help tool that uses it, which
+  ;; lives in an earlier section: Doom's =(after! gptel ...)= is a macro call
+  ;; whose body is spliced into a single =with-eval-after-load=, so the two
+  ;; blocks share one form and this definition, coming later in the buffer, is
+  ;; still evaluated before that tool is registered, let alone called. That
+  ;; relies on there being no other =(after! gptel ...)= block between the two
+  ;; sections -- see the note in the Elisp Help Tool's docstring.
+  (defun fanshi/gptel--tool-call-error-result (format-string &rest args)
+    "Return a canonical tool-call error result.
+Wraps the formatted message in `<tool_call_error> ... </tool_call_error>',
+the shape gptel itself uses for hook-blocked calls, so the result is
+detected as an error by `fanshi/gptel--tool-call-is-error-p' (and hence by
+the failed-call cleanup and the loop guard) instead of looking like a
+successful result.
+
+Prefer this over =error= in a tool function: gptel runs synchronous tools
+inside a =condition-case= that flattens a signal to
+\"<signal-name> <data>\", and that flattened form carries no error marker, so
+a signalled tool looks like a successful result to everything downstream.
+
+A function rather than a literal string at each call site, so the marker
+cannot drift away from the one `fanshi/gptel--tool-call-is-error-p' looks for."
+    (concat "<tool_call_error>\n"
+            (apply #'format format-string args)
+            "\n</tool_call_error>"))
+
   (defcustom fanshi/gptel-clean-failed-tool-calls t
     "Whether to automatically hide failed tool call blocks from LLM context.
 
-When non-nil, consecutive failed tool calls (wrong args or unknown tools)
-that precede a successful call of the same tool are hidden from the LLM
-by setting their text property to 'ignore.
+When non-nil, consecutive failed tool calls (wrong args, unknown tools, or a
+tool that signalled) that precede a successful call of the same tool are
+hidden from the LLM by setting their text property to 'ignore.
 
 The blocks remain visible in the buffer for debugging, but are skipped
 when gptel parses the prompt to send to the LLM."
     :type 'boolean
     :group 'gptel)
 
-  (defun fanshi/gptel--tool-call-is-error-p (result)
-    "Check if RESULT string indicates a tool call error."
-    (and (stringp result)
-         (or (string-match-p (rx "Error:") result)
-             (string-match-p (rx "<tool_call_error>") result))))
+  (defun fanshi/gptel--tool-call-is-error-p (tool-call)
+    "Check whether TOOL-CALL indicates a tool call error.
+
+TOOL-CALL is a plist with a :result (and, from gptel's own machinery, an
+:error) slot: either the plist passed to `gptel-post-tool-call-functions',
+or a tool call read back out of the chat buffer with the result text grafted
+on as :result. An error is recognized by
+
+- the :error slot being t, which gptel sets when a hook blocks the call
+  (tested with `eq t', not bare non-nil: the buffer-read plist's slots can be
+  any lisp object the result text happened to contain, including the keyword
+  `:error' itself),
+- a string :result starting with \"Error:\" or wrapped in
+  `<tool_call_error>', or
+- a string :result that looks like a flattened Emacs Lisp signal, i.e. one of
+  the known signal names followed by its data.
+
+The last case is the one that matters for looping: gptel runs a synchronous
+tool inside a `condition-case' whose error clause is
+`(error (mapconcat #\\='gptel--to-string errdata \" \"))', so a signal that
+escapes a tool function comes back as \"void-variable non-existing-variable\"
+with no error marker at all, and read as success the model just repeats the
+call. `fanshi/gptel--tool-call-error-result' avoids that at the source by
+returning a marked result instead of signalling; this clause is the backstop
+for signals that still escape.
+
+The markers are matched at the beginning of the result rather than anywhere in
+it, so a successful result that merely *quotes* an error (help output containing
+\"Error\", a diff mentioning \"Error:\") is not mistaken for a failure."
+    (let ((result (plist-get tool-call :result)))
+      ;; `tool-call' is either the plist gptel builds for
+      ;; `gptel-post-tool-call-functions' or one `read' back out of the chat
+      ;; buffer, so its slots can be *any* lisp object the result text happened
+      ;; to contain -- hence the type tests rather than a bare non-nil check.
+      (or (eq t (plist-get tool-call :error))
+          (and (stringp result)
+               (let ((r (string-trim-left result)))
+                 (or (string-prefix-p "<tool_call_error>" r)
+                     (string-prefix-p "Error:" r)))))))
 
   (defun fanshi/gptel--hide-failed-tool-calls (tool-call)
     "Hide failed tool call blocks after a successful retry.
 
 Called as a `gptel-post-tool-call-functions' hook. When a tool call succeeds,
 looks backward in the original buffer for preceding failures of the same tool
-and marks them with gptel 'ignore so the LLM doesn't see them."
+and marks them with gptel 'ignore so the LLM doesn't see them.
+
+Uses `fanshi/gptel--tool-call-is-error-p' rather than a text search for
+\"Error:\", so a tool that signalled (whose result gptel flattened to
+\"void-variable foo\") counts as the failure it is.
+
+The scan is textual rather than plist-based: gptel does not pass the preceding
+calls to the hook, so the buffer is the only place the whole history lives
+(and its 'ignore property is what `gptel--parse-buffer' skips)."
     (when fanshi/gptel-clean-failed-tool-calls
       (let* ((name (plist-get tool-call :name))
-             (args (plist-get tool-call :args))
-             (result (plist-get tool-call :result))
              (orig-buf (get-buffer (plist-get tool-call :buffer))))
-        (when (and orig-buf (not (fanshi/gptel--tool-call-is-error-p result)))
+        (when (and orig-buf (not (fanshi/gptel--tool-call-is-error-p tool-call)))
           ;; Success: hide preceding same-tool failures.
           (with-current-buffer orig-buf
             (save-excursion
@@ -2087,16 +2200,42 @@ and marks them with gptel 'ignore so the LLM doesn't see them."
                     (condition-case result
                         (save-excursion
                           (let* ((tool-call-text (read (current-buffer)))
-                                 (call-name (plist-get tool-call-text :name))
-                                 (call-args (plist-get tool-call-text :args)))
+                                 ;; `read' interns, so a stray symbol where a
+                                 ;; call plist was expected can land in :name: it
+                                 ;; must not reach `string=' (which errors on a
+                                 ;; non-string) or match a real tool.
+                                 (call-name (let ((n (plist-get tool-call-text :name)))
+                                              (and (stringp n) n)))
+                                 ;; `read' leaves point just after the call, so
+                                 ;; this is where the result text starts.
+                                 (result-start (point)))
                             (cond
-                             ;; Hide preceding same-tool failures
+                             ;; Hide preceding same-tool failures. The buffer
+                             ;; form is `(:name .. :args ..)' followed by the
+                             ;; result text and then the block's footer, so
+                             ;; graft the result onto the plist. `end' is the
+                             ;; start of the *next* block, not the end of this
+                             ;; one's result, so cut the graft at this block's
+                             ;; footer; the search is bounded by `end', so a
+                             ;; footer further along cannot be picked up. Only
+                             ;; Org front-ends produce `#+end_tool' -- the
+                             ;; Markdown fence is not matched, so a fence in the
+                             ;; result leaks into the graft, which is harmless
+                             ;; because every marker is anchored at the start.
                              ((and (string= name call-name)
-                                   (re-search-forward (rx (and point
-                                                               (* (syntax -))
-                                                               (optional (and "error" (+ (syntax -))))
-                                                               (or "<tool_call_error>" "Error:")))
-                                                      end t))
+                                   (progn
+                                     (plist-put tool-call-text :result
+                                                (buffer-substring-no-properties
+                                                 result-start
+                                                 (save-match-data
+                                                   (if (save-excursion
+                                                         (goto-char result-start)
+                                                         (re-search-forward
+                                                          "\n#+end_tool" end t))
+                                                       (match-beginning 0)
+                                                     end))))
+                                     (fanshi/gptel--tool-call-is-error-p
+                                      tool-call-text)))
                               (put-text-property start end 'gptel 'ignore))
                              ;; Stop at first different tool or non-failure
                              (t 'done))))
