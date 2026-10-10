@@ -1722,7 +1722,11 @@ Return nil when valid, else a string describing the errors."
                 `(:block ,errors)))
           `(:block ,(format "Error: tool %s is not available" name)))))))
 
-  (add-hook 'gptel-pre-tool-call-functions #'fanshi/gptel--validate-tool-args-hook)
+  ;; Depth 80: the project-rule check runs at 90, after this hook, so a ban can
+  ;; still override the `(:confirm nil)' returned for a tool in
+  ;; `fanshi/safe-tool'.
+  (add-hook 'gptel-pre-tool-call-functions
+            #'fanshi/gptel--validate-tool-args-hook 80)
 
   (defun fanshi/gptel--process-tool-call-a (args)
     "Replace a nil tool-spec in ARGS with a dummy `gptel-tool'.
@@ -3111,13 +3115,95 @@ the user tangles ~config.org~ manually after reviewing changes.
 ~gptel--system-message~, so saving a preset from the transient (~C-s~) or editing
 the live system message (~s~) bakes the current project's instructions into a
 plain string and loses the lookup. Adding a directive is fine — gptel merges it
-with the freshly built message.
+with the freshly resolved message.
+
+*Prefer a rule over an instruction.* Prose in ~AGENTS.org~ is only a *request*:
+the model may read ~config.el~ anyway. A *rule* is enforced mechanically by the
+pre-tool-call hook (`fanshi/gptel--enforce-project-rules'), so a banned call is
+blocked and the model gets the reason back as an error. Rules live in a project's
+~.dir-locals.el~ as the ~fanshi-gptel-project-rules~ local variable — no separate
+rules file, no Lisp embedded in an org buffer. Caveat: the hook reads that file
+with ~read~, outside the ~hack-local-variables~ consent flow, so it must be
+trusted input.
+
+#+begin_src emacs-lisp :tangle no
+;; In the project's .dir-locals.el:
+((nil . ((fanshi-gptel-project-rules
+          . ((coding
+              (Read (:file_path ("config\\.el$" . "config.el is tangled from config.org — read config.org instead."))
+               Edit (:path ("config\\.el$" . "Edit config.org, the source of truth, not config.el."))
+               Write (:path ("config\\.el$" . "Write to config.org, the source of truth, not config.el."))))))))))
+#+end_src
+
+The keys are preset names; each value is a plist of
+~'TOOL \\=' (ARG-KEYWORD \\=' FILE-RULES)~, where FILE-RULES is either a bare
+~FILE-REGEXP~ (generic block) or a ~(FILE-REGEXP . BAN-REASON)~ pair. The tool
+name is matched case-insensitively, the regexp with `string-match-p' (unanchored,
+so ~config\\.el$~ matches at any depth). Naming the argument keyword (~:file_path~
+/ ~:path~) tells the hook which argument holds the file.
+
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
   (defvar fanshi/gptel-agents-file-name "AGENTS.org"
     "Per-project agent instructions file, under the project root.
 Top-level headings are preset names; the text under one is that preset's
 instructions.")
+
+  (defvar fanshi-gptel-project-rules nil
+    "Per-project mechanically enforced rules for agent tool calls.
+Set it in a project's ~.dir-locals.el~.  An alist of
+~(PRESET . RULES)~, where PRESET is a preset name and RULES a plist of
+~TOOL-SYMBOL \\=' (ARG-KEYWORD \\=' FILE-RULES)~ entries; FILE-RULES is a bare
+~FILE-REGEXP~ or a ~FILE-REGEXP . BAN-REASON~ pair.  A tool call is blocked when
+the applied presets include PRESET, the tool name matches TOOL-SYMBOL
+case-insensitively, and the ARG-KEYWORD argument's value matches FILE-REGEXP.
+Enforced by `fanshi/gptel--enforce-project-rules', which reads this variable
+straight out of the project root's ~.dir-locals.el~ rather than relying on Emacs
+to have applied it.  The ~safe-local-variable~ property below only governs the
+~hack-local-variables~ prompt.")
+
+  (defvar-local fanshi/gptel-agents-rules nil
+    "This session's enforced project rules.
+A plist of ~TOOL-SYMBOL \\=' (ARG-KEYWORD \\=' FILE-RULES)~ entries, resolved from
+the project's `fanshi-gptel-project-rules' by
+`fanshi/gptel--enforce-project-rules', which also reads this.")
+
+  (defvar-local fanshi/gptel-agents-rules-resolved nil
+    "Non-nil once this session's project rules have been looked up.
+Cache flag for `fanshi/gptel-agents-rules', set whether or not the lookup found
+rules, so a preset with no rules does not re-read the file per call.")
+
+  (put 'fanshi-gptel-project-rules 'safe-local-variable
+       ;; Structural check only: the nested grammar is validated at use sites.
+       (lambda (x)
+         (and (consp x)
+              (not (sequencep x))
+              (seq-every-p
+               (lambda (e)
+                 (and (consp e)
+                      (symbolp (car e))
+                      (listp (cdr e))
+                      (= 0 (mod (length (cdr e)) 2))))
+               x))))
+
+  (defun fanshi/gptel-agents-section-body (file preset)
+    "Return PRESET's section body in org FILE, or nil when absent/empty.
+PRESET names the top-level heading; the text under it is returned trimmed."
+    (when-let* ((file (expand-file-name file))
+                ((file-exists-p file)))
+      (with-temp-buffer
+        (delay-mode-hooks (org-mode))
+        (insert-file-contents file)
+        (goto-char (point-min))
+        (let ((heading (concat "^\\* +" (regexp-quote (symbol-name preset))
+                               "[ \t]*$"))
+              (search-invisible nil))
+          (when (re-search-forward heading nil t)
+            (org-back-to-heading)
+            (forward-line 1)
+            (let ((start (point)))
+              (org-end-of-subtree)
+              (string-trim (buffer-substring-no-properties start (point)))))))))
 
   (defun fanshi/gptel-agents-insert-project-instructions (preset)
     "Append PRESET's project instructions to the current buffer's contents.
@@ -3129,23 +3215,103 @@ The project is the current buffer's (`projectile-project-root', else
                           (fanshi/jj-workspace-root)))
                 (file (expand-file-name fanshi/gptel-agents-file-name root))
                 ((file-exists-p file))
-                (result (with-temp-buffer
-                          (delay-mode-hooks (org-mode))
-                          (insert-file-contents file)
-                          (goto-char (point-min))
-                          (let ((heading (concat "^\\* +" (regexp-quote (symbol-name preset))
-                                                 "[ \t]*$"))
-                                (search-invisible nil))
-                            (when (re-search-forward heading nil t)
-                              (org-back-to-heading)
-                              (forward-line 1)
-                              (let ((start (point)))
-                                (org-end-of-subtree)
-                                (string-trim
-                                 (buffer-substring-no-properties start (point))))))))
+                (result (fanshi/gptel-agents-section-body file preset))
                 ((not (string-empty-p result))))
       (goto-char (point-max))
-      (insert "\n\n# Project Instructions\n\n" result))))
+      (insert "\n\n# Project Instructions\n\n" result)))
+
+  (defun fanshi/gptel--project-rules-for-presets (presets)
+    "Return the rules that PRESETS activate, resolved from the current buffer.
+Reads the ~.dir-locals.el~ at the project root (`projectile-project-root', else
+`fanshi/jj-workspace-root') and pulls the ~fanshi-gptel-project-rules~ value out
+of its ~nil~ (all-modes) entry directly, so the lookup does not depend on local
+variables having been applied to the caller's directory.  Presets with no entry
+contribute nothing; a missing or malformed file yields nil."
+    (let ((root (or (ignore-errors (projectile-project-root))
+                    (fanshi/jj-workspace-root))))
+      (when-let* ((root root)
+                  (file (expand-file-name ".dir-locals.el" root))
+                  ((file-exists-p file))
+                  (alist (condition-case err
+                             (let ((contents (with-temp-buffer
+                                               (insert-file-contents file)
+                                               (buffer-string))))
+                               (cdr (assq 'fanshi-gptel-project-rules
+                                          (cdr (assq nil (read contents))))))
+                           (error (message "Invalid %s: %s" file err)
+                                  nil)))))
+      (when (consp alist)
+        (let (acc)
+          (dolist (preset presets)
+            (when-let ((rules (cdr (assq preset alist))))
+              (setq acc (append acc rules))))
+          acc))))
+
+  (defun fanshi/gptel--project-rule-violation (rules tool-name args)
+    "Return the ban reason if a call of TOOL-NAME/ARGS violates a rule in RULES.
+TOOL-NAME is matched case-insensitively against each rule's tool symbol.  For a
+matching rule, each ~ARG-KEYWORD \\=' FILE-RULES~ entry is checked with
+`string-match-p' against that argument's value in ARGS."
+    (cl-loop for (tool-key . arg-map) on rules by #'cddr
+             when (and (symbolp tool-key)
+                       (string-equal (downcase (symbol-name tool-key))
+                                     (downcase tool-name)))
+             do (cl-loop for (arg-key . file-rules) on arg-map by #'cddr
+                         for file = (plist-get args arg-key)
+                         when (stringp file)
+                         do (dolist (entry (if (consp (car-safe file-rules))
+                                               file-rules
+                                             (list file-rules)))
+                              (let ((regexp (if (consp entry) (car entry) entry))
+                                    (reason (if (consp entry) (cdr entry) nil)))
+                                (when (and (stringp regexp)
+                                           (string-match-p regexp file))
+                                  (return-from fanshi/gptel--project-rule-violation
+                                               (or reason
+                                                   (format "%s on %s is not allowed" tool-name file))))))))
+    nil)
+
+  (defun fanshi/gptel--enforce-project-rules (tool-call)
+    "`gptel-pre-tool-call-functions' hook: block TOOL-CALL on a project rule.
+Resolve the project's rules once per session into
+`fanshi/gptel-agents-rules' and match the call against them, returning
+`(:block REASON)' when a rule bans it, else nil.
+
+Resolution happens here, not when the preset's system message is built, because
+this hook's buffer is the session buffer gptel passes as ~:buffer~, whereas the
+~:system~ lambda runs in a throwaway prompt buffer.
+
+Two limits: calls with no applied presets are not enforced (the rules are keyed
+by preset), and only the tool NAME is matched, so a shell or Lisp tool reaching
+the same file is not covered."
+    (let* ((buffer (plist-get tool-call :buffer))
+           (name (plist-get tool-call :name))
+           (args (plist-get tool-call :args)))
+      ;; `buffer-live-p', not just non-nil: `buffer-local-value' signals on a
+      ;; killed buffer.
+      (when (buffer-live-p buffer)
+        ;; First tool call that knows its presets: resolve and cache. gptel runs
+        ;; this hook with the session buffer current, which the lookup needs for
+        ;; `default-directory'.
+        (let ((presets (buffer-local-value 'fanshi/last-gptel-presets buffer)))
+          (unless (or (null presets)
+                      (buffer-local-value 'fanshi/gptel-agents-rules-resolved buffer))
+            (let ((rules (fanshi/gptel--project-rules-for-presets presets)))
+              (with-current-buffer buffer
+                (setq fanshi/gptel-agents-rules rules)
+                (setq fanshi/gptel-agents-rules-resolved t)))))
+        (when-let* ((rules (buffer-local-value 'fanshi/gptel-agents-rules buffer))
+                    (reason (and name
+                                 (fanshi/gptel--project-rule-violation
+                                  rules name args))))
+          `(:block ,(format "Blocked by project rule: %s" reason))))))
+
+  ;; Depth 90: run after the arg validator (80), so a ban can override the
+  ;; `(:confirm nil)' it returns for a tool in `fanshi/safe-tool'.  The depth is
+  ;; explicit because the validator's `add-hook' lives in another `after! gptel'
+  ;; block, so source order alone would not pin the two.
+  (add-hook 'gptel-pre-tool-call-functions
+            #'fanshi/gptel--enforce-project-rules 90))
 #+end_src
 *** Instruct
 #+begin_src emacs-lisp :tangle no
