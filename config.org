@@ -2643,14 +2643,25 @@ We load our own presets.
 #+begin_src emacs-lisp :tangle yes
 (after! gptel-agent (advice-add 'gptel-agent-update :override #'ignore))
 #+end_src
-*** Scrum master
+*** Scrum master (gptel-agent)
+The orchestrator preset, as the default `gptel-agent'.
+
+*Model precedence.* This preset pins the orchestrator's model.  The model that
+actually goes out with a request is the *prompt* buffer's `gptel-model'
+(`gptel--realize-query'), and gptel seeds that buffer with the session's value
+(`gptel--with-buffer-copy-internal') before `fanshi/process-preset-til-end'
+applies the prompt's markers to it.  So a marker whose preset carries a `:model'
+(`heavy', `exp', `fast') overrides this one for its own prompt, and
+`fanshi/gptel--transform-apply-preset-a' republishes the resolved model into
+`fanshi/last-presets-gptel-model'; markers with no `:model' (`coding', `web')
+leave this one in force.
+
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (gptel-make-preset 'scrum
+  (gptel-make-preset 'gptel-agent
     :model '(:eval (fanshi/gptel-select-model 'mensaprodigy--Qwen3.8-Flash-Next-REAP-384-oQ5e-BF16-MTP-PLE))
-    :description "Scrum Master - orchestrates process flow, delegates to agents, does NOT code"
+    :description "Orchestrator - manages process flow, delegates to agents, does NOT code"
     :tools fanshi/scrum-tools
-    ;; No AGENTS.org section: the orchestrator does no project work.
     :system (lambda ()
               (with-temp-buffer
                 (insert-file-contents (expand-file-name "./gptel/scrum.md" doom-user-dir))
@@ -2658,8 +2669,10 @@ We load our own presets.
                                                `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/scrum-tools))
                                                  ("DATE" . ,(format-time-string "%Y-%m-%d"))
                                                  ("CWD" . ,default-directory)))
-                (buffer-string))))
-  (gptel-make-preset 'gptel-agent :parents 'scrum))
+                ;; The orchestrator does no project work of its own, but a project
+                ;; may still need to steer how it delegates.
+                (fanshi/gptel-agents-insert-project-instructions 'gptel-agent)
+                (buffer-string)))))
 #+end_src
 *** Research
 #+begin_src emacs-lisp :tangle yes
@@ -2683,18 +2696,88 @@ We load our own presets.
 #+end_src
 *** Project instructions from AGENTS.org
 Per-project instruction snippets: a project's ~AGENTS.org~ has one top-level heading
-per preset name.
+per preset name.  Plain agent sessions read the ~gptel-agent~ heading, ~@coding~
+sessions the ~coding~ heading.
+
+#+begin_src org :tangle no
+,* coding
+NEVER edit ~config.el~ to mirror edits made to ~config.org~ —
+the user tangles ~config.org~ manually after reviewing changes.
+#+end_src
 
 *Caveat:* applying a preset stores the *resolved* message in ~gptel--system-message~,
 so saving a preset from the transient (~C-s~) or editing the live system message (~s~)
 bakes the current project's instructions into a plain string and loses the lookup.
 Adding a directive is fine — gptel merges it with the freshly resolved message.
 
+*Prefer a rule over an instruction.* Prose in ~AGENTS.org~ is only a *request*: the
+model may read ~config.el~ anyway. A *rule* is enforced mechanically by the
+pre-tool-call hook (`fanshi/gptel--enforce-project-rules'), so a banned call is
+blocked and the model gets the reason back as an error. Rules live in a project's
+~.dir-locals.el~ as the ~fanshi-gptel-project-rules~ local variable — no separate
+rules file, no Lisp embedded in an org buffer. Caveat: the hook reads that file with
+~read~, outside the ~hack-local-variables~ consent flow, so it must be trusted input.
+
+#+begin_src emacs-lisp :tangle no
+;; In the project's .dir-locals.el:
+((nil . ((fanshi-gptel-project-rules
+          . ((coding
+              (Read (:file_path ("config\\.el$" . "config.el is tangled from config.org — read config.org instead."))
+               Edit (:path ("config\\.el$" . "Edit config.org, the source of truth, not config.el."))
+               Write (:path ("config\\.el$" . "Write to config.org, the source of truth, not config.el.")))))))))
+#+end_src
+
 The keys are preset names; each value is a plist of ~'TOOL \\=' (ARG-KEYWORD \\='
 FILE-RULES)~, where FILE-RULES is a bare ~FILE-REGEXP~ (generic block) or a
 ~(FILE-REGEXP . BAN-REASON)~ pair. Tool names match case-insensitively; the regexp
 with `string-match-p' (unanchored, so ~config\\.el$~ matches at any depth). Naming the
 argument keyword (~:file_path~ / ~:path~) tells the hook which argument holds the file.
+
+The rules are looked up by the pre-tool-call hook
+`fanshi/gptel--enforce-project-rules', once per session and per change of the
+session's applied preset list.
+
+*Only a marker publishes that list.* A preset applied by a setter — what
+`gptel-agent' does — publishes nothing (`gptel--apply-preset' records the name in
+`gptel--preset' alone), so the session has no list unless something seeds it.
+~fanshi/gptel-agent~ and the delegate path (`fanshi/ai-delegate--tool-delegate')
+seed it themselves; every other entry point — ~M-x gptel-agent~,
+`fanshi/ai-breakdown', the nightly orchestrator, the queued-request replay — runs
+with no list and enforces no rules. That is deliberate: the rule set is meant for
+the sessions this config starts on purpose, not for every buffer that happens to
+load a preset.
+
+*The list is replaced, not merged.* When a prompt carries @preset markers,
+`fanshi/gptel--transform-apply-preset-a' publishes them as the *whole* list, so the
+first ~@coding~ prompt in a plain agent session swaps ~(gptel-agent)~ for ~(coding)~
+— and from that prompt on, only the rules keyed to the presets in the new list are
+enforced. The published list is that of the most recent prompt *carrying* markers
+(`fanshi/gptel--transform-apply-preset-a' keeps the first non-empty result it finds
+scanning backward, and strips markers left in earlier prompts), so a markerless
+prompt leaves the list as it was.  This is intended: an orchestrator rule such as
+"does NOT code" must stop binding once the session has deliberately become a coding
+session. The consequence for rule authors: a rule keyed to ~gptel-agent~ alone binds
+a plain agent session only while it is still the plain orchestrator, so a rule that
+must hold no matter which preset the session switches to has to be repeated under
+those presets.
+
+*The list is never merged back.* Once a marker has replaced it, a preset applied by
+a setter — one chosen from the transient, or the ~[Agent]/[Plan]~ toggle in a
+gptel-agent buffer's header line — is not recorded, so it never returns to the list
+on a later markerless prompt. (The seed from ~fanshi/gptel-agent~ happens once, at
+session start, before any prompt.) A session that has gone ~@coding~ does not become
+an orchestrator again by dropping the marker; only a new marker (or a new session)
+restores those rules.
+
+*The preset list is not persisted.* ~fanshi/last-gptel-presets~ is buffer-local with
+no save/restore of its own.  A chat saved to a file and re-opened with
+`gptel-mode' does get its preset back — gptel stores it in the buffer properties and
+re-applies it on restore — but that path goes through `gptel--apply-preset', which
+publishes nothing, so the list stays nil and ~fanshi/gptel--enforce-project-rules~
+enforces nothing in the resumed session.  Nor does a later ~@coding~ prompt
+necessarily help: gptel strips the marker from the prompt buffer, so a prompt
+already sent once has no marker left to re-publish.  A resumed session needs a
+*fresh* prompt carrying a marker before rules apply again.
 
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
@@ -2724,6 +2807,14 @@ prompt.")
     "Non-nil once this session's project rules have been looked up.
 Cache flag, set whether or not rules were found, so a preset with no rules does not
 re-read the file per call.")
+
+  (defvar-local fanshi/gptel-agents-rules-presets nil
+    "The preset list `fanshi/gptel-agents-rules' was resolved from.
+Compared against `fanshi/last-gptel-presets' by
+`fanshi/gptel--enforce-project-rules': when a later prompt applies a different
+set of presets, the cached rules are stale and get resolved again.  Kept separate
+from `fanshi/gptel-agents-rules' because a preset with no rules resolves to nil,
+which alone would not tell a resolved-but-empty cache from an unset one.")
 
   (put 'fanshi-gptel-project-rules 'safe-local-variable
        ;; Structural check only; the nested grammar is validated at use sites.
@@ -2785,13 +2876,13 @@ directly, so the lookup does not depend on local variables having been applied."
                                (cdr (assq 'fanshi-gptel-project-rules
                                           (cdr (assq nil (read contents))))))
                            (error (message "Invalid %s: %s" file err)
-                                  nil)))))
-      (when (consp alist)
-        (let (acc)
-          (dolist (preset presets)
-            (when-let ((rules (cdr (assq preset alist))))
-              (setq acc (append acc rules))))
-          acc))))
+                                  nil))))
+        (when (consp alist)
+          (let (acc)
+            (dolist (preset presets)
+              (when-let ((rules (cdr (assq preset alist))))
+                (setq acc (append acc rules))))
+            acc)))))
 
   (defun fanshi/gptel--project-rule-violation (rules tool-name args)
     "Ban reason if a call of TOOL-NAME/ARGS violates a rule in RULES.
@@ -2817,30 +2908,56 @@ TOOL-NAME matches each rule's tool symbol case-insensitively."
 
   (defun fanshi/gptel--enforce-project-rules (tool-call)
     "`gptel-pre-tool-call-functions' hook: block TOOL-CALL on a project rule.
-Resolves the project's rules once per session into `fanshi/gptel-agents-rules' and
-matches the call against them, `(:block REASON)' when banned.
+Resolve the project's rules for the session's applied presets into
+`fanshi/gptel-agents-rules' and match the call against them, returning
+`(:block REASON)' when a rule bans it, else nil.
 
-Calls with no applied presets are not enforced, and only the tool NAME is matched."
-    (let* ((buffer (plist-get tool-call :buffer))
+Resolution happens here, not in a preset's ~:system~: that lambda produces the
+instruction *text* for the model, while enforcement needs the rule structure at
+tool-call time, looked up from the session buffer's ~default-directory~.
+
+Four limits: calls with no applied presets are not enforced (the rules are keyed
+by preset); the cache is only re-resolved when the session's preset list changes,
+so editing the project's rules or the live system message of a running session
+does not take effect there — start a new session; a later prompt with @preset
+markers *replaces* the list, so rules keyed to a preset no longer in it stop being
+enforced; and only the tool NAME is matched, so a shell or Lisp tool reaching the
+same file is not covered."
+    (let* ((buffer (get-buffer (plist-get tool-call :buffer)))
+           ;; `:buffer' is the session buffer's NAME (`gptel--handle-pre-tool'
+           ;; passes `(buffer-name buffer)'), and `buffer-live-p' returns nil for
+           ;; a string -- unresolved, every tool call would fail the guard below
+           ;; and no rule would ever be enforced.
            (name (plist-get tool-call :name))
            (args (plist-get tool-call :args)))
       (when (buffer-live-p buffer)
+        ;; Resolve and cache on the first tool call that knows its presets, and
+        ;; again whenever the list changes. gptel runs this hook with the session
+        ;; buffer current, which the lookup needs for `default-directory'.
         (let ((presets (buffer-local-value 'fanshi/last-gptel-presets buffer)))
-          (unless (or (null presets)
-                      (buffer-local-value 'fanshi/gptel-agents-rules-resolved buffer))
-            (let ((rules (fanshi/gptel--project-rules-for-presets presets)))
-              (with-current-buffer buffer
-                (setq fanshi/gptel-agents-rules rules)
-                (setq fanshi/gptel-agents-rules-resolved t)))))
-        (when-let* ((rules (buffer-local-value 'fanshi/gptel-agents-rules buffer))
-                    (reason (and name
-                                 (fanshi/gptel--project-rule-violation
-                                  rules name args))))
-          `(:block ,(format "Blocked by project rule: %s" reason))))))
+          (when presets
+            (unless (and (buffer-local-value 'fanshi/gptel-agents-rules-resolved buffer)
+                         (equal presets
+                                (buffer-local-value 'fanshi/gptel-agents-rules-presets
+                                                    buffer)))
+              (let ((rules (fanshi/gptel--project-rules-for-presets presets)))
+                (with-current-buffer buffer
+                  (setq fanshi/gptel-agents-rules rules
+                        fanshi/gptel-agents-rules-resolved t
+                        ;; Re-key the cache to the presets it was resolved from.
+                        fanshi/gptel-agents-rules-presets presets)))))
+          (when-let* ((rules (buffer-local-value 'fanshi/gptel-agents-rules buffer))
+                      (reason (and name
+                                   (fanshi/gptel--project-rule-violation
+                                    rules name args))))
+            `(:block ,(format "Blocked by project rule: %s" reason)))))))
 
+  ;; Registered globally, not buffer-locally: gptel's tool-call handler runs the
+  ;; buffer-local value of this hook, so a buffer that sets it locally would
+  ;; silently drop the enforcement.  Nothing in this config does.
+  ;;
   ;; Depth 90: after the arg validator (80), so a ban overrides the `(:confirm nil)'
-  ;; it returns for a tool in `fanshi/safe-tool'. Explicit because the validator's
-  ;; `add-hook' is in another `after! gptel' block.
+  ;; it returns for a tool in `fanshi/safe-tool'.
   (add-hook 'gptel-pre-tool-call-functions
             #'fanshi/gptel--enforce-project-rules 90))
 #+end_src
@@ -2880,8 +2997,25 @@ with only:
 - the failing ~cmd~, the file the error was found in, and the source file to fix,
   with the error wrapped in an ~#+begin_example~ block
 - the current jj diff (in a jj repo), via `fanshi/call-jj'
+- a file stays in ~fanshi/gptel--edited-files~ until its check passes, so it is
+  re-checked after the next response; once everything passes, the fix count resets
 - the fixer inherits the spawning buffer's retry count, so a chain of failing fixers
-  stays bounded
+  stays bounded by `fanshi/gptel-code-check-auto-fix-max-retries'
+- the fixing prompt looks like this (the diff only appears in jj repos):
+  #+begin_src text :tangle no
+  @coding Command (org-babel tangled file "<project>/config.org") failed.
+
+  In <project>/config.el:
+  #+begin_example
+  config.el: Unbalanced parentheses at line 2312, column 8.
+  #+end_example
+
+  Please fix the error in the source file(<project>/config.org) then report the fix.
+
+  For context, the current jj diff is:
+
+  <diff output>
+  #+end_src
 
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
@@ -3346,7 +3480,9 @@ Four fixes over the original:
 Fallback for the available-tool check, ahead of `gptel-tools'.")
 
   (defvar-local fanshi/last-gptel-presets nil
-    "Preset names applied by the last prompt, e.g. (coding editor).")
+    "Preset names applied by the last prompt, e.g. (coding editor).
+A preset applied by a setter instead of an @preset marker publishes nothing here;
+`fanshi/gptel-agent' and `fanshi/ai-delegate--tool-delegate' seed it themselves.")
 
   (defvar-local fanshi/last-presets-gptel-model nil
     "Model selected by the last preset applied here.
@@ -4120,6 +4256,16 @@ process buffer.
   (advice-add 'gptel-curl--sentinel :before-until #'fanshi/gptel-curl--stale-request-p))
 #+end_src
 ** fanshi/gptel-agent
+`fanshi/gptel-agent' starts a plain `gptel-agent' session (preset `gptel-agent').
+Thanks to the `:system' of the `gptel-agent' preset it inherits the ~gptel-agent~
+section of the project's ~AGENTS.org~.
+
+It also seeds `fanshi/last-gptel-presets' with ~(gptel-agent)~ in the session buffer.
+`gptel-agent' applies its preset with a setter rather than an @preset marker, so
+nothing publishes the preset name and the project rules keyed to it (see
+`fanshi/gptel--enforce-project-rules') would never be enforced. The seed happens
+before the first tool call, which is when the rules are resolved.
+
 #+begin_src emacs-lisp :tangle yes :lexical t
 (map! :map doom-leader-open-map "l l" #'fanshi/gptel-agent)
 (after! gptel
@@ -4131,6 +4277,11 @@ otherwise a plain gptel-agent buffer in the current project."
     (if-let* ((jj-dir (fanshi/jj-workspace-root default-directory)))
         (if (string-blank-p task-description)
             (with-current-buffer (gptel-agent jj-dir 'gptel-agent)
+              ;; `gptel-agent' applies the preset with a setter, which publishes
+              ;; nothing into `fanshi/last-gptel-presets' (see the caveat under
+              ;; "Project instructions from AGENTS.org"), and the project rules are
+              ;; keyed by preset name. Seed it so those rules bind this session.
+              (setq-local fanshi/last-gptel-presets '(gptel-agent))
               (setq-local fanshi/gptel-jj-workspace jj-dir)
               (when (eq 'doom (projectile-project-type))
                 ;; Let the doomemacs config agent read modules & repos.
@@ -4155,6 +4306,7 @@ otherwise a plain gptel-agent buffer in the current project."
               (with-current-buffer buf
                 (goto-char (point-max))
                 (insert task-description)
+                (setq-local fanshi/last-gptel-presets '(gptel-agent))
                 (setq-local fanshi/gptel-jj-workspace dir)
                 (setq-local fanshi/gptel-jj-origin-root jj-dir)
                 (when (eq 'doom (projectile-project-type))
@@ -4192,8 +4344,10 @@ otherwise a plain gptel-agent buffer in the current project."
       (with-current-buffer (gptel-agent default-directory 'gptel-agent)
         (goto-char (point-max))
         (insert task-description)
+        (setq-local fanshi/last-gptel-presets '(gptel-agent))
         (current-buffer)))))
 #+end_src
+
 ** fanshi/gptel--insert-preset
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
@@ -5434,7 +5588,7 @@ INTEGRATED:   Timestamp set once the agent's commit has been squashed into
               the main workspace; makes `fanshi/ai-delegate--integrate-task'
               refuse a second squash.
 AGENT_BUF: Name of the gptel-agent buffer handling this task.
-DELEGATED_TO: The gptel preset name (e.g., coding, product, scrum).
+DELEGATED_TO: The gptel preset name (e.g., coding, research, gptel-agent).
               Set to 'user' when the task is pending human input.
 DELEGATED_AT: Timestamp when the task was delegated.
 SCOPED_PROJECT: The project directory this task belongs to.
@@ -5829,6 +5983,15 @@ working on TASK in an isolated jj workspace."
                 ;; and `fanshi/ai-delegate--integrate-task' integrates @ only,
                 ;; so the work would silently be dropped at integration time.
                 (setq-local fanshi/ai-delegate--current-task-id task-id)
+                ;; `gptel-agent' applied AGENT with a setter, which publishes
+                ;; nothing into `fanshi/last-gptel-presets' (see the caveat under
+                ;; "Project instructions from AGENTS.org").  Seed it, or the rules
+                ;; keyed to this preset in the project's ~.dir-locals.el~ would not
+                ;; bind the one agent that runs unattended.
+                (setq-local fanshi/last-gptel-presets
+                            (list (intern (if (symbolp agent)
+                                              (symbol-name agent)
+                                            agent))))
                 ;; Auto-integrate the agent's commit once the task becomes DONE
                 (add-hook 'gptel-post-response-functions
                           #'fanshi/ai-delegate--post-response-integrate nil t)
@@ -6284,7 +6447,7 @@ PROJECT: Optional absolute path of the project directory the subtasks run in (st
 (after! gptel
   (defun fanshi/ai-breakdown (topic)
     "Have the Scrum Master decompose TOPIC into subtasks in the AI tasks file.
-Opens the =scrum= preset in a dedicated gptel-agent buffer pointed at the GTD
+Opens the =gptel-agent= preset in a dedicated gptel-agent buffer pointed at the GTD
 directory and asks it to emit one =BreakdownTask= call.  The subtasks land in
 the AI tasks org file as =TODO= entries, ready for `fanshi/ai-nightly--run'
 or a manual =Delegate=.
@@ -6314,7 +6477,7 @@ heading, its title becomes the parent heading and its body the description."
       ;; `gptel-agent' forwards an active region as its own initial prompt;
       ;; deactivate the mark so TOPIC is not sent twice.
       (deactivate-mark)
-      (let ((buf (gptel-agent default-directory 'scrum)))
+      (let ((buf (gptel-agent default-directory 'gptel-agent)))
         (with-current-buffer buf
           (goto-char (point-max))
           (insert (format
@@ -6389,8 +6552,8 @@ heading, org-id and key properties."
       (unless (file-exists-p ai-tasks-file)
         (error "AI Nightly: No AI tasks file at %s" ai-tasks-file))
       (message "AI Nightly: Starting Scrum Master orchestrator...")
-      (with-current-buffer (get-buffer-create "*gptel-agent: scrum-nightly*")
-        (gptel-agent ai-tasks-dir 'scrum)
+      (with-current-buffer (get-buffer-create "*gptel-agent: orchestrator-nightly*")
+        (gptel-agent ai-tasks-dir 'gptel-agent)
         (goto-char (point-max))
         (insert "\n\n# Nightly Task Dispatch\n\nCurrent tasks in "
                 ai-tasks-file
