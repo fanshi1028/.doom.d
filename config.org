@@ -4467,7 +4467,7 @@ immediately."
         ;; work onto the parent, so `@' shows nothing — show that change instead.
         (when-let ((parent-diff (fanshi/gptel-meta-request--parent-diff source-ws)))
           (goto-char (point-max))
-          (insert (format "\n\nFor context, the diff of the previous change (the working-copy commit is empty):\n\n%s\n"
+          (insert (format "\n\nFor context, the diff of the previous change (the working-copy commit is empty):\n\n#+begin_example\n%s\n#+end_example\n"
                           parent-diff)))
         (if send
             (gptel-send)
