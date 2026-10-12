@@ -4156,80 +4156,55 @@ a preset marker when this Org source is exported or fed to an agent."
     (insert (concat preset-name " "))))
 #+end_src
 ** fanshi/gptel-code-review-jj-diff
-Start a gptel-agent session reviewing the current jj changes. See the docstring for
-details (empty-`@' fallback to the parent change, prompt layout, prefix-arg
-behavior).
+Start a gptel-agent session reviewing the current jj changes. The prompt ends with a
+=bash= block holding `fanshi/gptel-code-review-jj-diff-cmd'.
+
+- No prefix arg: the command is run in the workspace, its output appended to the prompt,
+  and the request sent.
+- Prefix arg: nothing is run or sent; the buffer is left with the command block in place
+  so the instruction and command can be edited, then the block run and sent (~C-c RET~).
+
+The buffer's =default-directory= is set to the workspace so the agent's own =jj= commands
+resolve against the reviewed change, and the auto-commit hook is disarmed so =@= stays put.
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
-  (defun fanshi/gptel-code-review-jj-diff (&optional prompt)
+  (defcustom fanshi/gptel-code-review-jj-diff-cmd
+    '("jj" "diff" "--color=never" "-r" "\"heads(::@&~empty())\"")
+    "Diff command `fanshi/gptel-code-review-jj-diff' puts in the prompt's bash block
+and runs. Defaults to the latest non-empty ancestor of `@'."
+    :type '(repeat string)
+    :group 'gptel)
+
+  (defun fanshi/gptel-code-review-jj-diff (&optional no-run)
     "Start a gptel-agent session code reviewing the current jj changes.
 Runs in the *current* workspace (a fresh sub-workspace has an empty working copy),
 with the jj auto-commit hook disarmed so the reviewed `@' stays put.
 
-The target is the working-copy commit `@'. When `@' holds no file diff, the parent
-change is reviewed instead (its change id and description are named in the prompt)
-and a fresh empty commit is created on top, so the agent starts clean and its fixes
-can be folded into the reviewed change with `jj squash'. An empty parent, or one with
-no description, is not reviewed at all.
-
-With a prefix arg, PROMPT is read from the minibuffer as the instruction; blank falls
-back to the default."
-    (interactive
-     (list (if current-prefix-arg
-               (read-string "Code review instruction: "
-                            "Please code review this change")
-             nil)))
-    (let* ((prompt (if (and prompt (not (string-blank-p prompt)))
-                       (string-trim prompt)
-                     "Please code review this change"))
-           ;; The workspace `@' and `@-' resolve against: the *invoking* buffer's
-           ;; workspace, not `projectile-project-root', which differs when invoked from
-           ;; a subdirectory.
-           (jj-dir (fanshi/jj-workspace-root default-directory))
-           (diff (fanshi/call-jj jj-dir "diff"))
-           ;; `--name-only' stays blank on a conflicted working copy, where the plain
-           ;; diff prints a conflict summary instead.
-           (empty-at (string-blank-p (string-trim (fanshi/call-jj jj-dir "diff" "--name-only"))))
-           ;; The parent's change id and first description line. Bracketed so a
-           ;; "@..."-looking id cannot read as a preset marker.
-           (review-desc
-            (when empty-at
-              (ignore-errors
-                (let ((d (string-trim
-                          (fanshi/call-jj jj-dir "log" "-r" "@-" "--no-graph" "-T"
-                                          "change_id.short() ++ \" [\" ++ description.firstline() ++ \"]\""))))
-                  (and (not (string-blank-p d)) d)))))
-           ;; Empty task description: the plain gptel-agent path, so no sub-workspace.
-           (buf (fanshi/gptel-agent "")))
-      ;; Disarm the jj auto-commit hook, which would otherwise commit every response
-      ;; and move `@' out from under the reviewed change.
-      (with-current-buffer buf
-        (setq-local default-directory jj-dir)
-        (kill-local-variable 'fanshi/gptel-jj-workspace))
-      (when empty-at
-        ;; Review the parent instead, and make a fresh empty commit the working copy.
-        ;; The parent diff must be computed before `jj new @' moves `@'.
-        (condition-case err
-            (progn
-              (setq diff (fanshi/call-jj jj-dir "diff" "--from" "@-" "--to" "@"))
-              (fanshi/call-jj jj-dir "new" "@"))
-          (error
-           (message "jj parent diff failed: %s" (error-message-string err))
-           (setq diff ""))))
-      (with-current-buffer buf
-        (goto-char (point-min))
-        (forward-char)
-        (fanshi/gptel--insert-preset "coding")
-        (when review-desc
-          ;; Before the instruction, flattened to one line: the preset marker scan
-          ;; (`fanshi/process-preset-til-end') stops at the first line break, and a
-          ;; break before the instruction would leave the prompt prefix dangling.
-          (insert (format "(reviewing the change %s) "
-                          (replace-regexp-in-string "[\r\n]+" " " review-desc))))
-        (insert prompt)
-        (goto-char (point-max))
-        (insert (concat "\n\n" diff))
-        (gptel-send)))))
+The prompt ends with a bash block holding `fanshi/gptel-code-review-jj-diff-cmd'.
+Without a prefix arg it is run in the workspace, its output appended to the prompt as
+the diff under review, and the request sent. With a prefix arg NO-RUN, nothing is run
+or sent: the buffer is left with the command block in place, so the instruction and
+command can be edited before running the block and sending with ~C-c RET~."
+    (interactive (list current-prefix-arg))
+    (if-let* ((jj-dir (fanshi/jj-workspace-root default-directory))
+              (default-directory jj-dir))
+        (with-current-buffer (fanshi/gptel-agent "")
+          (setq-local fanshi/gptel-jj-auto-commit-enabled nil)
+          (goto-char (point-min))
+          (forward-char)
+          (fanshi/gptel--insert-preset "coding")
+          (insert "Please code review this change")
+          (insert "\n\n#+begin_src bash :results output :wrap src diff\n"
+                  (string-join fanshi/gptel-code-review-jj-diff-cmd " ")
+                  "\n#+end_src")
+          (if no-run
+              (message "Review prompt ready in %s — edit, run the diff block, then C-c RET"
+                       (buffer-name (current-buffer)))
+            (org-babel-execute-src-block)
+            (goto-char (point-max))
+            (gptel-send))
+          (current-buffer))
+      (error "Not inside a jj workspace: no workspace root for %s" default-directory))))
 #+end_src
 ** jj auto commit
 After each gptel response in a buffer bound to a dedicated jj sub-workspace (see
