@@ -4364,8 +4364,15 @@ meta-agent can distinguish turns without a code fence. When the source agent is
 bound to a jj sub-workspace whose working-copy commit `@' is empty (the
 auto-commit hook already moved its work onto the parent), the parent change's
 diff is appended after the transcript; a non-empty `@', a description-less
-parent, or a non-jj source is left alone. The new buffer is left for review; a
-prefix argument sends immediately.
+parent, or a non-jj source is left alone.
+
+The diff is read from the *source* buffer's workspace, so a meta request on a
+buffer in the main workspace of a jj repo is unaffected:
+`fanshi/gptel-jj-workspace' is only set on sub-workspace buffers. Unlike
+`fanshi/gptel-code-review-jj-diff', no fresh commit is created here — the meta
+session only reads, it does not edit.
+
+The new buffer is left for review; a prefix argument sends immediately.
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
   (defvar fanshi/gptel-meta-request-framing
@@ -4376,7 +4383,10 @@ prefix argument sends immediately.
     "The diff of the parent change of sub-workspace WS when its head is empty.
 Returns nil — nothing to add — when WS is nil (not a jj sub-workspace), `@' has
 its own diff, jj fails, or the parent has no description (an undescribed parent
-is not the agent's auto-committed work, so reviewing it is meaningless)."
+is not the agent's auto-committed work, so reviewing it is meaningless).
+
+`--name-only' is the emptiness test: it stays blank on a conflicted `@' as well,
+where the plain diff prints a conflict summary instead of a file diff."
     (when ws
       (ignore-errors
         (let ((ws (file-name-as-directory ws)))
@@ -4398,6 +4408,7 @@ working-copy commit `@' is empty, the parent change's diff is included after the
 transcript: the auto-commit hook already moved the agent's work off `@', so `@'
 alone shows nothing. The parent diff is taken only when the parent has a
 description (the auto-commit commits are described); otherwise nothing is added.
+A sub-agent source buffer has no workspace of its own, so its parent's is used.
 
 The new agent buffer is left for review; with prefix arg SEND, it is sent
 immediately."
@@ -4415,9 +4426,12 @@ immediately."
                                              'org-mode)))
                                t)))))
            current-prefix-arg))
-    ;; Captured before the new buffer is created: the source's jj bindings, so the
-    ;; empty-`@' fallback below can query the source's workspace.
-    (let ((source-ws (buffer-local-value 'fanshi/gptel-jj-workspace source-buf))
+    ;; The source's jj workspace, read before the new buffer exists: the empty-`@'
+    ;; fallback below queries the source's workspace, not the new buffer's. A
+    ;; sub-agent buffer has no workspace binding of its own — the parent's is used.
+    (let ((source-ws (or (buffer-local-value 'fanshi/gptel-jj-workspace source-buf)
+                        (let ((parent (buffer-local-value 'fanshi/gptel-agent-parent source-buf)))
+                          (and parent (buffer-local-value 'fanshi/gptel-jj-workspace parent)))))
           (buf
            ;; Keep `gptel-agent' from copying an active region into the new buffer.
            (let ((mark-active nil) (transient-mark-mode nil))
@@ -4463,12 +4477,14 @@ immediately."
                           (save-excursion (insert matched-string))
                           (org-demote-subtree))))))
                 (setq prompt-starts (cdr prompt-starts))))))
-        ;; Empty head commit: the auto-commit hook already committed the agent's
-        ;; work onto the parent, so `@' shows nothing — show that change instead.
+        ;; Empty head commit: the auto-commit hook already moved the agent's work
+        ;; onto the parent, so `@' shows nothing — show that change instead.
         (when-let ((parent-diff (fanshi/gptel-meta-request--parent-diff source-ws)))
           (goto-char (point-max))
-          (insert (format "\n\nFor context, the diff of the previous change (the working-copy commit is empty):\n\n#+begin_example\n%s\n#+end_example\n"
-                          parent-diff)))
+          (insert "\n\n"
+                  (format "For context, the working-copy commit is empty; here is the diff of the previous change:\n\n%s"
+                          (string-trim parent-diff)))
+          (goto-char (point-max)))
         (if send
             (gptel-send)
           (message "Meta request ready in %s — review, then C-c RET to send"
