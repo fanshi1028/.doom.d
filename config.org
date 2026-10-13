@@ -4073,76 +4073,68 @@ process buffer.
 In the main workspace of a jj repo, a sub-workspace is created for the task;
 otherwise a plain gptel-agent buffer in the current project."
     (interactive "sTask Description: ")
-    (let* ((root (projectile-project-root))
-           (default-directory root)
-           ;; Captured up front: from inside a sub-workspace, `jj workspace root'
-           ;; returns only its own root.
-           (jj-root (fanshi/jj-workspace-root default-directory)))
-      (when (and (not jj-root) (not (string-blank-p task-description)))
-        (message "jj workspace root unresolvable in %s (jj not on PATH, or not a jj repo); starting a plain gptel-agent"
-                 root))
-      (if (or (string-blank-p task-description)
-              (not jj-root)
-              ;; Already in a sub-workspace — don't nest another.
-              (not (file-equal-p jj-root (file-name-as-directory root))))
-          ;; Not a jj repo, or already in a sub-workspace — plain gptel-agent.
-          (let ((buf (gptel-agent default-directory 'gptel-agent)))
-            (when (not (string-blank-p task-description))
-              (with-current-buffer buf
-                (goto-char (point-max))
-                (insert (format "%s\n" task-description))))
-            buf)
-        ;; In the main workspace of a jj repo — create a new workspace.
-        (let* ((name (->> task-description
-                          (s-replace "/" "-")
-                          (s-replace " " "-")
-                          (s-replace ":" "-")
-                          (concat (projectile-project-name default-directory) "-")
-                          (downcase)
-                          (replace-regexp-in-string "[,;'\"`|]" "")
-                          (replace-regexp-in-string "-+" "-")
-                          (string-remove-prefix "-")
-                          (string-remove-suffix "-")))
-               (dir (file-name-as-directory (expand-file-name name fanshi/breeding-ground-dir))))
-          (fanshi/call-jj jj-root "workspace" "add" "--name" name dir)
-          (let ((buf (gptel-agent dir 'gptel-agent)))
-            (with-current-buffer buf
-              (goto-char (point-max))
-              (insert (format "%s\n" task-description))
-              (setq-local fanshi/gptel-jj-workspace dir)
-              (setq-local fanshi/gptel-jj-origin-root jj-root)
-              (when (string= doom-user-dir jj-root)
+    (if-let* ((jj-dir (fanshi/jj-workspace-root default-directory)))
+        (if (string-blank-p task-description)
+            (with-current-buffer (gptel-agent jj-dir 'gptel-agent)
+              (setq-local fanshi/gptel-jj-workspace jj-dir)
+              (when (eq 'doom (projectile-project-type))
                 ;; Let the doomemacs config agent read modules & repos.
                 (setq-local fanshi/gptel-context-files
                             `(,doom-modules-dir
                               ,(expand-file-name "straight/repos" doom-local-dir))))
-              (when
-                  ;; NOTE: only forget breeding-ground workspaces — safe over sorry.
-                  (s-prefix-p (expand-file-name fanshi/breeding-ground-dir) default-directory)
-                (add-hook 'kill-buffer-hook
-                          (lambda ()
-                            (dolist (buf (buffer-list))
-                              (when (or
-                                     ;; Kill child buffers
-                                     (when-let (parent (buffer-local-value 'fanshi/gptel-agent-parent buf))
-                                       (eq parent (current-buffer)))
-                                     ;; Kill buffers visiting files in the workspace
-                                     (when-let ((fname (buffer-local-value 'buffer-file-name buf)))
-                                       (s-prefix-p dir fname)))
-                                (kill-buffer buf)))
-                            ;; ROOT is explicit: this hook runs in the gptel buffer,
-                            ;; and ROOT is the main workspace (the one being forgotten
-                            ;; is the sub-workspace).
-                            (fanshi/call-jj root "workspace" "forget"
-                                             (format "%s" name))
-                            (setq default-directory root)
-                            (ignore-errors (system-move-file-to-trash dir))
-                            (message "Auto-cleaned workspace: %s" dir)
-                            (projectile-switch-project-by-name root))
-                          nil t))
-              ;; `--message=' not `-m': a leading hyphen would read as a flag by clap.
-              (fanshi/call-jj dir "desc" (format "--message=%s" task-description)))
-            buf))))))
+              (current-buffer))
+          ;; create a new jj workspace.
+          (let* ((name (->> task-description
+                            (s-replace "/" "-")
+                            (s-replace " " "-")
+                            (s-replace ":" "-")
+                            (concat (projectile-project-name default-directory) "-")
+                            (downcase)
+                            (replace-regexp-in-string "[,;'\"`|]" "")
+                            (replace-regexp-in-string "-+" "-")
+                            (string-remove-prefix "-")
+                            (string-remove-suffix "-")))
+                 (dir (file-name-as-directory (expand-file-name name fanshi/breeding-ground-dir))))
+            (fanshi/call-jj jj-dir "workspace" "add" "--name" name dir)
+            (let ((buf (gptel-agent dir 'gptel-agent)))
+              (with-current-buffer buf
+                (goto-char (point-max))
+                (insert task-description)
+                (setq-local fanshi/gptel-jj-workspace dir)
+                (setq-local fanshi/gptel-jj-origin-root jj-dir)
+                (when (eq 'doom (projectile-project-type))
+                  ;; Let the doomemacs config agent read modules & repos.
+                  (setq-local fanshi/gptel-context-files
+                              `(,doom-modules-dir
+                                ,(expand-file-name "straight/repos" doom-local-dir))))
+                (when
+                    ;; NOTE: only forget breeding-ground workspaces — safe over sorry.
+                    (s-prefix-p (expand-file-name fanshi/breeding-ground-dir) fanshi/gptel-jj-workspace)
+                  (add-hook 'kill-buffer-hook
+                            (lambda ()
+                              (dolist (buf (buffer-list))
+                                (when (or
+                                       ;; Kill child buffers
+                                       (eq (buffer-local-value 'fanshi/gptel-agent-parent buf) (current-buffer))
+                                       ;; Kill buffers visiting files in the workspace
+                                       (and-let* ((fname (buffer-local-value 'buffer-file-name buf))
+                                                  ((stringp fname))
+                                                  ((s-prefix-p fanshi/gptel-jj-workspace fname)))))
+                                  (kill-buffer buf)))
+                              (fanshi/call-jj fanshi/gptel-jj-workspace "workspace" "forget"
+                                              (format "%s" name))
+                              (ignore-errors (system-move-file-to-trash fanshi/gptel-jj-workspace))
+                              (message "Auto-cleaned workspace: %s" fanshi/gptel-jj-workspace)
+                              (projectile-switch-project-by-name fanshi/gptel-jj-origin-root))
+                            nil t))
+                (fanshi/call-jj dir "desc" (format "-m \"%s\"" task-description)))
+              buf)))
+      (message "jj workspace root unresolvable in %s (jj not on PATH, or not a jj repo); starting a plain gptel-agent"
+               default-directory)
+      (with-current-buffer (gptel-agent default-directory 'gptel-agent)
+        (goto-char (point-max))
+        (insert task-description)
+        (current-buffer)))))
 #+end_src
 ** fanshi/gptel--insert-preset
 #+begin_src emacs-lisp :tangle yes :lexical t
