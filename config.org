@@ -4190,8 +4190,7 @@ command can be edited before running the block and sending with ~C-c RET~."
           (setq-local fanshi/gptel-jj-auto-commit-enabled nil)
           (goto-char (point-min))
           (forward-char)
-          (fanshi/gptel--insert-preset "coding")
-          (insert "Please code review this change")
+          (insert " Please code review this change")
           (fanshi/insert-jj-diff-code-block)
           (if no-run
               (message "Review prompt ready in %s — edit, run the diff block, then C-c RET"
