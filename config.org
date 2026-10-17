@@ -4147,12 +4147,11 @@ otherwise a plain gptel-agent buffer in the current project."
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
   (defun fanshi/gptel--insert-preset (preset-name)
-    "Insert the @PRESET-NAME marker into the current buffer.
+    "Insert the '@PRESET-NAME' marker into the current buffer.
 
-Split across two insertions on purpose: a literal \"@foo\" here would be picked up as
+Split across two insertions on purpose: a literal '@foo' here would be picked up as
 a preset marker when this Org source is exported or fed to an agent."
-    (insert " @")
-    (insert (concat preset-name " "))))
+    (insert " @" preset-name " ")))
 #+end_src
 ** fanshi/gptel-code-review-jj-diff
 Start a gptel-agent session reviewing the current jj changes. The prompt ends with a
