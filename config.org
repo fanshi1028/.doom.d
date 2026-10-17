@@ -3032,7 +3032,7 @@ Nil when all pass, else the first failure's plist. Passing files are dropped fro
 (after! gptel
   (gptel-make-preset 'exp
     :description "Preset for using the current experimental model"
-    :model '(:eval (fanshi/gptel-select-model 'mensaprodigy--Qwen3.8-Flash-Next-REAP-384-oQ5e-BF16-MTP-PLE))
+    :model '(:eval (fanshi/gptel-select-model 'umixer--Qwen3.8-Flash-Next-oQ4e-mix6-mtp))
     ;; NOTE: 262,144 context natively, extensible to ~1M tokens.
     :max-tokens 262144
     :request-params '(:append (:enable_thinking t
