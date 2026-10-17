@@ -1406,6 +1406,15 @@ sentinel" and halts the request. Catch them and route them to the tool callback.
 *** Elisp Help Tool
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
+  (defun fanshi/gptel--face-attribute (face attribute)
+    "Return FACE's ATTRIBUTE value on the selected frame, or nil.
+Unlike `face-attribute' with FRAME t, this sees values applied
+frame-locally by themes. Returns nil for unspecified attributes and
+on error (e.g. no frame available)."
+    (ignore-errors
+      (let ((val (face-attribute face attribute)))
+        (unless (eq val 'unspecified) val))))
+
   (defun fanshi/gptel-agent--helpful-symbol (symbol-name &optional force-variable)
     "Curated help for SYMBOL-NAME (function, variable, macro or face).
 
@@ -1413,113 +1422,139 @@ Like `helpful' minus the UI-only sections. Emits, as available: Summary,
 Obsolete Info, Signature, Value / Global Value, Original Value, Documentation,
 Advice, Aliases, Implementations, Source Code.
 
+Face-only symbols have no value binding, so they skip the variable path and
+get a shorter report: Documentation, parent face and Attributes.
+
 Errors come back as a `<tool_call_error>' result, not a signal."
     (require 'helpful)
-    (if-let ((symbol (intern-soft symbol-name)))
-        (progn
-          (if (and force-variable (not (boundp symbol)) (fboundp symbol))
-              (fanshi/gptel--tool-call-error-result
-               "force-variable is t but %s has no variable binding (function only)" symbol)
-            ;; Prefer force-variable; otherwise guess from being fbound.
-            (-let* ((callable-p (if force-variable
-                                    nil
-                                  (fboundp symbol)))
-                    (primitive-p (helpful--primitive-p symbol callable-p))
-                    ((def-buf def-pos _opened)
-                     (if (or (not primitive-p) find-function-C-source-directory)
-                         (helpful--definition symbol callable-p)
-                       '(nil nil nil)))
-                    (source (when def-buf
-                              (helpful--source symbol callable-p def-buf def-pos)))
-                    (source-path (when def-buf (buffer-file-name def-buf))))
-            (with-temp-buffer
-              (insert (helpful--summary symbol callable-p def-buf def-pos) "\n\n")
+    ;; `intern-soft' is enough to spot unknown symbols: bindings can't exist
+    ;; on uninterned symbols, and autoloaded symbols are already interned.
+    ;; (`intern' would work too, but pollutes the obarray with typos.)
+    (let ((symbol (intern-soft symbol-name)))
+      (cond
+       ((or (null symbol)
+            (not (or (fboundp symbol) (boundp symbol) (facep symbol))))
+        (fanshi/gptel--tool-call-error-result
+         "Unknown symbol %s (not bound as a function, variable, or face)"
+         symbol-name))
+       ((and force-variable (not (boundp symbol)))
+        (fanshi/gptel--tool-call-error-result
+         "force-variable is t but %s has no variable binding"
+         symbol-name))
+       ;; Face-only symbols: interned and `facep', but with no value binding,
+       ;; so the variable path below would signal `void-variable' -- which
+       ;; gptel flattens to text the model reads as success. Report the face.
+       ((and (not (fboundp symbol)) (not (boundp symbol)))
+        (with-temp-buffer
+          (insert (format "%s is a face.\n\n" symbol))
+          (let ((doc (face-documentation symbol)))
+            (when (and doc (not (string-empty-p doc)))
+              (insert "Documentation\n" (helpful--format-docstring doc) "\n\n")))
+          (when-let ((parent (face-attribute symbol :inherit)))
+            (unless (eq parent 'unspecified)
+              (insert (format "Inherits from: %s\n\n" parent))))
+          (insert "Attributes\n")
+          (dolist (entry face-attribute-name-alist)
+            ;; `:inherit' is already reported above as "Inherits from".
+            (unless (eq (car entry) :inherit)
+              (when-let ((val (fanshi/gptel--face-attribute symbol (car entry))))
+                (insert (format "%-16s %s\n" (car entry) val)))))
+          (buffer-substring-no-properties (point-min) (point-max))))
+       (t
+        ;; Prefer force-variable; otherwise guess from being fbound.
+        (-let* ((callable-p (if force-variable
+                                nil
+                              (fboundp symbol)))
+                (primitive-p (helpful--primitive-p symbol callable-p))
+                ((def-buf def-pos _opened)
+                 (if (or (not primitive-p) find-function-C-source-directory)
+                     (helpful--definition symbol callable-p)
+                   '(nil nil nil)))
+                (source (when def-buf
+                          (helpful--source symbol callable-p def-buf def-pos)))
+                (source-path (when def-buf (buffer-file-name def-buf))))
+          (with-temp-buffer
+            (insert (helpful--summary symbol callable-p def-buf def-pos) "\n\n")
 
-              (when (helpful--obsolete-info symbol callable-p)
-                (insert (helpful--format-obsolete-info symbol callable-p) "\n\n"))
+            (when (helpful--obsolete-info symbol callable-p)
+              (insert (helpful--format-obsolete-info symbol callable-p) "\n\n"))
 
-              ;; Callables, but not keyboard macros.
-              (when (and callable-p (not (helpful--kbd-macro-p symbol)))
-                (insert "Signature\n")
-                (insert (helpful--syntax-highlight (helpful--signature symbol)) "\n\n"))
+            ;; Callables, but not keyboard macros.
+            (when (and callable-p (not (helpful--kbd-macro-p symbol)))
+              (insert "Signature\n"
+                      (helpful--syntax-highlight (helpful--signature symbol)) "\n\n"))
 
-              (when (not callable-p)
-                (let* ((val (helpful--sym-value symbol nil))
-                       (heading-text
-                        (if (local-variable-if-set-p symbol)
-                            "Global Value"
-                          "Value")))
-                  (insert heading-text "\n")
-                  (insert (helpful--format-value symbol val) "\n\n")
-                  (when (helpful--original-value-differs-p symbol)
-                    (insert "Original Value\n")
-                    (insert (helpful--format-value symbol (car (helpful--original-value symbol))) "\n\n"))))
+            (unless callable-p
+              (let ((val (helpful--sym-value symbol nil))
+                    (heading-text
+                     (if (local-variable-if-set-p symbol) "Global Value" "Value")))
+                (insert heading-text "\n"
+                        (helpful--format-value symbol val) "\n\n")
+                (when (helpful--original-value-differs-p symbol)
+                  (insert "Original Value\n"
+                          (helpful--format-value symbol
+                                                 (car (helpful--original-value symbol)))
+                          "\n\n"))))
 
-              (let ((docstring (helpful--docstring symbol callable-p))
-                    (version-info (unless callable-p
-                                    (helpful--version-info symbol))))
-                (when (or docstring version-info)
-                  (insert "Documentation\n")
-                  (when docstring
-                    (insert (helpful--format-docstring docstring) "\n"))
-                  (when version-info
-                    (insert (s-word-wrap 70 version-info) "\n"))))
+            (let ((docstring (helpful--docstring symbol callable-p))
+                  (version-info (unless callable-p
+                                  (helpful--version-info symbol))))
+              (when (or docstring version-info)
+                (insert "Documentation\n")
+                (when docstring
+                  (insert (helpful--format-docstring docstring) "\n"))
+                (when version-info
+                  (insert (s-word-wrap 70 version-info) "\n"))))
 
-              (when (helpful--advised-p symbol)
-                (insert "Advice\n")
-                (insert (format "This %s is advised."
-                                (if (macrop symbol) "macro" "function")) "\n\n"))
+            (when (helpful--advised-p symbol)
+              (insert "Advice\n"
+                      (format "This %s is advised."
+                              (if (macrop symbol) "macro" "function"))
+                      "\n\n"))
 
-              (when-let ((aliases (helpful--aliases symbol callable-p)))
-                (insert "Aliases\n")
-                (insert (s-join "\n" (--map (helpful--format-alias it callable-p) aliases))
-                        "\n\n"))
+            (when-let ((aliases (helpful--aliases symbol callable-p)))
+              (insert "Aliases\n"
+                      (s-join "\n" (--map (helpful--format-alias it callable-p) aliases))
+                      "\n\n"))
 
-              ;; Generic methods only.
-              (when callable-p
-                (ignore-errors
-                  (let ((func symbol)
-                        (content))
-                    (when (fboundp #'cl--generic-describe)
-                      (with-temp-buffer
-                        (declare-function cl--generic-describe "cl-generic" (function))
-                        (cl--generic-describe func)
-                        (goto-char (point-min))
-                        (when (re-search-forward "^Implementations:$" nil t)
-                          (setq content (buffer-substring (point) (point-max))))))
-                    (when content
-                      (insert "Implementations\n")
-                      (insert (s-trim content) "\n\n")))))
+            ;; Generic functions only.
+            (when (and callable-p (fboundp #'cl--generic-describe))
+              (when-let ((content
+                          (ignore-errors
+                            (with-temp-buffer
+                              (cl--generic-describe symbol)
+                              (goto-char (point-min))
+                              (when (re-search-forward "^Implementations:$" nil t)
+                                (s-trim (buffer-substring (point) (point-max))))))))
+                (insert "Implementations\n" content "\n\n")))
 
-              (when (or source-path primitive-p)
-                (insert "Source Code\n")
-                (when source-path
-                  (insert (format ";; Defined in %s\n" source-path)))
-                (when (and primitive-p (not source-path))
-                  (insert "C code is not yet loaded.\n")))
-              (when source
-                (cond
-                 ((stringp source)
-                  (insert (helpful--syntax-highlight source)))
-                 ((and (consp source) (eq (car source) 'closure))
-                  (insert (helpful--syntax-highlight
-                           (concat ";; Closure converted to defun by helpful.\n"
-                                   (helpful--pretty-print
-                                    (helpful--format-closure symbol source))))))
-                 (t
-                  (insert (helpful--syntax-highlight
-                           (concat ";; Could not find source code, showing raw function object.\n"
-                                   (helpful--pretty-print source))))))
-                (insert "\n"))
-              (buffer-substring-no-properties (point-min) (point-max)))))
-      (fanshi/gptel--tool-call-error-result "Unknown symbol %s" symbol-name))))
+            (when (or source-path primitive-p)
+              (insert "Source Code\n")
+              (cond
+               (source-path (insert (format ";; Defined in %s\n" source-path)))
+               (primitive-p (insert "C code is not yet loaded.\n"))))
+            (when source
+              (cond
+               ((stringp source)
+                (insert (helpful--syntax-highlight source)))
+               ((and (consp source) (eq (car source) 'closure))
+                (insert (helpful--syntax-highlight
+                         (concat ";; Closure converted to defun by helpful.\n"
+                                 (helpful--pretty-print
+                                  (helpful--format-closure symbol source))))))
+               (t
+                (insert (helpful--syntax-highlight
+                         (concat ";; Could not find source code, showing raw function object.\n"
+                                 (helpful--pretty-print source))))))
+              (insert "\n"))
+            (buffer-substring-no-properties (point-min) (point-max))))))))
 
   (gptel-make-tool
    :name "ElispHelp"
    :function #'fanshi/gptel-agent--helpful-symbol
-   :description "Look up Elisp documentation/source code for a symbol (function, variable, macro, face). Alwyas use this over WebFetch when looking up elisp source code for symbol"
+   :description "Look up Elisp documentation/source code for a symbol (function, variable, macro, face). Always use this over WebFetch when looking up elisp source code for a symbol"
    :args '((:name "symbol-name" :type string
-            :description "Name of the Elisp symbol to look up, e.g. \"gptel-send\" or \"buffer-file-name\", default heuretic is callable-first")
+            :description "Name of the Elisp symbol to look up, e.g. \"gptel-send\" or \"buffer-file-name\". Looked up as a function first if fbound")
            (:name "force-variable" :type boolean
             :description "Flag to force a variable lookup"
             :optional t))
