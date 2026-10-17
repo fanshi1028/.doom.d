@@ -1550,7 +1550,7 @@ Opens the file if unvisited. Index comes from `consult-imenu--items-safe'."
 *** Tool Groups
 #+begin_src emacs-lisp :tangle yes :lexical t
 (defvar fanshi/research-tools '("read-tools" "web-read-tools"))
-(defvar fanshi/coding-tools '("read-tools" "write-tools")
+(defvar fanshi/coding-tools '("read-tools" "Edit")
   "Base tools for the coding preset. Web tools are excluded on purpose;
 re-add with `@web'.")
 (defvar fanshi/scrum-tools '("read-tools" "BreakdownTask" "Delegate")
@@ -2992,7 +2992,11 @@ Nil when all pass, else the first failure's plist. Passing files are dropped fro
 
   (gptel-make-preset 'web
     :description "Add web tools (WebFetch, WebSearch) to the current session"
-    :tools '(:append fanshi/web-tools)))
+    :tools '(:append fanshi/web-tools))
+
+  (gptel-make-preset 'create-file
+    :description "Add create file tools (Write) to the current session"
+    :tools '(:append ("Write"))))
 #+end_src
 *** Problem Solve
 #+begin_src emacs-lisp :tangle yes
