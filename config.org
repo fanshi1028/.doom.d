@@ -4131,7 +4131,10 @@ otherwise a plain gptel-agent buffer in the current project."
                               (message "Auto-cleaned workspace: %s" fanshi/gptel-jj-workspace)
                               (projectile-switch-project-by-name fanshi/gptel-jj-origin-root))
                             nil t))
-                (fanshi/call-jj dir "desc" (format "-m \"%s\"" task-description)))
+                ;; `--message=' not `-m "..."': `fanshi/call-jj' runs jj via
+                ;; `call-process' (no shell), so embedded quotes would be passed
+                ;; to jj literally and end up inside the commit description.
+                (fanshi/call-jj dir "desc" (format "--message=%s" task-description)))
               buf)))
       (message "jj workspace root unresolvable in %s (jj not on PATH, or not a jj repo); starting a plain gptel-agent"
                default-directory)
@@ -4212,7 +4215,8 @@ reviewable commit:
 - if the working-copy commit already has a description, run ~jj new~ (the changes stay
   on the previous commit, which keeps that description)
 - otherwise generate a commit message from the ~jj diff~ with an LLM
-  (~gptel-request~) and run ~jj ci -m "<message>"~
+  (~gptel-request~) and run ~jj ci --message="<message>"~, unwrapping any quotes
+  the model wrapped it in
 - if the diff is empty, do nothing
 
 Safety:
@@ -4271,7 +4275,11 @@ CALLBACK gets the message, or nil on failure."
           :system "You write concise commit messages."
           :callback (lambda (response _)
                       (if (stringp response)
-                          (let ((msg (string-trim response)))
+                          (let* ((msg (string-trim response))
+                                 ;; models wrap the message in quotes anyway; the interior
+                                 ;; must be quote-free so fix "a" and "b" stays intact
+                                 (msg (replace-regexp-in-string
+                                       "\\`[\"'`]\\([^\"'`]*\\)[\"'`]\\'" "\\1" msg)))
                             (funcall callback
                                      (if (not (string-blank-p msg))
                                          (substring msg 0 (min 200 (length msg)))
