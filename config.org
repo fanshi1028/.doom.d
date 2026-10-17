@@ -4326,9 +4326,6 @@ filter."
   ;; Weight 110: after the auto-continue hook (100), so
   ;; `fanshi/gptel--auto-continued' is settled before we commit.
   (add-hook 'gptel-post-response-functions #'fanshi/gptel--jj-auto-commit 110))
-
-;; Bound next to `SPC o l l' of `fanshi/gptel-agent'.
-(map! :map doom-leader-open-map "l m" #'fanshi/gptel-meta-request)
 #+end_src
 ** Meta request on previous conversations
 Start a conversation based on a previous gptel-agent conversation — to judge,
