@@ -1136,6 +1136,39 @@ yasnippet expand at a trigger or active region. Suppress that during insertion.
   (advice-add 'gptel-agent--edit-files :before #'fanshi/restrict-to-projectile-files-a)
   (advice-add 'gptel-agent--insert-in-file :before #'fanshi/restrict-to-projectile-files-a))
 #+end_src
+**** fanshi/gptel-backlog-path
+The AI task backlog sits outside every project root, so the sandbox would deny
+the Scrum Master its own file.  The grant is one entry in
+`fanshi/gptel-context-files', the read-allow list both sandbox functions honor,
+added for scrum sessions only.  It cannot come from the =scrum= preset's =:pre=
+hook (that runs in the throwaway prompt buffer, and =gptel-agent= inherits
+=scrum=, so it would fire for every coding session), so it is made at the two
+places where the session buffer is known: the advice below for programmatic
+starts and `fanshi/gptel--transform-apply-preset-a' for the =@scrum= marker.
+#+begin_src emacs-lisp :tangle yes
+(defun fanshi/gptel-backlog-path ()
+  "Expanded path of the org-gtd AI task backlog, or nil if `org-gtd' is not loaded."
+  (when (fboundp 'org-gtd--path)
+    (expand-file-name (org-gtd--path "org-gtd-ai-tasks"))))
+
+(defun fanshi/gptel--grant-backlog-read ()
+  "Allow this session to read the AI task backlog outside its project root."
+  (when-let ((path (fanshi/gptel-backlog-path)))
+    ;; `add-to-list' would edit the global default in a buffer where the
+    ;; variable is not yet local.
+    (make-local-variable 'fanshi/gptel-context-files)
+    (add-to-list 'fanshi/gptel-context-files path)))
+
+(after! gptel-agent
+  (defun fanshi/gptel-agent--grant-backlog-read-a (f &optional project-dir agent-preset)
+    "Grant backlog read access to the buffer `gptel-agent' returns for a scrum session."
+    (let ((buf (funcall f project-dir agent-preset)))
+      (when (and (bufferp buf) (eq agent-preset 'scrum))
+        (with-current-buffer buf
+          (fanshi/gptel--grant-backlog-read)))
+      buf))
+  (advice-add 'gptel-agent :around #'fanshi/gptel-agent--grant-backlog-read-a))
+#+end_src
 **** fanshi/restrict-to-projectile-plus-context-a
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
@@ -2617,7 +2650,17 @@ We load our own presets.
                 (gptel-agent--expand-templates (point-min)
                                                `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/scrum-tools))
                                                  ("DATE" . ,(format-time-string "%Y-%m-%d"))
-                                                 ("CWD" . ,default-directory)))
+                                                 ("CWD" . ,default-directory)
+                                                 ;; The model cannot derive the
+                                                 ;; backlog path itself (it comes
+                                                 ;; from `org-gtd--path'), so spell
+                                                 ;; it out; same source as the
+                                                 ;; sandbox grant.
+                                                 ("BACKLOG" .
+                                                  ,(if-let* ((backlog (fanshi/gptel-backlog-path)))
+                                                       (format "- **Task Backlog:** %s — pass this path verbatim to `BreakdownTask' and `Delegate', never a guessed one."
+                                                               backlog)
+                                                     "- **Task Backlog:** UNAVAILABLE — escalate to the human instead of guessing a path."))))
                 (buffer-string))))
   (gptel-make-preset 'gptel-agent :parents 'scrum))
 #+end_src
@@ -3386,6 +3429,8 @@ turns are stripped too, so stale directives do not reach the prompt cache."
               (with-current-buffer original-buffer
                 (when preset-applied
                   (set (make-local-variable 'fanshi/last-gptel-presets) preset-applied))
+                (when (memq 'scrum preset-applied)
+                  (fanshi/gptel--grant-backlog-read))
                 (when tools
                   (set (make-local-variable 'fanshi/last-presets-gptel-tools) tools))
                 (when model
@@ -3400,7 +3445,8 @@ turns are stripped too, so stale directives do not reach the prompt cache."
   "Last visited gptel-agent buffer.")
 
 (defvar-local fanshi/gptel-context-files nil
-  "Files added via gptel-context-add, allowed through the sandbox by
+  "Files allowed through the sandbox outside the project root, set by
+`gptel-context-add' and by `fanshi/gptel--grant-backlog-read'.  Honored by
 `fanshi/restrict-to-projectile-files-plus-context-a' and
 `fanshi/nono-context-allow-read-file-args-list'.")
 
@@ -5963,7 +6009,9 @@ on each subtask so `Delegate` can find the right project root.
 Creates the parent heading if it doesn't exist, then adds each subtask as a child
 TODO entry with proper org-id and properties. Returns a summary of created tasks."
     (unless (file-exists-p task-file)
-      (error "Task file %s does not exist" task-file))
+      ;; Point a hallucinated path back at the canonical backlog.
+      (error "Task file %s does not exist; the AI backlog is %s — pass that path verbatim"
+             task-file (or (fanshi/gptel-backlog-path) "unavailable, escalate to the human")))
     (unless subtasks
       (error "BREAKDOWN_TASK requires at least one subtask"))
     ;; gptel decodes the tool call's JSON with `json-read', which turns
@@ -6031,10 +6079,13 @@ TODO entry with proper org-id and properties. Returns a summary of created tasks
               ;; use exact title comparison instead of a regex (which
               ;; mishandles tags, level boundaries and the keyword space).
               headings)
+          ;; Capture the match data before `org-get-heading' clobbers it.
           (save-excursion
             (goto-char (point-min))
-            (while (org-next-heading nil t)
-              (push (cons (org-get-heading t t t) (point)) headings)))
+            (while (re-search-forward "^\\*+ " nil t)
+              (let ((pos (match-beginning 0)))
+                (when-let ((title (org-get-heading t t t)))
+                  (push (cons title pos) headings)))))
           ;; Idempotency: a chatty model will happily break the same task down
           ;; twice.  Reject the whole call before writing anything if any
           ;; title already exists in the file, so the model sees the error
@@ -6153,15 +6204,16 @@ heading, its title becomes the parent heading and its body the description."
     (let* ((tasks-file (org-gtd--path "org-gtd-ai-tasks"))
            (parent-heading (when (and (derived-mode-p 'org-mode) (org-at-heading-p))
                              (org-get-heading t t t)))
-           ;; `org-get-entry' includes the heading line, which is already sent
-           ;; as PARENT-HEADING; use the plain subtree and drop the first line
-           ;; so only the body becomes the description.
+           ;; Only the subtree body becomes the description: the heading line is
+           ;; already sent as PARENT-HEADING.
            (parent-desc (when parent-heading
                           (let ((body (save-excursion
                                         (org-back-to-heading)
-                                        (org-get-plain-subtree))))
-                            (setq body (replace-regexp-in-string "^.*\n" "" body))
-                            (if (string-blank-p body) nil body))))
+                                        (buffer-substring-no-properties
+                                         (line-end-position)
+                                         (org-end-of-subtree t t)))))
+                            (unless (string-blank-p body)
+                              (string-trim body)))))
            (default-directory (file-name-directory tasks-file)))
       ;; `gptel-agent' forwards an active region as its own initial prompt;
       ;; deactivate the mark so TOPIC is not sent twice.

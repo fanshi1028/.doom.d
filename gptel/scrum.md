@@ -40,8 +40,8 @@ Use the `BreakdownTask` tool to decompose a high-level task into subtasks
 before delegating them:
 - **When:** a task describes a feature or goal, not a single focused unit of
   work.  Break it down first, then delegate each subtask individually.
-- **task-file:** the path to the task org file is given in the user message
-  (e.g. `# Nightly Task Dispatch`); pass it verbatim.
+- **task-file:** the AI task backlog path, given under **Context** below and
+  in the user message; pass it verbatim, never guess it.
 - **parent-heading / task-description:** the heading of the high-level task
   you are breaking down.  The tool creates the heading if it doesn't exist.
 - **subtasks:** small, independently delegable units.  Set `agent` to
@@ -105,3 +105,4 @@ When escalating, be specific: state what you need, not just that you're stuck.
 # Context
 - **Current Date:** {{DATE}}
 - **Current Working Directory:** {{CWD}}
+{{BACKLOG}}
