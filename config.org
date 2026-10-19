@@ -6286,35 +6286,38 @@ Spawn a Scrum Master agent to process all AI-delegated tasks.
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! (:and org-gtd gptel-agent)
   (defun fanshi/ai-nightly--task-list ()
-    "Return a plain-text summary of the tasks in the AI task backlog.
+    "Return a plain-text string summarizing the tasks in the AI task backlog.
 The backlog path comes from `fanshi/gptel-backlog-path'; the function takes no
 file argument.  Signal an error when the backlog is unavailable.
-One line per task: state, heading, org-id and key properties."
+Returns one string with one line per task (not a list of strings): state,
+heading, org-id and key properties."
     (if-let* ((backlog (fanshi/gptel-backlog-path)))
         (with-temp-buffer
           (insert-file-contents backlog)
           (org-mode)
-          (save-excursion
-            (goto-char (point-min))
-            (cl-loop while (re-search-forward
-                            "^[ \t]*\\*+[ \t]+\\(TODO\\|DELEGATED\\|DONE\\|KILL\\)\\>[ \t]*\\(.*\\)" nil t)
-                     for keyword = (match-string-no-properties 1)
-                     for heading = (match-string-no-properties 2)
-                     for id = (org-entry-get (point) "ID")
-                     for delegated-to = (org-entry-get (point) "DELEGATED_TO")
-                     for priority = (org-entry-get (point) "PRIORITY")
-                     for agent = (org-entry-get (point) "AGENT")
-                     for depends-on = (org-entry-get (point) "DEPENDS_ON")
-                     for scoped-project = (org-entry-get (point) "SCOPED_PROJECT")
-                     for gptel-model = (org-entry-get (point) "GPTEL_MODEL")
-                     collect (format "- [%s] %s (ID: %s%s%s%s%s%s%s)"
-                                     keyword heading id
-                                     (when priority (format ", priority: %s" priority))
-                                     (when delegated-to (format ", delegated-to: %s" delegated-to))
-                                     (when agent (format ", agent: %s" agent))
-                                     (when depends-on (format ", depends-on: %s" depends-on))
-                                     (when scoped-project (format ", project: %s" scoped-project))
-                                     (when gptel-model (format ", gptel-model: %s" gptel-model))))))
+          (string-join
+           (save-excursion
+             (goto-char (point-min))
+             (cl-loop while (re-search-forward
+                             "^[ \t]*\\*+[ \t]+\\(TODO\\|DELEGATED\\|DONE\\|KILL\\)\\>[ \t]*\\(.*\\)" nil t)
+                      for keyword = (match-string-no-properties 1)
+                      for heading = (match-string-no-properties 2)
+                      for id = (org-entry-get (point) "ID")
+                      for delegated-to = (org-entry-get (point) "DELEGATED_TO")
+                      for priority = (org-entry-get (point) "PRIORITY")
+                      for agent = (org-entry-get (point) "AGENT")
+                      for depends-on = (org-entry-get (point) "DEPENDS_ON")
+                      for scoped-project = (org-entry-get (point) "SCOPED_PROJECT")
+                      for gptel-model = (org-entry-get (point) "GPTEL_MODEL")
+                      collect (format "- [%s] %s (ID: %s%s%s%s%s%s%s)"
+                                      keyword heading (or id "<no id>")
+                                      (if priority (format ", priority: %s" priority) "")
+                                      (if delegated-to (format ", delegated-to: %s" delegated-to) "")
+                                      (if agent (format ", agent: %s" agent) "")
+                                      (if depends-on (format ", depends-on: %s" depends-on) "")
+                                      (if scoped-project (format ", project: %s" scoped-project) "")
+                                      (if gptel-model (format ", gptel-model: %s" gptel-model) ""))))
+           "\n"))
       (error "AI task backlog unavailable (org-gtd not loaded, or file missing/unreadable)")))
 
   (defun fanshi/ai-nightly--run ()
