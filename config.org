@@ -2658,7 +2658,7 @@ We load our own presets.
                                                  ;; sandbox grant.
                                                  ("BACKLOG" .
                                                   ,(if-let* ((backlog (fanshi/gptel-backlog-path)))
-                                                       (format "- **Task Backlog:** %s — pass this path verbatim to `BreakdownTask' and `Delegate', never a guessed one."
+                                                       (format "- **Task Backlog:** %s — `BreakdownTask' and `Delegate' write here; pass this path verbatim to the read tools, never a guessed one."
                                                                backlog)
                                                      "- **Task Backlog:** UNAVAILABLE — escalate to the human instead of guessing a path."))))
                 (buffer-string))))
@@ -5994,10 +5994,12 @@ SUMMARY: brief description of what was accomplished and tell us why"
 *** fanshi/ai-delegate--breakdown-task
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
-  (defun fanshi/ai-delegate--breakdown-task (task-file parent-heading task-description subtasks &optional dependencies project)
-    "Break down TASK-DESCRIPTION into SUBTASKS under PARENT-HEADING in TASK-FILE.
+  (defun fanshi/ai-delegate--breakdown-task (parent-heading task-description subtasks &optional dependencies project)
+    "Break down TASK-DESCRIPTION into SUBTASKS under PARENT-HEADING.
 
-TASK-FILE: Path to the org file where tasks will be created.
+Tasks are written to the AI task backlog (`fanshi/gptel-backlog-path'), which
+is deliberately NOT an argument: the destination is fixed, so the model cannot
+point the tool at another file.
 PARENT-HEADING: The heading under which to create subtasks (e.g., \"Implement feature X\").
 TASK-DESCRIPTION: Description of the parent task (used to create the parent heading if it doesn't exist).
 SUBTASKS: A list of plists, each with :title, :description, and optional :agent keys.
@@ -6008,10 +6010,10 @@ on each subtask so `Delegate` can find the right project root.
 
 Creates the parent heading if it doesn't exist, then adds each subtask as a child
 TODO entry with proper org-id and properties. Returns a summary of created tasks."
-    (unless (file-exists-p task-file)
-      ;; Point a hallucinated path back at the canonical backlog.
-      (error "Task file %s does not exist; the AI backlog is %s — pass that path verbatim"
-             task-file (or (fanshi/gptel-backlog-path) "unavailable, escalate to the human")))
+    (unless (fanshi/gptel-backlog-path)
+      ;; The backlog path comes from org-gtd, so a nil here is an environment
+      ;; problem, not something the model can fix by rewording the call.
+      (error "AI task backlog unavailable (org-gtd not loaded); escalate to the human"))
     (unless subtasks
       (error "BREAKDOWN_TASK requires at least one subtask"))
     ;; gptel decodes the tool call's JSON with `json-read', which turns
@@ -6042,7 +6044,8 @@ TODO entry with proper org-id and properties. Returns a summary of created tasks
     ;; multi-line model output cannot split a heading across lines.
     (setq parent-heading
           (string-trim (replace-regexp-in-string "[\n\r]+" " " parent-heading)))
-    (let (titles)
+    (let ((task-file (fanshi/gptel-backlog-path))
+          titles)
       (dolist (subtask subtasks)
         (let ((title (plist-get subtask :title)))
           (unless (and title (string-trim title))
@@ -6146,13 +6149,13 @@ TODO entry with proper org-id and properties. Returns a summary of created tasks
   (gptel-make-tool
    :name "BreakdownTask"
    :function #'fanshi/ai-delegate--breakdown-task
-   :description "Break down a high-level task into subtasks and write them to an org file.
+   :description "Break down a high-level task into subtasks and write them to the AI task backlog.
 Finds the parent heading (matching its title, with or without a TODO keyword) or creates it as a plain container heading, then adds each subtask as a child TODO entry.
 Each subtask gets a unique org-id, is marked for AI delegation (DELEGATED_TO: ai), and stores its agent preset (AGENT) and a default TIME_LIMIT.
 DEPENDENCIES are stored as DEPENDS_ON properties (comma-separated org-ids).
-The call is idempotent: if any subtask title already exists in the file, nothing is written and an error is returned — do not retry or reword to force a second entry.
+The call is idempotent: if any subtask title already exists in the backlog, nothing is written and an error is returned — do not retry or reword to force a second entry.
 
-TASK-FILE: Path to the org file where tasks will be created.
+The destination is always the AI task backlog; there is no file argument.
 PARENT-HEADING: The title of the heading under which to create subtasks.
 TASK-DESCRIPTION: Description of the parent task (used only if the heading must be created).
 SUBTASKS: A list of subtask objects, each with:
@@ -6162,9 +6165,7 @@ SUBTASKS: A list of subtask objects, each with:
 DEPENDENCIES: Optional object mapping subtask titles to arrays of subtask titles they depend on.
 Only subtasks created in this same call may be referenced, and the graph must be acyclic.
 PROJECT: Optional absolute path of the project directory the subtasks run in (stored as SCOPED_PROJECT)."
-   :args '((:name "task-file" :type string
-            :description "Path to the org file where tasks will be created")
-           (:name "parent-heading" :type string
+   :args '((:name "parent-heading" :type string
             :description "The heading under which to create subtasks")
            (:name "task-description" :type string
             :description "Description of the parent/feature task")
@@ -6232,10 +6233,8 @@ heading, its title becomes the parent heading and its body the description."
                            "3. Fill in each subtask's description: what to change, where, and the acceptance criteria.\n"
                            "4. Do NOT call Delegate. Decomposition only; dispatch happens later.\n"
                            "5. If the task is too vague to decompose safely, do not invent subtasks:\n"
-                           "   escalate instead and name the specific decision you need.\n\n"
-                           "Write to: %s\n")
-                   (string-trim topic)
-                   tasks-file))
+                           "   escalate instead and name the specific decision you need.\n")
+                   (string-trim topic)))
           (when parent-heading
             (goto-char (point-max))
             (insert (format
