@@ -1143,9 +1143,16 @@ internally, so no scrum tool takes a file argument and the sandbox needs no
 backlog exception.
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/gptel-backlog-path ()
-  "Expanded path of the org-gtd AI task backlog, or nil if `org-gtd' is not loaded."
-  (when (fboundp 'org-gtd--path)
-    (expand-file-name (org-gtd--path "org-gtd-ai-tasks"))))
+  "Expanded path of the org-gtd AI task backlog, or nil if it is unavailable.
+Nil when `org-gtd' is not loaded yet, or when the backlog file is missing or
+unreadable; callers treat nil as an environment error, not a model error.
+Defined at load time rather than in `after!' so tools registered under
+`gptel' can call it regardless of whether `org-gtd' has loaded."
+  (when-let* ((backlog (and (fboundp 'org-gtd--path)
+                            (expand-file-name (org-gtd--path "org-gtd-ai-tasks"))))
+              ((file-exists-p backlog))
+              ((file-readable-p backlog)))
+    backlog))
 #+end_src
 **** fanshi/restrict-to-projectile-plus-context-a
 #+begin_src emacs-lisp :tangle yes
@@ -5970,8 +5977,7 @@ With no arguments, return one line per task: state, heading, org-id and key
 properties.  With TASK-ID (an org-id), return that task's full entry —
 heading, property drawer and body text — for when the summary line is not
 enough to judge or decompose it."
-    (if-let* ((path (fanshi/gptel-backlog-path))
-              ((file-exists-p path)))
+    (if (fanshi/gptel-backlog-path)
         ;; Same environment-error contract as `BreakdownTask': nil here is not
         ;; something the model can fix by rewording the call.
         (if task-id
@@ -5983,9 +5989,9 @@ enough to judge or decompose it."
                       (buffer-substring-no-properties
                        (line-beginning-position)
                        (org-end-of-subtree t t))))
-                (error "Task %s not found in the backlog" task-id))
-              (fanshi/ai-nightly--task-list path)))
-      (error "AI task backlog file not found: %s" path)))
+                (error "Task %s not found in the backlog" task-id)))
+          (fanshi/ai-nightly--task-list))
+      (error "AI task backlog unavailable (org-gtd not loaded, or file missing/unreadable); escalate to the human")))
 
   (gptel-make-tool
    :name "QueryBacklog"
@@ -6020,142 +6026,143 @@ on each subtask so `Delegate` can find the right project root.
 
 Creates the parent heading if it doesn't exist, then adds each subtask as a child
 TODO entry with proper org-id and properties. Returns a summary of created tasks."
-    (unless (fanshi/gptel-backlog-path)
-      ;; The backlog path comes from org-gtd, so a nil here is an environment
-      ;; problem, not something the model can fix by rewording the call.
-      (error "AI task backlog unavailable (org-gtd not loaded); escalate to the human"))
-    (unless subtasks
-      (error "BREAKDOWN_TASK requires at least one subtask"))
-    ;; gptel decodes the tool call's JSON with `json-read', which turns
-    ;; JSON arrays into vectors; coerce to lists so the loops below can
-    ;; iterate them (a vector here would otherwise crash or silently
-    ;; iterate only once).
-    (when (vectorp subtasks)
-      (setq subtasks (seq-into subtasks 'list)))
-    ;; A relative project path would otherwise resolve against the delegating
-    ;; buffer's default-directory, so reject it up front.
-    (when project
-      (setq project (expand-file-name project))
-      (unless (file-directory-p project)
-        (error "Project directory %s does not exist" project)))
-    ;; The tool call's JSON object arrives as a plist; convert to an alist.
-    (unless (listp dependencies)
-      (setq dependencies nil))
-    (setq dependencies
-          (delq nil (mapcar
-                     (lambda (key)
-                       (let ((val (plist-get dependencies key)))
-                         (unless (listp val)
-                           (error "Dependencies for task '%s' must be a list of subtask titles"
-                                  (symbol-name key)))
-                         (cons (symbol-name key) val)))
-                     (doom-plist-keys dependencies))))
-    ;; Flatten newlines in the parent heading before it is inserted, so a
-    ;; multi-line model output cannot split a heading across lines.
-    (setq parent-heading
-          (string-trim (replace-regexp-in-string "[\n\r]+" " " parent-heading)))
-    (let ((task-file (fanshi/gptel-backlog-path))
-          titles)
-      (dolist (subtask subtasks)
-        (let ((title (plist-get subtask :title)))
-          (unless (and title (string-trim title))
-            (error "Subtask is missing a title"))
-          ;; Flatten newlines the same way: a title with a newline would
-          ;; corrupt the org structure when inserted.
-          (setq title (string-trim (replace-regexp-in-string "[\n\r]+" " " title)))
-          (setf (plist-get subtask :title) title)
-          (when (member title titles)
-            (error "Duplicate subtask title: %s" title))
-          (push title titles)))
-      (dolist (deps dependencies)
-        (dolist (dep (cdr deps))
-          (unless (member dep titles)
-            (error "Dependency '%s' of task '%s' is not one of the subtasks created in this call"
-                   dep (car deps))))
-        (unless (member (car deps) titles)
-          (error "Dependency owner '%s' is not one of the subtasks created in this call"
-                 (car deps))))
-      ;; Reject circular dependencies (e.g. A -> B -> A).
-      (cl-labels ((visit (node visiting)
-                    (when (member node visiting)
-                      (error "Circular dependency detected involving task '%s'" node))
-                    (dolist (dep (cdr (assoc node dependencies)))
-                      (visit dep (cons node visiting)))))
-        (dolist (title titles)
-          (visit title nil)))
-      (with-current-buffer (find-file-noselect task-file)
-        (let ((created-tasks '())
-              (task-title-map (make-hash-table :test 'equal))
-              child-level
-              ;; (title . marker) pairs for every heading in the file, used
-              ;; for both the idempotency check and the parent lookup so both
-              ;; use exact title comparison instead of a regex (which
-              ;; mishandles tags, level boundaries and the keyword space).
-              headings)
-          ;; Capture the match data before `org-get-heading' clobbers it.
-          (save-excursion
-            (goto-char (point-min))
-            (while (re-search-forward "^\\*+ " nil t)
-              (let ((pos (match-beginning 0)))
-                (when-let ((title (org-get-heading t t t)))
-                  (push (cons title pos) headings)))))
-          ;; Idempotency: a chatty model will happily break the same task down
-          ;; twice.  Reject the whole call before writing anything if any
-          ;; title already exists in the file, so the model sees the error
-          ;; and does not retry.
-          (dolist (title titles)
-            (when (assoc title headings)
-              (error "Subtask '%s' already exists in %s; breakdown is idempotent, do not retry"
-                     title task-file)))
-          ;; Find or create parent heading (exact title match, with or without
-          ;; a TODO keyword)
-          (unless (assoc parent-heading headings)
-            ;; Create parent heading at end of file.  It is a plain (non-TODO)
-            ;; container so the nightly dispatcher doesn't try to delegate it.
-            (goto-char (point-max))
-            (insert "\n\n* " parent-heading "\n"
-                    (format "  %s\n" task-description))
-            (org-back-to-heading))
-          (setq child-level (1+ (save-excursion (org-back-to-heading) (org-outline-level))))
-          (org-end-of-subtree t t)
+    (if-let* ((task-file (fanshi/gptel-backlog-path)))
+        ;; The backlog path comes from org-gtd, so a nil here is an environment
+        ;; problem, not something the model can fix by rewording the call.
+        (progn
+          (unless subtasks
+            (error "BREAKDOWN_TASK requires at least one subtask"))
+          ;; gptel decodes the tool call's JSON with `json-read', which turns
+          ;; JSON arrays into vectors; coerce to lists so the loops below can
+          ;; iterate them (a vector here would otherwise crash or silently
+          ;; iterate only once).
+          (when (vectorp subtasks)
+            (setq subtasks (seq-into subtasks 'list)))
+          ;; A relative project path would otherwise resolve against the delegating
+          ;; buffer's default-directory, so reject it up front.
+          (when project
+            (setq project (expand-file-name project))
+            (unless (file-directory-p project)
+              (error "Project directory %s does not exist" project)))
+          ;; The tool call's JSON object arrives as a plist; convert to an alist.
+          (unless (listp dependencies)
+            (setq dependencies nil))
+          (setq dependencies
+                (delq nil (mapcar
+                           (lambda (key)
+                             (let ((val (plist-get dependencies key)))
+                               (unless (listp val)
+                                 (error "Dependencies for task '%s' must be a list of subtask titles"
+                                        (symbol-name key)))
+                               (cons (symbol-name key) val)))
+                           (doom-plist-keys dependencies))))
+          ;; Flatten newlines in the parent heading before it is inserted, so a
+          ;; multi-line model output cannot split a heading across lines.
+          (setq parent-heading
+                (string-trim (replace-regexp-in-string "[\n\r]+" " " parent-heading)))
+          (let (titles)
+            (dolist (subtask subtasks)
+              (let ((title (plist-get subtask :title)))
+                (unless (and title (string-trim title))
+                  (error "Subtask is missing a title"))
+                ;; Flatten newlines the same way: a title with a newline would
+                ;; corrupt the org structure when inserted.
+                (setq title (string-trim (replace-regexp-in-string "[\n\r]+" " " title)))
+                (setf (plist-get subtask :title) title)
+                (when (member title titles)
+                  (error "Duplicate subtask title: %s" title))
+                (push title titles)))
+            (dolist (deps dependencies)
+              (dolist (dep (cdr deps))
+                (unless (member dep titles)
+                  (error "Dependency '%s' of task '%s' is not one of the subtasks created in this call"
+                         dep (car deps))))
+              (unless (member (car deps) titles)
+                (error "Dependency owner '%s' is not one of the subtasks created in this call"
+                       (car deps))))
+            ;; Reject circular dependencies (e.g. A -> B -> A).
+            (cl-labels ((visit (node visiting)
+                          (when (member node visiting)
+                            (error "Circular dependency detected involving task '%s'" node))
+                          (dolist (dep (cdr (assoc node dependencies)))
+                            (visit dep (cons node visiting)))))
+              (dolist (title titles)
+                (visit title nil)))
+            (with-current-buffer (find-file-noselect task-file)
+              (let ((created-tasks '())
+                    (task-title-map (make-hash-table :test 'equal))
+                    child-level
+                    ;; (title . marker) pairs for every heading in the file, used
+                    ;; for both the idempotency check and the parent lookup so both
+                    ;; use exact title comparison instead of a regex (which
+                    ;; mishandles tags, level boundaries and the keyword space).
+                    headings)
+                ;; Capture the match data before `org-get-heading' clobbers it.
+                (save-excursion
+                  (goto-char (point-min))
+                  (while (re-search-forward "^\\*+ " nil t)
+                    (let ((pos (match-beginning 0)))
+                      (when-let ((title (org-get-heading t t t)))
+                        (push (cons title pos) headings)))))
+                ;; Idempotency: a chatty model will happily break the same task down
+                ;; twice.  Reject the whole call before writing anything if any
+                ;; title already exists in the file, so the model sees the error
+                ;; and does not retry.
+                (dolist (title titles)
+                  (when (assoc title headings)
+                    (error "Subtask '%s' already exists in %s; breakdown is idempotent, do not retry"
+                           title task-file)))
+                ;; Find or create parent heading (exact title match, with or without
+                ;; a TODO keyword)
+                (unless (assoc parent-heading headings)
+                  ;; Create parent heading at end of file.  It is a plain (non-TODO)
+                  ;; container so the nightly dispatcher doesn't try to delegate it.
+                  (goto-char (point-max))
+                  (insert "\n\n* " parent-heading "\n"
+                          (format "  %s\n" task-description))
+                  (org-back-to-heading))
+                (setq child-level (1+ (save-excursion (org-back-to-heading) (org-outline-level))))
+                (org-end-of-subtree t t)
 
-          ;; Create each subtask
-          (dolist (subtask subtasks)
-            (let* ((title (plist-get subtask :title))
-                   (desc (or (plist-get subtask :description) ""))
-                   (agent (or (plist-get subtask :agent) "coding"))
-                   task-id)
-              ;; Create the subtask entry
-              (insert (format "\n%s TODO %s\n" (make-string child-level ?*) title)
-                      "  :PROPERTIES:\n"
-                      "  :DELEGATED_TO: ai\n"
-                      (format "  :AGENT: %s\n" agent)
-                      (format "  :TIME_LIMIT: %s\n" fanshi/ai-task-time-limit)
-                      (when project (format "  :SCOPED_PROJECT: %s\n" project))
-                      "  :END:\n"
-                      (mapconcat (lambda (l) (format "  %s" l))
-                                 (split-string desc "\n") "\n"))
-              (org-back-to-heading)
-              ;; Store mapping
-              (setq task-id (org-id-get nil t))
-              (puthash title task-id task-title-map)
-              (push (cons title task-id) created-tasks)
-              ;; Point past this entry so the next insert appends after it.
-              (org-end-of-subtree t t)))
+                ;; Create each subtask
+                (dolist (subtask subtasks)
+                  (let* ((title (plist-get subtask :title))
+                         (desc (or (plist-get subtask :description) ""))
+                         (agent (or (plist-get subtask :agent) "coding"))
+                         task-id)
+                    ;; Create the subtask entry
+                    (insert (format "\n%s TODO %s\n" (make-string child-level ?*) title)
+                            "  :PROPERTIES:\n"
+                            "  :DELEGATED_TO: ai\n"
+                            (format "  :AGENT: %s\n" agent)
+                            (format "  :TIME_LIMIT: %s\n" fanshi/ai-task-time-limit)
+                            (when project (format "  :SCOPED_PROJECT: %s\n" project))
+                            "  :END:\n"
+                            (mapconcat (lambda (l) (format "  %s" l))
+                                       (split-string desc "\n") "\n"))
+                    (org-back-to-heading)
+                    ;; Store mapping
+                    (setq task-id (org-id-get nil t))
+                    (puthash title task-id task-title-map)
+                    (push (cons title task-id) created-tasks)
+                    ;; Point past this entry so the next insert appends after it.
+                    (org-end-of-subtree t t)))
 
-          ;; Update dependencies with org-ids
-          (dolist (deps dependencies)
-            (let ((dep-ids (mapcar (lambda (d) (gethash d task-title-map)) (cdr deps))))
-              (save-excursion
-                (org-id-goto (gethash (car deps) task-title-map))
-                (org-entry-put (point) "DEPENDS_ON" (string-join dep-ids ", ")))))
-          (save-buffer)
-          (format "Created %d subtasks under '%s':\n%s"
-                  (length created-tasks)
-                  parent-heading
-                  (mapconcat (lambda (item)
-                               (format "- %s (ID: %s)" (car item) (cdr item)))
-                             created-tasks "\n"))))))
+                ;; Update dependencies with org-ids
+                (dolist (deps dependencies)
+                  (let ((dep-ids (mapcar (lambda (d) (gethash d task-title-map)) (cdr deps))))
+                    (save-excursion
+                      (org-id-goto (gethash (car deps) task-title-map))
+                      (org-entry-put (point) "DEPENDS_ON" (string-join dep-ids ", ")))))
+                (save-buffer)
+                (format "Created %d subtasks under '%s':\n%s"
+                        (length created-tasks)
+                        parent-heading
+                        (mapconcat (lambda (item)
+                                     (format "- %s (ID: %s)" (car item) (cdr item)))
+                                   created-tasks "\n"))))))
+      (error "AI task backlog unavailable (org-gtd not loaded, or file missing/unreadable); escalate to the human")))
+
   (gptel-make-tool
    :name "BreakdownTask"
    :function #'fanshi/ai-delegate--breakdown-task
@@ -6261,33 +6268,37 @@ heading, its title becomes the parent heading and its body the description."
 Spawn a Scrum Master agent to process all AI-delegated tasks.
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! (:and org-gtd gptel-agent)
-  (defun fanshi/ai-nightly--task-list (file)
-    "Return a plain-text summary of the tasks in the org FILE.
+  (defun fanshi/ai-nightly--task-list ()
+    "Return a plain-text summary of the tasks in the AI task backlog.
+The backlog path comes from `fanshi/gptel-backlog-path'; the function takes no
+file argument.  Signal an error when the backlog is unavailable.
 One line per task: state, heading, org-id and key properties."
-    (with-temp-buffer
-      (insert-file-contents file)
-      (org-mode)
-      (save-excursion
-        (goto-char (point-min))
-        (cl-loop while (re-search-forward
-                        "^[ \t]*\\*+[ \t]+\\(TODO\\|DELEGATED\\|DONE\\|KILL\\)\\>[ \t]*\\(.*\\)" nil t)
-                 for keyword = (match-string-no-properties 1)
-                 for heading = (match-string-no-properties 2)
-                 for id = (org-entry-get (point) "ID")
-                 for delegated-to = (org-entry-get (point) "DELEGATED_TO")
-                 for priority = (org-entry-get (point) "PRIORITY")
-                 for agent = (org-entry-get (point) "AGENT")
-                 for depends-on = (org-entry-get (point) "DEPENDS_ON")
-                 for scoped-project = (org-entry-get (point) "SCOPED_PROJECT")
-                 for gptel-model = (org-entry-get (point) "GPTEL_MODEL")
-                 collect (format "- [%s] %s (ID: %s%s%s%s%s%s%s)"
-                                 keyword heading id
-                                 (when priority (format ", priority: %s" priority))
-                                 (when delegated-to (format ", delegated-to: %s" delegated-to))
-                                 (when agent (format ", agent: %s" agent))
-                                 (when depends-on (format ", depends-on: %s" depends-on))
-                                 (when scoped-project (format ", project: %s" scoped-project))
-                                 (when gptel-model (format ", gptel-model: %s" gptel-model)))))))
+    (if-let* ((backlog (fanshi/gptel-backlog-path)))
+        (with-temp-buffer
+          (insert-file-contents backlog)
+          (org-mode)
+          (save-excursion
+            (goto-char (point-min))
+            (cl-loop while (re-search-forward
+                            "^[ \t]*\\*+[ \t]+\\(TODO\\|DELEGATED\\|DONE\\|KILL\\)\\>[ \t]*\\(.*\\)" nil t)
+                     for keyword = (match-string-no-properties 1)
+                     for heading = (match-string-no-properties 2)
+                     for id = (org-entry-get (point) "ID")
+                     for delegated-to = (org-entry-get (point) "DELEGATED_TO")
+                     for priority = (org-entry-get (point) "PRIORITY")
+                     for agent = (org-entry-get (point) "AGENT")
+                     for depends-on = (org-entry-get (point) "DEPENDS_ON")
+                     for scoped-project = (org-entry-get (point) "SCOPED_PROJECT")
+                     for gptel-model = (org-entry-get (point) "GPTEL_MODEL")
+                     collect (format "- [%s] %s (ID: %s%s%s%s%s%s%s)"
+                                     keyword heading id
+                                     (when priority (format ", priority: %s" priority))
+                                     (when delegated-to (format ", delegated-to: %s" delegated-to))
+                                     (when agent (format ", agent: %s" agent))
+                                     (when depends-on (format ", depends-on: %s" depends-on))
+                                     (when scoped-project (format ", project: %s" scoped-project))
+                                     (when gptel-model (format ", gptel-model: %s" gptel-model))))))
+      (error "AI task backlog unavailable (org-gtd not loaded, or file missing/unreadable)")))
 
   (defun fanshi/ai-nightly--run ()
     "Spawn a Scrum Master agent to process all AI-delegated tasks."
@@ -6300,9 +6311,11 @@ One line per task: state, heading, org-id and key properties."
       (with-current-buffer (get-buffer-create "*gptel-agent: scrum-nightly*")
         (gptel-agent ai-tasks-dir 'scrum)
         (goto-char (point-max))
-        (insert (format
-                 "\n\n# Nightly Task Dispatch\n\nCurrent tasks in %s:\n%s\n\nFor each TODO task, call Delegate with its task-id, an agent, and priority/time-limit/deadline/schedule when you know them.\nIf a TODO task describes a feature or goal rather than a single focused unit of work, break it down with BreakdownTask first, then delegate the resulting subtasks.\nWhen a task has an agent: property, use that agent.\nWhen a task has a project: property, pass it as the project of any BreakdownTask call for that task.\nSkip tasks already in DELEGATED, DONE, or KILL state.\nSkip tasks with depends-on: unless every listed task ID is DONE. Delegate also refuses to run a task whose depends-on are not DONE, so do not retry a blocked task.\nTasks with delegated-to: user are pending human input — skip them.\nTasks whose heading starts with \"[gptel]\" are queued gptel requests: replay each one by calling ReplayGptelTask with its task-id, in priority order (A first). The tool opens the right buffer, sends the request, marks the task DELEGATED, and returns only once the response finishes — so replay the next [gptel] task only after the previous call has returned; never run two [gptel] requests at the same time.\nAfter delegating all tasks, report a summary table.\n"
-                 ai-tasks-file (fanshi/ai-nightly--task-list ai-tasks-file)))
+        (insert "\n\n# Nightly Task Dispatch\n\nCurrent tasks in "
+                ai-tasks-file
+                ":\n"
+                (fanshi/ai-nightly--task-list)
+                "\n\nFor each TODO task, call Delegate with its task-id, an agent, and priority/time-limit/deadline/schedule when you know them.\nIf a TODO task describes a feature or goal rather than a single focused unit of work, break it down with BreakdownTask first, then delegate the resulting subtasks.\nWhen a task has an agent: property, use that agent.\nWhen a task has a project: property, pass it as the project of any BreakdownTask call for that task.\nSkip tasks already in DELEGATED, DONE, or KILL state.\nSkip tasks with depends-on: unless every listed task ID is DONE. Delegate also refuses to run a task whose depends-on are not DONE, so do not retry a blocked task.\nTasks with delegated-to: user are pending human input — skip them.\nTasks whose heading starts with \"[gptel]\" are queued gptel requests: replay each one by calling ReplayGptelTask with its task-id, in priority order (A first). The tool opens the right buffer, sends the request, marks the task DELEGATED, and returns only once the response finishes — so replay the next [gptel] task only after the previous call has returned; never run two [gptel] requests at the same time.\nAfter delegating all tasks, report a summary table.\n")
         (gptel-send)
         (current-buffer)))))
 #+end_src
