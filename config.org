@@ -1137,37 +1137,15 @@ yasnippet expand at a trigger or active region. Suppress that during insertion.
   (advice-add 'gptel-agent--insert-in-file :before #'fanshi/restrict-to-projectile-files-a))
 #+end_src
 **** fanshi/gptel-backlog-path
-The AI task backlog sits outside every project root, so the sandbox would deny
-the Scrum Master its own file.  The grant is one entry in
-`fanshi/gptel-context-files', the read-allow list both sandbox functions honor,
-added for scrum sessions only.  It cannot come from the =scrum= preset's =:pre=
-hook (that runs in the throwaway prompt buffer, and =gptel-agent= inherits
-=scrum=, so it would fire for every coding session), so it is made at the two
-places where the session buffer is known: the advice below for programmatic
-starts and `fanshi/gptel--transform-apply-preset-a' for the =@scrum= marker.
+The AI task backlog sits outside every project root.  The agent never names
+it: =BreakdownTask=, =Delegate= and =QueryBacklog= resolve this path
+internally, so no scrum tool takes a file argument and the sandbox needs no
+backlog exception.
 #+begin_src emacs-lisp :tangle yes
 (defun fanshi/gptel-backlog-path ()
   "Expanded path of the org-gtd AI task backlog, or nil if `org-gtd' is not loaded."
   (when (fboundp 'org-gtd--path)
     (expand-file-name (org-gtd--path "org-gtd-ai-tasks"))))
-
-(defun fanshi/gptel--grant-backlog-read ()
-  "Allow this session to read the AI task backlog outside its project root."
-  (when-let ((path (fanshi/gptel-backlog-path)))
-    ;; `add-to-list' would edit the global default in a buffer where the
-    ;; variable is not yet local.
-    (make-local-variable 'fanshi/gptel-context-files)
-    (add-to-list 'fanshi/gptel-context-files path)))
-
-(after! gptel-agent
-  (defun fanshi/gptel-agent--grant-backlog-read-a (f &optional project-dir agent-preset)
-    "Grant backlog read access to the buffer `gptel-agent' returns for a scrum session."
-    (let ((buf (funcall f project-dir agent-preset)))
-      (when (and (bufferp buf) (eq agent-preset 'scrum))
-        (with-current-buffer buf
-          (fanshi/gptel--grant-backlog-read)))
-      buf))
-  (advice-add 'gptel-agent :around #'fanshi/gptel-agent--grant-backlog-read-a))
 #+end_src
 **** fanshi/restrict-to-projectile-plus-context-a
 #+begin_src emacs-lisp :tangle yes
@@ -1586,7 +1564,7 @@ Opens the file if unvisited. Index comes from `consult-imenu--items-safe'."
 (defvar fanshi/coding-tools '("read-tools" "Edit")
   "Base tools for the coding preset. Web tools are excluded on purpose;
 re-add with `@web'.")
-(defvar fanshi/scrum-tools '("read-tools" "BreakdownTask" "Delegate")
+(defvar fanshi/scrum-tools '("read-tools" "QueryBacklog" "BreakdownTask" "Delegate")
   "The Scrum Master's tools.")
 (defvar fanshi/web-tools '("WebFetch" "WebSearch")
   "Web tools, listed explicitly instead of via the \"web-read-tools\" category,
@@ -2650,17 +2628,7 @@ We load our own presets.
                 (gptel-agent--expand-templates (point-min)
                                                `(("TOOLS" . ,(fanshi/gptel-agent--tool-system fanshi/scrum-tools))
                                                  ("DATE" . ,(format-time-string "%Y-%m-%d"))
-                                                 ("CWD" . ,default-directory)
-                                                 ;; The model cannot derive the
-                                                 ;; backlog path itself (it comes
-                                                 ;; from `org-gtd--path'), so spell
-                                                 ;; it out; same source as the
-                                                 ;; sandbox grant.
-                                                 ("BACKLOG" .
-                                                  ,(if-let* ((backlog (fanshi/gptel-backlog-path)))
-                                                       (format "- **Task Backlog:** %s — `BreakdownTask' and `Delegate' write here; pass this path verbatim to the read tools, never a guessed one."
-                                                               backlog)
-                                                     "- **Task Backlog:** UNAVAILABLE — escalate to the human instead of guessing a path."))))
+                                                 ("CWD" . ,default-directory)))
                 (buffer-string))))
   (gptel-make-preset 'gptel-agent :parents 'scrum))
 #+end_src
@@ -3429,8 +3397,6 @@ turns are stripped too, so stale directives do not reach the prompt cache."
               (with-current-buffer original-buffer
                 (when preset-applied
                   (set (make-local-variable 'fanshi/last-gptel-presets) preset-applied))
-                (when (memq 'scrum preset-applied)
-                  (fanshi/gptel--grant-backlog-read))
                 (when tools
                   (set (make-local-variable 'fanshi/last-presets-gptel-tools) tools))
                 (when model
@@ -3446,7 +3412,7 @@ turns are stripped too, so stale directives do not reach the prompt cache."
 
 (defvar-local fanshi/gptel-context-files nil
   "Files allowed through the sandbox outside the project root, set by
-`gptel-context-add' and by `fanshi/gptel--grant-backlog-read'.  Honored by
+`gptel-context-add'.  Honored by
 `fanshi/restrict-to-projectile-files-plus-context-a' and
 `fanshi/nono-context-allow-read-file-args-list'.")
 
@@ -5988,6 +5954,50 @@ SUMMARY: brief description of what was accomplished and tell us why"
    :args '((:name "reason" :type string
             :description "Brief explain of why the task was aborted"))
    :category "task"
+   :async nil))
+#+end_src
+** Query Backlog
+*** fanshi/ai-delegate--query-backlog
+The read-side counterpart of `BreakdownTask': the backlog path is resolved
+from `fanshi/gptel-backlog-path', never from a model-supplied argument, so the
+Scrum Master reads its backlog without naming the file (and the sandbox needs
+no exception for it).
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (defun fanshi/ai-delegate--query-backlog (&optional task-id)
+    "Read the AI task backlog (`fanshi/gptel-backlog-path'); takes no file argument.
+With no arguments, return one line per task: state, heading, org-id and key
+properties.  With TASK-ID (an org-id), return that task's full entry —
+heading, property drawer and body text — for when the summary line is not
+enough to judge or decompose it."
+    (if-let* ((path (fanshi/gptel-backlog-path))
+              ((file-exists-p path)))
+        ;; Same environment-error contract as `BreakdownTask': nil here is not
+        ;; something the model can fix by rewording the call.
+        (if task-id
+            (save-match-data
+              (if-let* ((marker (org-id-find (string-trim task-id))))
+                  (with-current-buffer (marker-buffer marker)
+                    (save-excursion
+                      (goto-char marker)
+                      (buffer-substring-no-properties
+                       (line-beginning-position)
+                       (org-end-of-subtree t t))))
+                (error "Task %s not found in the backlog" task-id))
+              (fanshi/ai-nightly--task-list path)))
+      (error "AI task backlog file not found: %s" path)))
+
+  (gptel-make-tool
+   :name "QueryBacklog"
+   :function #'fanshi/ai-delegate--query-backlog
+   :description "Read the AI task backlog.  Takes no file argument: the destination is fixed.
+With no arguments: one line per task — state, heading, org-id, and properties (priority, delegated-to, agent, depends-on, project).
+With TASK-ID: that task's full entry, including its property drawer and body text; use this when the summary line is not enough to judge or decompose the task.
+If the backlog is unavailable or TASK-ID is unknown, the call errors — escalate to the human; do not retry."
+   :args '((:name "task-id" :type string
+            :description "Optional org-id of a single task to fetch in full"
+            :optional t))
+   :category "agents"
    :async nil))
 #+end_src
 ** Breakdown Task
