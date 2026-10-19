@@ -4263,6 +4263,13 @@ Safety:
 - deferred via `run-at-time' and wrapped in `condition-case': the post-response hook
   runs inside gptel's process filter, where calling the asynchronous `gptel-request'
   corrupts the new request's process filter
+- the commit-message request is hermetic: `fanshi/gptel--jj-hermetic-request-transform'
+  strips the conversation's tools, preset request params and context, which would
+  otherwise come back as a tool call instead of a message
+- the message callback fires at most once and ignores the pre-response payloads
+  `gptel-request' passes for reasoning and tool calls — `(reasoning . …)',
+  `(tool-call . …)', `(tool-result . …)' — so one commit per response, never a second
+  `jj ci' on the emptied working copy
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
   (defvar-local fanshi/gptel-jj-origin-root nil
@@ -4301,27 +4308,66 @@ Runs `jj workspace root' in DIR and requires it to equal DIR, so a stale buffer
                                    "log" "-r" "@" "-T" "description" "--no-graph"))))
       (and desc (not (string-blank-p desc)) (string-trim desc))))
 
+  (defun fanshi/gptel--jj-hermetic-request-transform (_fsm)
+    "Prompt transform: strip the conversation's gptel state from a `gptel-request'.
+Runs in the throwaway prompt buffer, whose gptel locals (`gptel-tools',
+`gptel--request-params', ...) were copied from the conversation buffer. Without this, a
+preset's tools and request params leak into the commit-message request, which then comes
+back with tool calls and reasoning blocks instead of a message."
+    (setq-local gptel-use-tools nil)
+    (setq-local gptel-tools nil)
+    (setq-local gptel-use-context nil)
+    (setq-local gptel-context nil)
+    (setq-local gptel--request-params nil)
+    (setq-local gptel-include-reasoning nil))
+
   (defun fanshi/gptel--jj-generate-commit-message (diff callback)
     "Ask the LLM for a commit message for jj diff DIFF.
-CALLBACK gets the message, or nil on failure."
-    (condition-case err
-        (gptel-request
-            (format "Write a concise commit message (imperative mood, max 72 chars) for this jj diff.\nReturn ONLY the message text, no quotes, no explanation.\n\n#+begin_example\n%s\n#+end_example"
-                    diff)
-          :system "You write concise commit messages."
-          :callback (lambda (response _)
-                      (if (stringp response)
-                          (let* ((msg (string-trim response))
-                                 ;; models wrap the message in quotes anyway; the interior
-                                 ;; must be quote-free so fix "a" and "b" stays intact
-                                 (msg (replace-regexp-in-string
-                                       "\\`[\"'`]\\([^\"'`]*\\)[\"'`]\\'" "\\1" msg)))
-                            (funcall callback
-                                     (if (not (string-blank-p msg))
-                                         (substring msg 0 (min 200 (length msg)))
-                                       nil)))
-                        (funcall callback nil))))
-      (error (funcall callback nil))))
+CALLBACK gets the message, or nil on failure. CALLBACK is called at most once:
+`gptel-request' calls its callback again for every reasoning block or tool call it
+receives before the text response, so anything but a string must not end the request."
+    (let* ((delivered nil)
+           (finish (lambda (msg)
+                     "Deliver MSG to CALLBACK, once."
+                     (unless delivered
+                       (setq delivered t)
+                       (funcall callback msg)))))
+      (condition-case err
+          (gptel-request
+              (format "Write a concise commit message (imperative mood, max 72 chars) for this jj diff.\nReturn ONLY the message text, no quotes, no explanation.\n\n#+begin_example\n%s\n#+end_example"
+                      diff)
+            :system "You write concise commit messages."
+            :transforms (list #'fanshi/gptel--jj-hermetic-request-transform)
+            :callback
+            (lambda (response info)
+              (cond
+               ((stringp response)
+                (let* ((msg (string-trim response))
+                       ;; models wrap the message in quotes anyway; the interior
+                       ;; must be quote-free so fix "a" and "b" stays intact
+                       (msg (replace-regexp-in-string
+                             "\\`[\"'`]\\([^\"'`]*\\)[\"'`]\\'" "\\1" msg)))
+                  (finish (if (string-blank-p msg)
+                              nil
+                            (substring msg 0 (min 200 (length msg)))))))
+               ((or (null response) (eq response 'abort))
+                (message "jj auto-commit: no commit message from LLM (%s)"
+                         (plist-get info :status))
+                (finish nil))
+               ((consp response)
+                ;; (reasoning . text) and (tool-result . ...) precede the text response:
+                ;; ignore and wait. A tool call cannot be run from here, so give up on
+                ;; the LLM message rather than leave the request hanging. It should not
+                ;; happen at all -- the hermetic transform strips the tools -- so log it.
+                (unless (memq (car response) '(reasoning tool-result))
+                  (message "jj auto-commit: LLM returned a tool call (%s), hermetic transform failed?"
+                           (car response))
+                  (finish nil)))
+               (t (finish nil)))))
+        (error
+         (message "jj auto-commit: commit-message request failed: %s"
+                  (error-message-string err))
+         (finish nil)))))
 
   (defun fanshi/gptel--jj-auto-commit (&rest _args)
     "Post-response hook: auto-commit the jj working copy of a sub-workspace buffer.
