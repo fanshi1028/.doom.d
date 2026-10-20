@@ -1634,24 +1634,6 @@ Validate tool-call args before execution, and return failures as an error result
 that hints at the correct usage.
 *** fanshi/gptel--validate-tool-args-hook
 #+begin_src emacs-lisp :tangle yes
-(defun fanshi/gptel--validate-tool-args-hook (tool-call)
-  "`gptel-pre-tool-call-functions' hook: validate TOOL-CALL, else `(:block ..)'."
-  (let ((name (plist-get tool-call :name))
-        (buffer (plist-get tool-call :buffer)))
-    (cond
-     ((not name) `(:block "Error: tool called with empty name"))
-     ((not (gptel-get-tool name)) `(:block ,(format "Error: Unknown tool called: %s" name)))
-
-     (t
-      ;; `gptel-tools' is buffer-local: a globally known tool can be unequipped here.
-      (if-let* ((tools (with-current-buffer buffer
-                         (or fanshi/last-presets-gptel-tools
-                             gptel-tools)))
-                (tool-spec (seq-find (lambda (tool) (equal name (gptel-tool-name tool))) tools)))
-          (if-let ((errors (fanshi/gptel--validate-tool-args tool-spec (plist-get tool-call :args))))
-              (unless (string= errors "") `(:block ,errors))
-            (when (member name fanshi/safe-tool) `(:confirm nil)))
-        `(:block ,(format "Error: tool %s is not available" name)))))))
 (after! gptel
   (defun fanshi/gptel--validate-simple-tool-arg-type (type arg)
     "Whether ARG has the simple (non-aggregate) tool arg TYPE."
