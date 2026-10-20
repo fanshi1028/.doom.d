@@ -1901,7 +1901,8 @@ An error is `:error t' (a hook blocked the call), or a string :result starting w
   (defun fanshi/gptel--hide-failed-tool-calls (tool-call)
     "`gptel-post-tool-call-functions' hook: hide same-tool failures before a success.
 Walks backward over the chat buffer, marking each preceding failure of the same tool
-with 'ignore."
+with 'ignore.  Stops at the first different tool; a block that does not read back as
+a plist counts as different."
     (when fanshi/gptel-clean-failed-tool-calls
       (let* ((name (plist-get tool-call :name))
              (orig-buf (get-buffer (plist-get tool-call :buffer))))
@@ -1918,11 +1919,13 @@ with 'ignore."
                     (condition-case result
                         (save-excursion
                           (let* ((tool-call-text (read (current-buffer)))
-                                 (call-name (let ((n (plist-get tool-call-text :name)))
+                                 ;; A malformed block may `read' as a non-plist.
+                                 (call-name (let ((n (and (consp tool-call-text)
+                                                          (plist-get tool-call-text :name))))
                                               (and (stringp n) n)))
                                  (result-start (point)))
                             (cond
-                             ((and (string= name call-name)
+                             ((and (equal name call-name)
                                    (progn
                                      (plist-put tool-call-text :result
                                                 (buffer-substring-no-properties
@@ -1945,6 +1948,75 @@ with 'ignore."
 
   (add-hook 'gptel-post-tool-call-functions
             #'fanshi/gptel--hide-failed-tool-calls))
+#+end_src
+*** Drop unreadable tool-call blocks before the prompt is parsed
+=Wrong type argument: plistp, "<a chunk of the transcript>"= on =gptel-send=.
+
+=gptel--parse-buffer= =read=s every =(tool . ID)= =gptel= property run as an elisp
+form and =plist-put=s the result. A user edit or a =GPTEL_BOUNDS= restore whose
+positions no longer match the text can start the run partway into the block body,
+where =read= returns a non-plist form and =plist-put= signals =plistp=. gptel's
+=condition-case= only handles =end-of-file= and =invalid-read-syntax=, so the error
+escapes and =gptel-send= dies on this and every later send: the transcript, not the
+model, is at fault.
+
+=fanshi/gptel--transform-drop-unreadable-tool-calls-a= runs as a prompt transform in
+the throwaway prompt buffer, after gptel has prepared it (tool results unescaped,
+block headers stripped) and just before it is parsed. A run the parser cannot
+survive loses its =gptel= property, so the parser skips it as plain text and the
+send proceeds; the chat buffer keeps the block intact for display and debugging.
+Dropped blocks are reported in the echo area, like gptel's own tool-call parse
+failures — =display-warning= would pop =*Warnings*= on every send, since the chat
+buffer is never repaired.
+
+The guard =read=s where the parser does, at the run start, and keeps only what the
+parser's =plist-put= tolerates: a proper, even-length plist with a string =:name=.
+A dotted list (=(:name . "Read")=), an odd-length one (=(:name "Read" :args)=), a
+string or a vector signal =plistp=, which gptel's =condition-case= does not handle.
+A truncated body that does not =read= at all raises =end-of-file= /
+=invalid-read-syntax=, which gptel already survives, so those are left alone.
+
+#+begin_src emacs-lisp :tangle yes :lexical t
+(after! gptel
+  (defun fanshi/gptel--transform-drop-unreadable-tool-calls-a (_fsm)
+    "In the prompt buffer, un-tag tool-call blocks that cannot be read back.
+`gptel-prompt-transform-functions' handler: see the section notes for why.  Runs
+last among the synchronous transforms, so it sees the buffer gptel is about to
+parse.  The return value is discarded by the caller."
+    (save-excursion
+      (let ((pos (point-min))
+            (dropped))
+        (while (< pos (point-max))
+          (let* ((end (next-single-property-change pos 'gptel nil (point-max)))
+                 (prop (get-text-property pos 'gptel)))
+            (when (and (consp prop) (eq 'tool (car prop)))
+              (unless
+                  (condition-case nil
+                      (progn
+                        ;; Read where `gptel--parse-buffer' reads: at the run start.
+                        (goto-char pos)
+                        (let ((call (read (current-buffer))))
+                          ;; Keep only what the parser's `plist-put' tolerates; the
+                          ;; `end-of-file' / `invalid-read-syntax' it already handles
+                          ;; are caught below and left alone.
+                          (and (consp call)
+                               (let ((len (proper-list-p call)))
+                                 (and len (zerop (% len 2))))
+                               (stringp (plist-get call :name)))))
+                    ((end-of-file invalid-read-syntax) t))
+                (remove-text-properties pos end '(gptel nil))
+                (push (line-number-at-pos pos) dropped)))
+            (setq pos end)))
+        (when dropped
+          (message "gptel: dropped %d unreadable tool-call block%s (line %s) from this request"
+                   (length dropped)
+                   (if (cdr dropped) "s" "")
+                   (mapconcat #'number-to-string (nreverse dropped) ", "))))))
+
+  ;; Appended, so it runs after gptel's own transforms and the token escaper: it must
+  ;; see the text exactly as `gptel--realize-query' is about to parse it.
+  (add-hook 'gptel-prompt-transform-functions
+            #'fanshi/gptel--transform-drop-unreadable-tool-calls-a))
 #+end_src
 ** Loop Guard: detect and break degenerate LLM loops
 Two detectors, one per kind of degeneration:
