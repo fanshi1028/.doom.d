@@ -3322,7 +3322,7 @@ heuristic approach as `fanshi/gptel--not-done-auto-continue-or-notify'.
   "Alist of agent preset symbol to the regexp detecting a complete report.")
 #+end_src
 ** Fix gptel--transform-apply-preset to handle the case where we resume from the middle of a agent response.
-Three fixes over the original:
+Four fixes over the original:
 - A single `text-property-search-backward' is not enough when resuming from the
   middle of an agent response, so keep searching backward past headings to find the
   actual user prompt.
@@ -3331,6 +3331,9 @@ Three fixes over the original:
   `fanshi/last-presets-gptel-tools' and `fanshi/last-presets-gptel-model'.
 - Strip preset markers left in *previous* prompts, so stale directives do not
   pollute the prompt cache.
+- `fanshi/process-preset-til-end' skips matches on text carrying the `gptel'
+  property (agent responses, tool calls/results, reasoning blocks), so an
+  @preset mentioned by the agent is never applied.
 #+begin_src emacs-lisp :tangle yes :lexical t
 (after! gptel
   (defvar-local fanshi/last-presets-gptel-tools nil
@@ -3347,14 +3350,21 @@ Fallback for the active-model check, ahead of `gptel-model'.")
   (defun fanshi/process-preset-til-end (&optional end only-remove)
     "Process @preset markers from point to END (default point-max).
 Deletes each known @NAME marker, and applies it buffer-locally unless ONLY-REMOVE.
-Markers must be preceded by whitespace or start-of-buffer. Errors if more than one
+Markers must be preceded by whitespace or start-of-buffer, and must lie in user
+prompt text: matches inside LLM responses, tool blocks or reasoning blocks (text
+carrying the `gptel' property) are left untouched, so an agent merely mentioning
+an @preset in its response or tool call is never applied.  Errors if more than one
 preset in the range has a report pattern.
 
 Value is (REPORT-PATTERN . PRESETS-APPLIED)."
     (let ((presets-applied))
       (while (re-search-forward (rx "@" (group (+ (not (any blank))))) end t)
-        (when (or (= (match-beginning 0) (point-min))
-                  (memq (char-syntax (char-before (match-beginning 0))) '(32 62)))
+        ;; Only user prompt text lacks the `gptel' property: responses carry
+        ;; `response', tool calls/results `(tool . id)' and reasoning/ignored
+        ;; blocks `ignore'.  Never treat those as preset directives.
+        (when (and (not (get-text-property (match-beginning 0) 'gptel))
+                   (or (= (match-beginning 0) (point-min))
+                       (memq (char-syntax (char-before (match-beginning 0))) '(32 62))))
           (when-let* ((name (match-string-no-properties 1))
                       (preset (or (gptel-get-preset (intern-soft name))
                                   (gptel-get-preset name))))
