@@ -2296,7 +2296,11 @@ means the turn changed."
               (setq rest (replace-regexp-in-string
                           "[ \t]*#\\+\\(?:begin\\|end\\)_tool[^\n]*[ \t]*" "" rest))
               (dolist (j junk)
-                (when (stringp j) (setq rest (string-replace j "" rest))))
+                ;; `string-replace' signals `wrong-length-argument' on an empty
+                ;; FROM-STRING, and `gptel-response-prefix-string' returns "" for
+                ;; major modes with no entry in `gptel-response-prefix-alist'.
+                (when (and (stringp j) (not (equal j "")))
+                  (setq rest (string-replace j "" rest))))
               (setq pos (if (string-blank-p rest) next nil))))))
         (and pos t))))
 
