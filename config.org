@@ -1694,7 +1694,7 @@ Nil when valid, else a string describing the errors."
                   ((and enum (null (seq-position enum input_arg))) (format "Error: tool call arg %s (%s) expected enum (in %s) but got %s\n\n" name description enum input_arg))
                   ((and (eq type 'array) (not (listp input_arg))) simple-error)
                   ((eq type 'array) (let ((items (plist-get spec-arg :items)))
-                                      (when (and items (all (lambda (item) (not (fanshi/gptel--validate-simple-tool-arg-type item input_arg optional))) items))
+                                      (when (and items (seq-some (lambda (elt) (not (fanshi/gptel--validate-simple-tool-arg-type items elt))) input_arg))
                                         (format "Error: tool call arg %s (%s) expected array with item type in %s but got %s\n\n" name description items input_arg))))
                   ;; FIXME no tool has an object arg yet, so objects are unvalidated.
                   ((eq type 'object) nil)
