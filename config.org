@@ -1650,14 +1650,21 @@ that hints at the correct usage.
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (defun fanshi/gptel--validate-simple-tool-arg-type (type arg)
-    "Whether ARG has the simple (non-aggregate) tool arg TYPE."
-    (pcase type
-      ((or 'null "null") (null arg))
-      ((or 'string "string") (stringp arg))
-      ((or 'number "number") (numberp arg))
-      ((or 'integer "integer") (integerp arg))
-      ((or 'boolean "boolean") (or (and (booleanp arg) (eq t arg)) (eq :json-false arg)))
-      (_ (progn (message "Warning: FIXME tool call validation skipped for type %s: %s" type arg) t))))
+    "Whether ARG has the tool arg TYPE.
+TYPE is a simple (non-aggregate) JSON-Schema type (a symbol or string), or a
+list of such types (a union, e.g. `(string null)').  When TYPE is a list, ARG is
+valid if it matches at least one of the member types."
+    (if (consp type)
+        (seq-some
+         (lambda (member) (fanshi/gptel--validate-simple-tool-arg-type member arg))
+         type)
+      (pcase type
+        ((or 'null "null") (null arg))
+        ((or 'string "string") (stringp arg))
+        ((or 'number "number") (numberp arg))
+        ((or 'integer "integer") (integerp arg))
+        ((or 'boolean "boolean") (or (and (booleanp arg) (eq t arg)) (eq :json-false arg)))
+        (_ (progn (message "Warning: FIXME tool call validation skipped for type %s: %s" type arg) t)))))
 
   (defun fanshi/gptel--validate-tool-args (tool-spec args)
     "Validate ARGS (a plist) against TOOL-SPEC, a `gptel-tool'.
