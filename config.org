@@ -1077,13 +1077,18 @@ Ref: https://github.com/ggml-org/llama.cpp/issues/19947#issuecomment-3971115828
   (let* ((args (plist-get tool-call :args))
          (new-args (cl-loop for (k v) on args by #'cddr
                             collect k and collect
-                            (if (stringp v)
-                                (replace-regexp-in-string
-                                 "<__"
-                                 "&lt;__"
-                                 v t t)
+                            (if (not (stringp v))
+                                v
+                              (replace-regexp-in-string
+                               "<__"
+                               "&lt;__"
+                               v t t)
+                              (replace-regexp-in-string
+                               "__>"
+                               "__gt;"
+                               v t t)
                               ;; FIXME non-string args are not escaped.
-                              v))))
+                              ))))
     (unless (equal args new-args)
       `(:args ,new-args))))
 #+end_src
