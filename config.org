@@ -1032,11 +1032,17 @@ https://github.com/karthink/gptel/issues/1226#issuecomment-3828162897
                    "gptel: 'Let me ' detected without tool call to follow up, auto continue"
                    (match-string 1))
                   (fanshi/auto-continue))
-                 ((and (member 'coding fanshi/last-gptel-presets)
-                       (save-excursion (re-search-backward (rx "Code Report" (+ anychar) "Summary" (+ anychar) "Changes Made") response-start t)))
-                  (let ((project-type (or projectile-project-type (projectile-project-type))))
-                    (cond
-                     ((eq project-type 'doom)
+                 ((let ((pattern (seq-some (lambda (p)
+                                             (alist-get p fanshi/gptel-report-patterns
+                                                        nil nil #'equal))
+                                           fanshi/last-gptel-presets)))
+                    (and pattern
+                         (save-excursion (re-search-backward pattern response-start t))))
+                  ;; A complete report (per `fanshi/gptel-report-patterns') is done,
+                  ;; even though it ends on a bare word ("request changes").
+                  ;; The doom auto-fix loop only applies to coding sessions.
+                  (if (and (member 'coding fanshi/last-gptel-presets)
+                           (eq 'doom (or projectile-project-type (projectile-project-type))))
                       (if-let ((check-result (fanshi/gptel--post-response-check/doom)))
                           (progn
                             (message "Gptel doom code check: %s" (plist-get check-result :error))
@@ -1045,10 +1051,9 @@ https://github.com/karthink/gptel/issues/1226#issuecomment-3828162897
                                 (fanshi/gptel--code-check-auto-fix check-result)
                               (fanshi/notify)))
                         (message "Gptel doom code check succeeded")
-                        (fanshi/notify)))
-                     (t (message "gptel: Code Report detected, skip auto continue. (%s)" project-type) (fanshi/notify))))
-                  (message "gptel: Code Report detected, skip auto continue")
-                  (fanshi/notify))
+                        (fanshi/notify))
+                    (message "gptel: report detected, skip auto continue")
+                    (fanshi/notify)))
                  ((save-excursion (re-search-backward (rx "#end_src" point) response-start t))
                   (message "gptel: end of src block detected, skip auto continue")
                   (fanshi/notify))
@@ -1611,6 +1616,10 @@ Opens the file if unvisited. Index comes from `consult-imenu--items-safe'."
 (defvar fanshi/coding-tools '("read-tools" "Edit")
   "Base tools for the coding preset. Web tools are excluded on purpose;
 re-add with `@web'.")
+(defvar fanshi/review-tools '("read-tools")
+  "Base tools for the code-review preset.
+The preset itself equips no write tools, so Edit/Write are absent unless another
+preset in the same prompt appends them (`@create-file', `@coding').")
 (defvar fanshi/scrum-tools '("read-tools" "QueryBacklog" "BreakdownTask" "Delegate")
   "The Scrum Master's tools.")
 (defvar fanshi/web-tools '("WebFetch" "WebSearch")
@@ -3172,6 +3181,29 @@ Nil when all pass, else the first failure's plist. Passing files are dropped fro
     :description "Add create file tools (Write) to the current session"
     :tools '(:append ("Write"))))
 #+end_src
+*** Code Review
+#+begin_src emacs-lisp :tangle yes
+(after! gptel
+  (gptel-make-preset 'code-review
+    :temperature 0.3
+    :description "Preset for reviewing code (read-only: no Edit/Write)"
+    ;; Same project-specific extras as `coding' (e.g. ElispHelp under Doom):
+    ;; reviewing Elisp needs symbol lookups, which are read-only.
+    :tools '(:eval (fanshi/append-coding-project-tools fanshi/review-tools default-directory))
+    :system (lambda ()
+              (with-temp-buffer
+                (insert-file-contents (expand-file-name "./gptel/code-review.md" doom-user-dir))
+                (gptel-agent--expand-templates
+                 (point-min)
+                 `(("TOOLS" . ,(fanshi/gptel-agent--tool-system
+                                (fanshi/append-coding-project-tools
+                                 fanshi/review-tools
+                                 default-directory)))
+                   ("DATE" . ,(format-time-string "%Y-%m-%d"))
+                   ("CWD" . ,default-directory)))
+                (fanshi/gptel-agents-insert-project-instructions 'code-review)
+                (buffer-string)))))
+#+end_src
 *** Problem Solve
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
@@ -3456,6 +3488,7 @@ heuristic approach as `fanshi/gptel--not-done-auto-continue-or-notify'.
 #+begin_src emacs-lisp :tangle yes
 (defvar fanshi/gptel-report-patterns
   `((coding . ,(rx "Code Report" (+ anychar) "Summary" (+ anychar) "Changes Made"))
+    (code-review . ,(rx "Review Report" (+ anychar) "Summary" (+ anychar) "Verdict"))
     (research . ,(rx "Executive Summary" (+ anychar) "Key Findings" (+ anychar) "Sources" (+ anychar) "Conclusion"))
     (problem-solve . ,(rx "Executive Summary" (+ anychar) "Key Findings" (+ anychar) "Sources" (+ anychar) "Conclusion")))
   "Alist of agent preset symbol to the regexp detecting a complete report.")
@@ -4359,7 +4392,8 @@ a preset marker when this Org source is exported or fed to an agent."
     (insert " @" preset-name " ")))
 #+end_src
 ** fanshi/gptel-code-review-jj-diff
-Start a gptel-agent session reviewing the current jj changes. The prompt ends with a
+Start a gptel-agent session reviewing the current jj changes. The prompt carries the
+read-only ~@code-review~ preset (plus ~@exp~ for the model) and ends with a
 =bash= block holding `fanshi/gptel-code-review-jj-diff-cmd'.
 
 - No prefix arg: the command is run in the workspace, its output appended to the prompt,
@@ -4401,6 +4435,7 @@ command can be edited before running the block and sending with ~C-c RET~."
           (setq-local fanshi/gptel-jj-auto-commit-enabled nil)
           (goto-char (point-min))
           (forward-char)
+          (fanshi/gptel--insert-preset "code-review")
           (fanshi/gptel--insert-preset "exp")
           (insert "Please code review this change")
           (fanshi/insert-jj-diff-code-block)
@@ -4800,7 +4835,7 @@ which are not gptel preset names. Redefine it with presets that exist.
     (aset agent-tool 4
           (mapcar (lambda (arg)
                     (if  (string= (plist-get arg :name) "subagent_type")
-                        (plist-put arg :enum ["research" "coding" "problem-solve"])
+                        (plist-put arg :enum ["research" "coding" "code-review" "problem-solve"])
                       arg
                       ))
                   (aref agent-tool 4)))
