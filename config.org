@@ -5656,8 +5656,8 @@ With a prefix arg, prompt for the number of days."
 (defun fanshi/org-gtd-delegate--finalize-a (f &rest args)
   (if (fanshi/delegated-to-ai-p)
       (let ((org-gtd-default-file-name "org-gtd-ai-tasks"))
-        (funcall f args)))
-  (funcall f args))
+        (apply f args))
+    (funcall f args)))
 (advice-add 'org-gtd-delegate--finalize :around #'fanshi/org-gtd-delegate--finalize-a)
 #+end_src
 ** fanshi/org-gtd-ai-delegate-project-scope
@@ -5877,10 +5877,10 @@ reported: the main workspace then contains conflict markers."
              (agent-line (string-trim
                           (fanshi/call-jj worktree-dir
                                           "log" "-r" "@" "--no-graph" "-T"
-                                          "commit_id() ++ \"\\t\" ++ description ++ \"\\n\""))))
-        (sep (string-match "\t" agent-line))
-        (commit-id (if sep (substring agent-line 0 sep) ""))
-        (agent-desc (if sep (substring agent-line (1+ sep)) "")))
+                                          "commit_id() ++ \"\\t\" ++ description ++ \"\\n\"")))
+             (sep (string-match "\t" agent-line))
+             (commit-id (if sep (substring agent-line 0 sep) ""))
+             (agent-desc (if sep (substring agent-line (1+ sep)) ""))))
       (unless (> (length commit-id) 0)
         (error "No working-copy commit found in workspace %s" worktree-dir))
       ;; All jj calls below pass MAIN-DIR to `fanshi/call-jj': this function is
@@ -6206,7 +6206,8 @@ alone now) or a stale workspace must not stop the cleanup."
 #+end_src
 *** fanshi/ai-delegate--review-task-diff
 #+begin_src emacs-lisp :tangle yes
-(defun fanshi/ai-delegate--review-task-diff (task-id)
+(after! gptel
+  (defun fanshi/ai-delegate--review-task-diff (task-id)
     "Review the changes made by an agent for TASK-ID.
 Opens a buffer showing the diff of the agent's working-copy commit."
     (interactive "sTask ID: ")
@@ -6230,7 +6231,7 @@ Opens a buffer showing the diff of the agent's working-copy commit."
                 (diff-mode))))
           (switch-to-buffer-other-window diff-buf)
           (message "Showing jj diff for task %s" task-id)
-          (format "Diff shown in buffer for task %s" task-id)))))
+          (format "Diff shown in buffer for task %s" task-id))))))
 #+end_src
 *** fanshi/ai-delegate--review-task-log
 #+begin_src emacs-lisp :tangle yes
@@ -6471,14 +6472,15 @@ TODO entry with proper org-id and properties. Returns a summary of created tasks
                   (when (assoc title headings)
                     (error "Subtask '%s' already exists in %s; breakdown is idempotent, do not retry"
                            title task-file)))
-                ;; Find or create parent heading (exact title match, with or without
-                ;; a TODO keyword)
-                (unless (assoc parent-heading headings)
-                  ;; Create parent heading at end of file.  It is a plain (non-TODO)
-                  ;; container so the nightly dispatcher doesn't try to delegate it.
+                (if-let ((pos (cdr (assoc parent-heading headings))))
+                    (goto-char pos)
                   (goto-char (point-max))
-                  (insert "\n\n* " parent-heading "\n"
-                          (format "  %s\n" task-description))
+                  ;; Insert as a real top-level headline (`* ', not `/ '): a
+                  ;; slash-prefixed line is not an Org heading, so the
+                  ;; `org-back-to-heading' below would signal "Before first
+                  ;; headline" on a file with no headings yet, and the line
+                  ;; would never be picked up by the `^\\*+ ' scan above.
+                  (insert "\n\n* " parent-heading "\n" (format "  %s\n" task-description))
                   (org-back-to-heading))
                 (setq child-level (1+ (save-excursion (org-back-to-heading) (org-outline-level))))
                 (org-end-of-subtree t t)
