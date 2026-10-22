@@ -2748,7 +2748,7 @@ leave this one in force.
 #+begin_src emacs-lisp :tangle yes
 (after! gptel
   (gptel-make-preset 'gptel-agent
-    :model '(:eval (fanshi/gptel-select-model 'mensaprodigy--Qwen3.8-Flash-Next-REAP-384-oQ5e-BF16-MTP-PLE))
+    :model '(:eval (fanshi/gptel-select-model 'umixer--Qwen3.8-Flash-Next-oQ4e-mix6-mtp))
     :description "Orchestrator - manages process flow, delegates to agents, does NOT code"
     :tools fanshi/scrum-tools
     :system (lambda ()
@@ -3314,7 +3314,7 @@ Nil when all pass, else the first failure's plist. Passing files are dropped fro
                                                       :preserve_thinking t)))))
 #+end_src
 *** Experimental
-#+begin_src emacs-lisp :tangle yes
+#+begin_src emacs-lisp :tangle no
 (after! gptel
   (gptel-make-preset 'exp
     :description "Preset for using the current experimental model"
@@ -3447,7 +3447,7 @@ Nil when all pass, else the first failure's plist. Passing files are dropped fro
    gptel-highlight-methods '(margin face)
    gptel-track-media t
    gptel-org-validate-link #'gptel-org--link-standalone-p
-   gptel-model 'mensaprodigy--Qwen3.8-Flash-Next-REAP-384-oQ5e-BF16-MTP-PLE
+   gptel-model 'umixer--Qwen3.8-Flash-Next-oQ4e-mix6-mtp
    gptel-max-tokens nil
    gptel-log-level 'info
    gptel--request-params '(:top_p 0.95 :top_k 20 :min_p 0.0 :presence_penalty 0.0 :repetition_penalty 1.0))
@@ -3883,7 +3883,7 @@ only queue, so it survives Emacs restarts for free.
 
 (defvar fanshi/main-models (list
                             'Jundot--Qwen3.8-Flash-Next-oQ4e-mtp
-                            'mensaprodigy--Qwen3.8-Flash-Next-REAP-384-oQ5e-BF16-MTP-PLE
+                            'umixer--Qwen3.8-Flash-Next-oQ4e-mix6-mtp
                             'mlx-community--Qwen3.8-27B-bf16
                             'mlx-community--gemma-4-31b-it-bf16)
   "Models that should not run concurrently.")
@@ -4473,7 +4473,7 @@ a preset marker when this Org source is exported or fed to an agent."
 #+end_src
 ** fanshi/gptel-code-review-jj-diff
 Start a gptel-agent session reviewing the current jj changes. The prompt carries the
-read-only ~'code-review~ preset' (plus ~@exp~ for the model) and ends with a
+read-only ~'code-review~ preset' and ends with a
 =bash= block holding `fanshi/gptel-code-review-jj-diff-cmd'.
 
 - No prefix arg: the command is run in the workspace, its output appended to the prompt,
@@ -4516,7 +4516,6 @@ command can be edited before running the block and sending with ~C-c RET~."
           (goto-char (point-min))
           (forward-char)
           (fanshi/gptel--insert-preset "code-review")
-          (fanshi/gptel--insert-preset "exp")
           (insert "Please code review this change")
           (fanshi/insert-jj-diff-code-block)
           (if no-run
