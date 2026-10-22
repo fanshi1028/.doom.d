@@ -4390,6 +4390,7 @@ otherwise a plain gptel-agent buffer in the current project."
     (if-let* ((jj-dir (fanshi/jj-workspace-root default-directory)))
         (if (string-blank-p task-description)
             (with-current-buffer (gptel-agent jj-dir 'gptel-agent)
+              (setq-local org-emphasis-alist nil)
               ;; `gptel-agent' applies the preset with a setter, which publishes
               ;; nothing into `fanshi/last-gptel-presets' (see the caveat under
               ;; "Project instructions from AGENTS.org"), and the project rules are
@@ -4417,6 +4418,7 @@ otherwise a plain gptel-agent buffer in the current project."
             (fanshi/call-jj jj-dir "workspace" "add" "--name" name dir)
             (let ((buf (gptel-agent dir 'gptel-agent)))
               (with-current-buffer buf
+                (setq-local org-emphasis-alist nil)
                 (goto-char (point-max))
                 (insert task-description)
                 (setq-local fanshi/last-gptel-presets '(gptel-agent))
