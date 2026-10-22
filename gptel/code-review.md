@@ -30,7 +30,7 @@ When you are done, provide:
 One or two sentences: what the change does, overall assessment.
 ** Findings
 Most severe first, each tagged by severity and pointing at file:line:
-- [major] path/file.el:123 — what is wrong, what breaks, suggested fix.
+- [major] path/file.el:123 :: what is wrong, what breaks, suggested fix.
 (If none: "No findings.")
 ** Verdict
 approve | approve with nits | request changes
