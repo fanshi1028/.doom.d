@@ -3571,7 +3571,7 @@ heuristic approach as `fanshi/gptel--not-done-auto-continue-or-notify'.
 #+begin_src emacs-lisp :tangle yes
 (defvar fanshi/gptel-report-patterns
   `((coding . ,(rx "Code Report" (+ anychar) "Summary" (+ anychar) "Changes Made"))
-    (code-review . ,(rx "Review Report" (+ anychar) "Summary" (+ anychar) "Verdict"))
+    (code-review . ,(rx "Review Report" (+ anychar) "Summary" (+ anychar) "Verdict" (+ whitespace) (| "approve" "approve with nits" "request changes")))
     (research . ,(rx "Executive Summary" (+ anychar) "Key Findings" (+ anychar) "Sources" (+ anychar) "Conclusion"))
     (problem-solve . ,(rx "Executive Summary" (+ anychar) "Key Findings" (+ anychar) "Sources" (+ anychar) "Conclusion")))
   "Alist of agent preset symbol to the regexp detecting a complete report.")
