@@ -3255,7 +3255,7 @@ Nil when all pass, else the first failure's plist. Passing files are dropped fro
 
   (gptel-make-preset 'web
     :description "Add web tools (WebFetch, WebSearch) to the current session"
-    :tools '(:append fanshi/web-tools))
+    :tools `(:append ,fanshi/web-tools))
 
   (gptel-make-preset 'create-file
     :description "Add create file tools (Write) to the current session"
