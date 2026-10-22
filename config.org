@@ -1615,16 +1615,13 @@ Opens the file if unvisited. Index comes from `consult-imenu--items-safe'."
 (defvar fanshi/research-tools '("read-tools" "web-read-tools"))
 (defvar fanshi/coding-tools '("read-tools" "Edit")
   "Base tools for the coding preset. Web tools are excluded on purpose;
-re-add with `@web'.")
+re-add with web preset.")
 (defvar fanshi/review-tools '("read-tools")
-  "Base tools for the code-review preset.
-The preset itself equips no write tools, so Edit/Write are absent unless another
-preset in the same prompt appends them (`@create-file', `@coding').")
+  "Base tools for the code-review preset.")
 (defvar fanshi/scrum-tools '("read-tools" "QueryBacklog" "BreakdownTask" "Delegate")
   "The Scrum Master's tools.")
 (defvar fanshi/web-tools '("WebFetch" "WebSearch")
-  "Web tools, listed explicitly instead of via the \"web-read-tools\" category,
-which also holds YouTube.")
+  "Web tools.")
 (after! gptel-agent
   (defun fanshi/update-tools-category (new-category toolnames-list)
     "Move TOOLNAMES-LIST from their current categories to NEW-CATEGORY."
@@ -2788,7 +2785,7 @@ leave this one in force.
 #+end_src
 *** Project instructions from AGENTS.org
 Per-project instruction snippets: a project's ~AGENTS.org~ has one top-level heading
-per preset name.  Plain agent sessions read the ~gptel-agent~ heading, ~@coding~
+per preset name.  Plain agent sessions read the ~gptel-agent~ heading, ~coding~
 sessions the ~coding~ heading.
 
 #+begin_src org :tangle no
@@ -2839,9 +2836,9 @@ with no list and enforces no rules. That is deliberate: the rule set is meant fo
 the sessions this config starts on purpose, not for every buffer that happens to
 load a preset.
 
-*The list is replaced, not merged.* When a prompt carries @preset markers,
+*The list is replaced, not merged.* When a prompt carries ''@preset' markers,
 `fanshi/gptel--transform-apply-preset-a' publishes them as the *whole* list, so the
-first ~@coding~ prompt in a plain agent session swaps ~(gptel-agent)~ for ~(coding)~
+first ~coding~ prompt in a plain agent session swaps ~(gptel-agent)~ for ~(coding)~
 — and from that prompt on, only the rules keyed to the presets in the new list are
 enforced. The published list is that of the most recent prompt *carrying* markers
 (`fanshi/gptel--transform-apply-preset-a' keeps the first non-empty result it finds
@@ -2857,7 +2854,7 @@ those presets.
 a setter — one chosen from the transient, or the ~[Agent]/[Plan]~ toggle in a
 gptel-agent buffer's header line — is not recorded, so it never returns to the list
 on a later markerless prompt. (The seed from ~fanshi/gptel-agent~ happens once, at
-session start, before any prompt.) A session that has gone ~@coding~ does not become
+session start, before any prompt.) A session that has gone ~coding~ does not become
 an orchestrator again by dropping the marker; only a new marker (or a new session)
 restores those rules.
 
@@ -2866,7 +2863,7 @@ no save/restore of its own.  A chat saved to a file and re-opened with
 `gptel-mode' does get its preset back — gptel stores it in the buffer properties and
 re-applies it on restore — but that path goes through `gptel--apply-preset', which
 publishes nothing, so the list stays nil and ~fanshi/gptel--enforce-project-rules~
-enforces nothing in the resumed session.  Nor does a later ~@coding~ prompt
+enforces nothing in the resumed session.  Nor does a later ~coding~ prompt
 necessarily help: gptel strips the marker from the prompt buffer, so a prompt
 already sent once has no marker left to re-publish.  A resumed session needs a
 *fresh* prompt carrying a marker before rules apply again.
@@ -3095,7 +3092,7 @@ with only:
   stays bounded by `fanshi/gptel-code-check-auto-fix-max-retries'
 - the fixing prompt looks like this (the diff only appears in jj repos):
   #+begin_src text :tangle no
-  @coding Command (org-babel tangled file "<project>/config.org") failed.
+  Command (org-babel tangled file "<project>/config.org") failed.
 
   In <project>/config.el:
   #+begin_example
@@ -3176,11 +3173,11 @@ same project, primed with the coding preset, the failure details, and — in a j
       (let ((buf (fanshi/gptel-agent "")))
         (with-current-buffer buf
           (setq-local fanshi/gptel--code-check-fix-count fanshi/gptel--code-check-fix-count)
-          ;; Apply the @coding preset, right after the prompt prefix.
+          ;; Apply the coding preset, right after the prompt prefix.
           (goto-char (point-min))
           (let ((prompt-prefix (alist-get gptel-default-mode gptel-prompt-prefix-alist)))
             (re-search-forward (rx (literal prompt-prefix))))
-          (insert "@coding ")
+          (fanshi/gptel--insert-preset "coding")
           (goto-char (point-max))
           (insert (format "%s\n" prompt))
           (when-let ((jj-diff (ignore-errors
@@ -4476,7 +4473,7 @@ a preset marker when this Org source is exported or fed to an agent."
 #+end_src
 ** fanshi/gptel-code-review-jj-diff
 Start a gptel-agent session reviewing the current jj changes. The prompt carries the
-read-only ~@code-review~ preset (plus ~@exp~ for the model) and ends with a
+read-only ~'code-review~ preset' (plus ~@exp~ for the model) and ends with a
 =bash= block holding `fanshi/gptel-code-review-jj-diff-cmd'.
 
 - No prefix arg: the command is run in the workspace, its output appended to the prompt,
