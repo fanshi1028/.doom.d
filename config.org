@@ -3570,7 +3570,9 @@ heuristic approach as `fanshi/gptel--not-done-auto-continue-or-notify'.
   `((coding . ,(rx "Code Report" (+ anychar) "Summary" (+ anychar) "Changes Made"))
     (code-review . ,(rx "Review Report" (+ anychar) "Summary" (+ anychar) "Verdict" (+ whitespace) (| "approve" "approve with nits" "request changes")))
     (research . ,(rx "Executive Summary" (+ anychar) "Key Findings" (+ anychar) "Sources" (+ anychar) "Conclusion"))
-    (problem-solve . ,(rx "Executive Summary" (+ anychar) "Key Findings" (+ anychar) "Sources" (+ anychar) "Conclusion")))
+    (problem-solve . ,(rx "Executive Summary" (+ anychar) "Key Findings" (+ anychar) "Sources" (+ anychar) "Conclusion"))
+    (gptel-agent . ,(rx (| (+ "Task Status" (+ anychar) "Needs Your Input")
+                            (+ "Summary" (+ anychar) "Findings" (+ anychar) "Conclusion"))))
   "Alist of agent preset symbol to the regexp detecting a complete report.")
 #+end_src
 ** Fix gptel--transform-apply-preset to handle the case where we resume from the middle of a agent response.
