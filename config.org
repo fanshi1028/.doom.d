@@ -1021,17 +1021,6 @@ https://github.com/karthink/gptel/issues/1226#issuecomment-3828162897
               (let ((response-start
                      (save-excursion (text-property-search-backward 'gptel 'response t) (point))))
                 (cond
-                 ((save-excursion (re-search-backward (rx ":" point) response-start t))
-                  (message "gptel: response ends with a colon, auto continue")
-                  (fanshi/auto-continue))
-                 ((save-excursion (re-search-backward (rx (| "[" "(" "{" ) point) response-start t))
-                  (message "gptel: response ends with an open parenthesis/bracket, auto continue")
-                  (fanshi/auto-continue))
-                 ((save-excursion (re-search-backward (rx "Let me " ) response-start t))
-                  (message
-                   "gptel: 'Let me ' detected without tool call to follow up, auto continue"
-                   (match-string 1))
-                  (fanshi/auto-continue))
                  ((let ((pattern (seq-some (lambda (p)
                                              (alist-get p fanshi/gptel-report-patterns
                                                         nil nil #'equal))
@@ -1054,6 +1043,17 @@ https://github.com/karthink/gptel/issues/1226#issuecomment-3828162897
                         (fanshi/notify))
                     (message "gptel: report detected, skip auto continue")
                     (fanshi/notify)))
+                 ((save-excursion (re-search-backward (rx ":" point) response-start t))
+                  (message "gptel: response ends with a colon, auto continue")
+                  (fanshi/auto-continue))
+                 ((save-excursion (re-search-backward (rx (| "[" "(" "{" ) point) response-start t))
+                  (message "gptel: response ends with an open parenthesis/bracket, auto continue")
+                  (fanshi/auto-continue))
+                 ((save-excursion (re-search-backward (rx "Let me " ) response-start t))
+                  (message
+                   "gptel: 'Let me ' detected without tool call to follow up, auto continue"
+                   (match-string 1))
+                  (fanshi/auto-continue))
                  ((save-excursion (re-search-backward (rx "#end_src" point) response-start t))
                   (message "gptel: end of src block detected, skip auto continue")
                   (fanshi/notify))
